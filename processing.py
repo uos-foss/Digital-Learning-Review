@@ -163,3 +163,45 @@ def get_checklist_summaries(spreadsheet_id):
         return summaries
     except:
         return {}
+
+def get_updated_ally_scores(spreadsheet_id):
+    """
+    Fetches the updated Ally overall scores from the external Ally spreadsheet
+    and returns a mapping dictionary of {clean_module_code: overall_score}.
+    """
+    from data_manager import get_spreadsheet_data
+    try:
+        ss, _ = get_spreadsheet_data(spreadsheet_id)
+        sheet = ss.worksheet("Sheet1")
+        data = sheet.get_all_values()
+        if len(data) <= 1:
+            return {}
+            
+        mapping = {}
+        for row in data[1:]:
+            if len(row) >= 8:
+                # Extract clean module code, e.g., 'GPL439' from 'GPL439.A.279588'
+                raw_code = str(row[1]).split('.')[0].strip().upper()
+                
+                # Parse total files (column index 4) and measured score (column index 7)
+                files = pd.to_numeric(row[4], errors='coerce')
+                if pd.isna(files) or files < 0:
+                    files = 0
+                    
+                measured_score = pd.to_numeric(row[7], errors='coerce')
+                
+                if raw_code and not pd.isna(measured_score):
+                    # Asymptotic Credibility Model (k=0.15, baseline=0.50)
+                    credibility = 1.0 - np.exp(-0.15 * files)
+                    weighted_score = credibility * measured_score + (1.0 - credibility) * 0.50
+                    mapping[raw_code] = {
+                        'measured': measured_score,
+                        'weighted': weighted_score,
+                        'files': int(files)
+                    }
+                    
+        return mapping
+    except Exception as e:
+        import logging
+        logging.error(f"❌ Error loading updated Ally data: {e}")
+        return {}

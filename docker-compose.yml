@@ -5,7 +5,7 @@ services:
     build: .
     container_name: vle_review_portal
     ports:
-      - "8501:8501"
+      - "8500:8501"
     env_file:
       - .env
     volumes:

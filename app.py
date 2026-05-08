@@ -12,7 +12,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -129,6 +129,30 @@ def load_audit_data():
     ss, _ = get_spreadsheet_data(main_id)
     df_aut = get_processed_audit_data(ss, "All Schools Aut")
     df_spr = get_processed_audit_data(ss, "All Schools SPR")
+    # Merge updated Ally scores if ALLY_SPREADSHEET_ID is configured in env
+    ally_id = os.getenv("ALLY_SPREADSHEET_ID")
+    if ally_id:
+        from processing import get_updated_ally_scores
+        logging.info("📥 Fetching updated Ally overall scores from Google Sheets (Cache Miss)...")
+        ally_map = get_updated_ally_scores(ally_id)
+        if ally_map:
+            # Map new Ally scores based on 'New module code' column (cleaned to match keys)
+            for df in [df_aut, df_spr]:
+                if not df.empty and 'New module code' in df.columns:
+                    # Clean and strip 'New module code' series to map safely
+                    clean_codes = df['New module code'].astype(str).str.strip().str.upper()
+                    
+                    df['Ally Measured'] = clean_codes.map(lambda c: ally_map.get(c, {}).get('measured') if isinstance(ally_map.get(c), dict) else None).fillna(df['Ally 25/26 All'])
+                    df['Ally Weighted'] = clean_codes.map(lambda c: ally_map.get(c, {}).get('weighted') if isinstance(ally_map.get(c), dict) else None).fillna(df['Ally Measured'])
+                    df['Total Files'] = clean_codes.map(lambda c: ally_map.get(c, {}).get('files') if isinstance(ally_map.get(c), dict) else 0).fillna(0)
+                    
+                    # Keep 'Ally 25/26 All' updated with Weighted so existing cards/charts keep working
+                    df['Ally 25/26 All'] = df['Ally Weighted']
+                    
+                    # Calculate the shift
+                    df['Ally Shift'] = df['Ally Weighted'] - df['Ally Measured']
+            logging.info(f"✅ Successfully integrated {len(ally_map)} updated Ally scores and calculated shift metrics.")
+
     logging.info("✅ Main audit data successfully loaded and processed.")
     return df_aut, df_spr
 

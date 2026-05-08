@@ -41,7 +41,32 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums):
             
             st.divider()
             st.subheader("Module Audit Status")
-            st.dataframe(school_df[['New module code', 'Module name', 'Mod. lead', 'Ally 25/26 All', 'Self-Audited?']], width='stretch')
+            display_df = school_df.copy()
+            cols = ['New module code', 'Module name', 'Mod. lead']
+            configs = {
+                "New module code": "Module Code",
+                "Module name": "Module Name",
+                "Mod. lead": "Lead"
+            }
+            if 'Total Files' in display_df.columns:
+                cols.append('Total Files')
+                configs['Total Files'] = st.column_config.NumberColumn("Files", format="%d")
+            if 'Ally Measured' in display_df.columns:
+                display_df['Measured'] = display_df['Ally Measured'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                cols.append('Measured')
+                configs['Measured'] = "Measured"
+            if 'Ally 25/26 All' in display_df.columns:
+                display_df['Weighted'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                cols.append('Weighted')
+                configs['Weighted'] = "Weighted"
+            if 'Ally Shift' in display_df.columns:
+                display_df['Shift (Δ)'] = display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
+                cols.append('Shift (Δ)')
+                configs['Shift (Δ)'] = "Shift (Δ)"
+            cols.append('Self-Audited?')
+            configs['Self-Audited?'] = "Audited?"
+            
+            st.dataframe(display_df[cols], column_config=configs, use_container_width=True)
             
             csv_school = school_df.to_csv(index=False).encode('utf-8')
             st.download_button(f"📥 Export {school} {semester} Data", csv_school, f"{school}_{semester}_audit.csv", "text/csv")

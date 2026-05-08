@@ -68,14 +68,22 @@ def view_developer_guide():
     
     The platform is built on **Streamlit** (Frontend logic), backed by **Google Sheets** (gspread database engine), and audited by local file logging.
     
-    ```mermaid
-    graph TD
-        A[Streamlit Client App] -->|Reads / Writes| B(gspread Connector)
-        B -->|API Fetch| C[Google Sheets Cloud Database]
-        A -->|Cookie Session| D(stx.CookieManager)
-        D -->|Persists| E[Local Browser Cookie]
-        A -->|Logs Events| F[(app.log file)]
-        G[auth.py / views] -->|Globally import logging| F
+    ```text
+    ┌────────────────────────────────────────────────────────┐
+    │              Streamlit Client App (app.py)             │
+    └───────┬────────────────────┬────────────────────┬──────┘
+            │                    │                    │
+            ▼ (Reads/Writes)     ▼ (Cookie Session)   ▼ (Logs Events)
+     ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+     │   gspread   │      │ stx.Cookie  │      │  Persistent │
+     │  Connector  │      │   Manager   │      │   app.log   │
+     └──────┬──────┘      └──────┬──────┘      └─────────────┘
+            │                    │
+            ▼ (API Fetch)        ▼ (Persists)
+     ┌─────────────┐      ┌─────────────┐
+     │Google Sheets│      │Browser Local│
+     │  Cloud DB   │      │   Cookie    │
+     └─────────────┘      └─────────────┘
     ```
     
     ### 📁 Modular File Structure
@@ -105,9 +113,10 @@ def view_developer_guide():
     
     The portal is fully containerized and configured for quick deployment using **Docker** and **Docker Compose**.
     
-    #### 1. Configuration Files
+    #### 1. Configuration Files & Port Mapping
     * **`Dockerfile`**: Builds a lightweight, secure production-grade Python image, caching dependencies during layers.
-    * **`docker-compose.yml`**: Manages environment injection (`.env`), container restart protocols, exposed ports (`8501`), and maps local logging volumes.
+    * **`docker-compose.yml`**: Manages environment injection (`.env`), container restart protocols, and maps local logging volumes.
+    * **Multi-Container Port Mapping**: To run alongside other Streamlit apps on the server without clashing, the compose file maps **host port `8500`** to container port `8501` (`"8500:8501"`). The app is fully accessible at **`http://127.0.0.1:8500`** on the server!
     
     #### 2. Deploying on Your Server
     To spin up the portal in the background on your production server:
@@ -126,7 +135,25 @@ def view_developer_guide():
     docker compose up -d --build
     ```
     
-    #### 3. Monitoring & Commands
+    #### 3. Updating to a New Release & Environment Variables
+    When you release a new version (like `v1.3.1`) and want to deploy it onto your active production server:
+    
+    ```bash
+    # 1. Pull down the latest code changes from GitHub
+    git pull origin main
+    
+    # 2. Rebuild the image and recreate the containers with zero downtime
+    docker compose up -d --build
+    ```
+    *(Docker Compose is extremely smart—it will rebuild only modified code layers and recreate your container seamlessly in a split second, keeping your volume-mounted `app.log` file completely intact!)*
+    
+    > [!IMPORTANT]
+    > **Applying `.env` Updates**: If you modify any variables (such as school passwords or spreadsheet IDs) directly inside your host `.env` file, **Docker will continue to use the old cached variables inside active container memory**. To apply your fresh `.env` modifications, you must recreate the container by running:
+    > ```bash
+    > docker compose up -d
+    > ```
+    
+    #### 4. Monitoring & Commands
     
     ```bash
     # View running containers
