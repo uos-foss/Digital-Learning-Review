@@ -12,7 +12,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview

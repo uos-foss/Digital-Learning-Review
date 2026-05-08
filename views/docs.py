@@ -90,13 +90,52 @@ def view_developer_guide():
     
     Log configuration is established globally in `app.py` and inherited across all modules:
     * **Level**: `INFO` (captures normal operations, logins, database syncs, and all warnings/errors).
-    * **File**: Written locally to `app.log`.
+    * **File**: Written locally to `app.log` (ignored by `.gitignore` in shared version control).
     * **Format**: `YYYY-MM-DD HH:MM:SS [LEVEL] Message`
     
-    ### 🧪 Running Locally
+    ### 📦 Version Control & Tagging (GitHub Desktop)
     
-    1. Clone this repository.
-    2. Create a secure `.env` file containing your `MAIN_SPREADSHEET_ID`, `CHECKLIST_SPREADSHEET_ID`, and Google Service Account JSON variables.
-    3. Install dependencies: `pip install -r REQUIREMENTS.txt`
-    4. Start the server: `streamlit run app.py`
+    We align application versions in code with Git history using **Semantic Versioning (SemVer)**:
+    1. **Update Code Version**: Increment the `__version__` string inside `app.py` and update the release notes in `views/docs.py`.
+    2. **Commit Changes**: Stage your changed files in **GitHub Desktop**, write a summary (e.g., `Release version 1.3.0`), and commit to the main branch.
+    3. **Create Tag**: In GitHub Desktop, go to **Repository** -> **Create Tag...** (or press `Ctrl+Shift+T`), type your version (e.g., `v1.3.0`), and hit **Create Tag**.
+    4. **Push origin**: Click **Push origin**. GitHub Desktop will automatically publish both your commits and version tags to GitHub in one go!
+    
+    ### 🐳 Server Deployment with Docker
+    
+    The portal is fully containerized and configured for quick deployment using **Docker** and **Docker Compose**.
+    
+    #### 1. Configuration Files
+    * **`Dockerfile`**: Builds a lightweight, secure production-grade Python image, caching dependencies during layers.
+    * **`docker-compose.yml`**: Manages environment injection (`.env`), container restart protocols, exposed ports (`8501`), and maps local logging volumes.
+    
+    #### 2. Deploying on Your Server
+    To spin up the portal in the background on your production server:
+    
+    ```bash
+    # 1. Clone the repository onto your server
+    git clone <your-repo-url> && cd Digital-Learning-Review
+    
+    # 2. Set up your production .env file
+    nano .env
+    
+    # 3. Create an empty log file to mount securely
+    touch app.log
+    
+    # 4. Build and start the container in detached (background) mode
+    docker compose up -d --build
+    ```
+    
+    #### 3. Monitoring & Commands
+    
+    ```bash
+    # View running containers
+    docker compose ps
+    
+    # Stream real-time container outputs (or inspect local app.log)
+    docker compose logs -f
+    
+    # Stop the application
+    docker compose down
+    ```
     """)
