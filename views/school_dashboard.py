@@ -1,0 +1,51 @@
+import streamlit as st
+import pandas as pd
+
+def view_school_dashboard(df_aut, df_spr, checklist_sums):
+    st.title("🏫 School Dashboard")
+    
+    schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
+    
+    # If saved_school is "All", let them select which school to view directly on the page
+    if st.session_state.saved_school == "All":
+        school = st.selectbox("Select School to View", schools, help="You have 'All Schools' active. Please select a specific school to view its dashboard.")
+    else:
+        school = st.session_state.saved_school
+        
+    semester = st.session_state.semester
+    st.header(f"{school} - {semester} Semester")
+    
+    target_df = df_aut if semester == "Autumn" else df_spr
+    
+    if not target_df.empty:
+        school_df = target_df[target_df['New module code'].str.startswith(school, na=False)].copy()
+        
+        if not school_df.empty:
+            # Integration: Add self-audit status
+            def get_audit_status(code):
+                if code in checklist_sums:
+                    return checklist_sums[code]['Status']
+                return "❌ No"
+            
+            school_df['Self-Audited?'] = school_df['New module code'].apply(get_audit_status)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Modules", len(school_df))
+            with col2:
+                avg_ally = school_df['Ally 25/26 All'].mean() if 'Ally 25/26 All' in school_df.columns else 0
+                st.metric("Avg Ally Score", f"{avg_ally:.1%}")
+            with col3:
+                audited_count = school_df['Self-Audited?'].apply(lambda x: x != "❌ No").sum()
+                st.metric("Self-Audit Participation", f"{(audited_count / len(school_df)):.1%}")
+            
+            st.divider()
+            st.subheader("Module Audit Status")
+            st.dataframe(school_df[['New module code', 'Module name', 'Mod. lead', 'Ally 25/26 All', 'Self-Audited?']], width='stretch')
+            
+            csv_school = school_df.to_csv(index=False).encode('utf-8')
+            st.download_button(f"📥 Export {school} {semester} Data", csv_school, f"{school}_{semester}_audit.csv", "text/csv")
+        else:
+            st.warning(f"No modules found for {school} in {semester}.")
+    else:
+        st.error(f"Data for {semester} is not available.")

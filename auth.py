@@ -2,6 +2,7 @@ import os
 import streamlit as st
 import extra_streamlit_components as stx
 from datetime import datetime, timedelta
+import logging
 
 # Create the cookie manager
 cookie_manager = stx.CookieManager(key="vle_auth_cookies")
@@ -47,6 +48,7 @@ def check_password():
             pass
         cookie_manager.set(COOKIE_NAME, "")
         st.session_state["logout_pending"] = False
+        logging.info("🚪 User logged out. Browser session and cookies securely cleared.")
 
     # Restore session from browser cookie on page reload
     if not st.session_state.logged_in:
@@ -59,6 +61,7 @@ def check_password():
                     st.session_state.saved_school = "All"
                 else:
                     st.session_state.saved_school = stored_user
+                logging.info(f"🔄 Persistent session restored successfully from cookie for user '{stored_user}'.")
                 st.rerun()
 
     if st.session_state.logged_in:
@@ -81,9 +84,11 @@ def check_password():
             # Persist in browser cookie
             expires_at = datetime.now() + timedelta(hours=COOKIE_TTL_HOURS)
             cookie_manager.set(COOKIE_NAME, entered_user, expires_at=expires_at)
+            logging.info(f"🔑 User '{entered_user}' authenticated successfully via login form.")
         else:
             st.session_state.logged_in = False
             st.error("😕 Invalid username or password. Please try again.")
+            logging.warning(f"⚠️ Failed login attempt for username '{entered_user}'.")
 
     # Show login form
     st.title("🔒 Digital Learning Review Portal")
