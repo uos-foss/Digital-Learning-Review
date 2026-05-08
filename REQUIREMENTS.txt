@@ -2,4 +2,6 @@ streamlit
 pandas
 gspread
 google-auth
-python-dotenv
+python-dotenv
+extra-streamlit-components
+

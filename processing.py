@@ -136,12 +136,28 @@ def get_checklist_summaries(spreadsheet_id):
         for row in data[1:]:
             if len(row) > 1:
                 m_code = row[1]
+                q1 = row[3] == "TRUE"
+                q2 = row[4] == "TRUE"
+                q3 = row[5] == "TRUE"
+                q4 = row[6] == "TRUE"
+                
+                q_states = [q1, q2, q3, q4]
+                true_count = sum(q_states)
+                
+                if true_count == len(q_states):
+                    status = "✅ Complete"
+                elif true_count > 0:
+                    status = "🟡 Partial"
+                else:
+                    status = "❌ Incomplete"
+
                 summaries[m_code] = {
                     'Timestamp': row[0],
-                    'Q1': row[3] == "TRUE",
-                    'Q2': row[4] == "TRUE",
-                    'Q3': row[5] == "TRUE",
-                    'Q4': row[6] == "TRUE",
+                    'Q1': q1,
+                    'Q2': q2,
+                    'Q3': q3,
+                    'Q4': q4,
+                    'Status': status,
                     'Comments': row[7] if len(row) > 7 else ""
                 }
         return summaries
