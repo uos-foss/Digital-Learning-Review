@@ -2,13 +2,31 @@ import os
 import streamlit as st
 import extra_streamlit_components as stx
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 import logging
 
-# Create the cookie manager
-cookie_manager = stx.CookieManager(key="vle_auth_cookies")
+# Explicitly load environment variables to ensure credentials are valid immediately on module load
+load_dotenv()
 
 def check_password():
     """Returns `True` if the user is authenticated (via session or persistent cookie)."""
+    
+    # Initialize critical Session State keys first so we can rely on them for routing
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "logout_pending" not in st.session_state:
+        st.session_state.logout_pending = False
+    if "logged_out_this_session" not in st.session_state:
+        st.session_state.logged_out_this_session = False
+        
+    # [CRITICAL FIX]: If securely logged in and not actively logging out, bypass the cookie component.
+    # This silences background async events completely during active usage, preventing UI resetting.
+    if st.session_state.logged_in and not st.session_state.logout_pending:
+        return True
+
+    # Create component ONLY when required for session state changes (Auth / Restore / Logout)
+    cookie_manager = stx.CookieManager(key="vle_auth_cookies")
+    
     COOKIE_NAME = "vle_auth_user"
     COOKIE_TTL_HOURS = 8
 
@@ -23,22 +41,15 @@ def check_password():
         "SPR": os.getenv("USER_SPR"),
         "FACULTY": os.getenv("USER_FACULTY")
     }
-    # Filter out empty keys to prevent empty password logins
     USER_CREDENTIALS = {k: v for k, v in USER_CREDENTIALS.items() if v}
 
-    # Session State Initialization
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
+    # Ensure helper state variables exist for components downstream
     if "saved_school" not in st.session_state:
         st.session_state.saved_school = "All"
     if "username" not in st.session_state:
         st.session_state.username = ""
     if "semester" not in st.session_state:
         st.session_state.semester = "Autumn"
-    if "logged_out_this_session" not in st.session_state:
-        st.session_state.logged_out_this_session = False
-    if "logout_pending" not in st.session_state:
-        st.session_state.logout_pending = False
 
     # Handle pending logout safely
     if st.session_state.get("logout_pending"):
@@ -53,6 +64,7 @@ def check_password():
     # Restore session from browser cookie on page reload
     if not st.session_state.logged_in:
         stored_user = cookie_manager.get(COOKIE_NAME)
+        
         if stored_user and stored_user in USER_CREDENTIALS:
             if not st.session_state.get("logged_out_this_session"):
                 st.session_state.logged_in = True
@@ -62,7 +74,6 @@ def check_password():
                 else:
                     st.session_state.saved_school = stored_user
                 logging.info(f"🔄 Persistent session restored successfully from cookie for user '{stored_user}'.")
-                st.rerun()
 
     if st.session_state.logged_in:
         return True

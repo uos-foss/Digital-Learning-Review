@@ -66,7 +66,37 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums):
             cols.append('Self-Audited?')
             configs['Self-Audited?'] = "Audited?"
             
-            st.dataframe(display_df[cols], column_config=configs, use_container_width=True)
+            clean_display_df = display_df[cols].reset_index(drop=True)
+            
+            selection = st.dataframe(
+                clean_display_df, 
+                column_config=configs, 
+                width="stretch",
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="school_dashboard_dataframe"
+            )
+            
+            # ACTION CENTER ROUTER
+            if selection.selection.rows:
+                row_idx = selection.selection.rows[0]
+                clicked_code = clean_display_df.iloc[row_idx]['New module code']
+                
+                st.divider()
+                st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
+                        st.session_state.selected_module_code = clicked_code
+                        st.session_state.view_selection = "📋 Module Report Card"
+                        st.rerun()
+                with c2:
+                    if st.button(f"✅ Open Lead Checklist", width="stretch", key="btn_school_cl"):
+                        st.session_state.selected_module_code = clicked_code
+                        st.session_state.view_selection = "✅ Module Lead Checklist"
+                        st.rerun()
+                st.divider()
             
             csv_school = school_df.to_csv(index=False).encode('utf-8')
             st.download_button(f"📥 Export {school} {semester} Data", csv_school, f"{school}_{semester}_audit.csv", "text/csv")

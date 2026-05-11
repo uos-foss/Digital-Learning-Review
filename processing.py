@@ -87,6 +87,34 @@ def get_module_mapping(df_aut, df_spr):
                     
     return mapping
 
+def is_compliant_val(val):
+    """Normalizes and determines compliance for a single audit entry."""
+    if pd.isna(val):
+        return 0
+    val_c = str(val).strip().lower()
+    
+    # Disqualifiers prioritize failure. If any of these are present, the item is non-compliant.
+    negatives = [
+        'missing', 'hidden', 'incomplete', 'empty', 'none', 
+        'not edited', 'wrong place', 'not visible', 'not part of template',
+        'no ' # matches 'no, yes' but safely leaves 'non-standard'
+    ]
+    
+    if any(x in val_c for x in negatives) or val_c == 'no':
+        return 0
+        
+    # Positive indicators - anything suggesting content or effort exists
+    positives = [
+        'yes', 'teaching', 'support', 'visible', 'present', 'complete', 
+        'video', 'image', 'text', 'details & learning outcomes', 
+        'manual', 'badging system'
+    ]
+    
+    if any(x in val_c for x in positives):
+        return 1
+        
+    return 0
+
 def calculate_compliance_gap(df):
     """
     Calculates the percentage of 'Yes' (or positive indicators) for audit categories.
@@ -99,7 +127,7 @@ def calculate_compliance_gap(df):
         'Skills development (SGAs) visible?',
         'Accessibility statement visible?',
         'School handbook visible?',
-        'Assessment overview - present and consistent with SITS?',
+        'Assessment overview - present and consistent with SITS',
         'Assessment support and guidance visible to students?',
         'University help and study support visible to students?'
     ]
@@ -107,9 +135,9 @@ def calculate_compliance_gap(df):
     gaps = {}
     for col in audit_cols:
         if col in df.columns:
-            # Count 'Yes' or 'Teaching only' as positive for some, but let's stick to 'Yes' for simplicity or a regex
-            # Let's count how many start with 'Yes'
-            positive_count = df[col].str.startswith('Yes', na=False).sum()
+            # Apply logic to coerce messy text data into numeric 1s and 0s
+            series_numeric = df[col].apply(is_compliant_val)
+            positive_count = series_numeric.sum()
             total_count = len(df)
             gaps[col] = (positive_count / total_count) if total_count > 0 else 0
             

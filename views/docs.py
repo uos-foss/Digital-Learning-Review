@@ -16,6 +16,12 @@ def view_help():
     4. **✅ Module Lead Checklist**: 
        * The interactive self-audit form where module leaders can submit reviews directly back to the persistent Google Sheets ledger.
     
+    ### ⚡ Interactive Launch Control & Deep-Linking
+    
+    The dashboard now features a **dynamic telemetry router** available on both the Faculty and School roster tables:
+    * **Interactive Selection**: Click **ANY row** in a data table (Priority, Drill-Down, or School list) to instantly activate Launch Control.
+    * **Jump Commands**: Instantly manifest high-speed teleportation buttons to view the specific **📊 Module Report Card** or the **✅ Lead Checklist** without manual menu diving.
+    
     ### 👤 Multi-Tenancy & School Ownership
     
     * **Saved School View**: Located in the sidebar under **User Session**. When you log in with your school-specific password, the portal optionally defaults to your team's specific school to exclude external clutter while maintaining open, non-siloed data access.
@@ -40,7 +46,13 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.3.0 (Current) - *Local Activity Logging & Layout Tuning*
+    ### 🚀 Version 1.4.0 (Current) - *Lazy-Loaded Controllers & Interactive Routing*
+    * **Segmented Control Router**: Replaced inert HTML tabs with native stateful segmented widgets, completely securing viewport focus and unlocking 100% reliable view-state retention across actions.
+    * **Instant Deep-Linking**: Upgraded primary analytics tables into interactive row-selectors. Clicking any row now materializes a direct action launch center to teleport instantly to Report Cards or Checklist views.
+    * **Lazy Loading Engine**: Optimized view execution logic so only active viewport logic operates, boosting computational efficiency by preventing invisible charts from loading on background screens.
+    * **Performance Threshold Lenses**: Completely refactored the Priority Action suite, injecting dynamic analytics lenses for compliance gap summaries and checklist rosters in a single, unified, non-shifting viewport.
+
+    ### 📂 Version 1.3.0 - *Local Activity Logging & Layout Tuning*
     * **Centralized File Logging**: Configured a persistent `app.log` file tracking successful logins, logouts, database syncs, and self-audit submissions.
     * **Stateless Page Routing**: Refactored the sidebar radio navigation widget to be stateless, resolving previous state-retention overrides when clicking support links.
     * **Sidebar Aesthetics**: Separated core operational tools from help/changelog resources using dedicated full-width action buttons.

@@ -12,7 +12,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.3.2"
+__version__ = "1.4.0"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -91,15 +91,15 @@ st.session_state.semester = selected_semester
 st.sidebar.divider()
 st.sidebar.subheader("📄 Documentation")
 
-if st.sidebar.button("💡 Help & Support", use_container_width=True):
+if st.sidebar.button("💡 Help & Support", width="stretch"):
     st.session_state.view_selection = "💡 Help & Support"
     st.rerun()
 
-if st.sidebar.button("📜 Release Changelog", use_container_width=True):
+if st.sidebar.button("📜 Release Changelog", width="stretch"):
     st.session_state.view_selection = "📜 Release Changelog"
     st.rerun()
 
-if st.sidebar.button("💻 Developer Guide", use_container_width=True):
+if st.sidebar.button("💻 Developer Guide", width="stretch"):
     st.session_state.view_selection = "💻 Developer Guide"
     st.rerun()
 
@@ -108,7 +108,7 @@ st.sidebar.caption(f"Portal Version: v{__version__}")
 
 st.sidebar.divider()
 
-if st.sidebar.button("Log Out", use_container_width=True):
+if st.sidebar.button("Log Out", width="stretch"):
     st.session_state.logged_in = False
     st.session_state.saved_school = "All"
     st.session_state.username = ""
