@@ -178,3 +178,25 @@ def view_developer_guide():
     docker compose down
     ```
     """)
+
+def view_contribute():
+    st.title("🤝 How to Contribute")
+    st.write("Learn how to collaborate, update, and extend the Digital Learning Review project.")
+    
+    import streamlit.components.v1 as components
+    import os
+    
+    html_path = os.path.join("assets", "contribute.html")
+    if os.path.exists(html_path):
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            
+            # Render full-width responsive container
+            # Height of 650px fits a standard 16:9 slide nicely
+            components.html(html_content, height=650, scrolling=True)
+        except Exception as e:
+            st.error(f"Failed to load the slide deck: {e}")
+    else:
+        st.warning("The HTML slide deck is currently missing. Please ensure `assets/contribute.html` exists in your repository.")
+

@@ -19,7 +19,7 @@ from views.faculty_overview import view_faculty_overview
 from views.school_dashboard import view_school_dashboard
 from views.module_report_card import view_module_report_card
 from views.module_lead_checklist import view_module_lead_checklist
-from views.docs import view_help, view_changelog, view_developer_guide
+from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
 
 # Page configuration
 st.set_page_config(
@@ -103,6 +103,10 @@ if st.sidebar.button("💻 Developer Guide", width="stretch"):
     st.session_state.view_selection = "💻 Developer Guide"
     st.rerun()
 
+if st.sidebar.button("🤝 How to Contribute", width="stretch"):
+    st.session_state.view_selection = "🤝 How to Contribute"
+    st.rerun()
+
 # Display portal version aligned with Git tag history
 st.sidebar.caption(f"Portal Version: v{__version__}")
 
@@ -153,6 +157,21 @@ def load_audit_data():
                     df['Ally Shift'] = df['Ally Weighted'] - df['Ally Measured']
             logging.info(f"✅ Successfully integrated {len(ally_map)} updated Ally scores and calculated shift metrics.")
 
+    # Merge Leganto no-list data if configured
+    leganto_id = os.getenv("LEGANTO_NOLIST_ID")
+    if leganto_id:
+        from processing import get_leganto_nolist_data
+        logging.info("📥 Fetching Leganto no-list data from Google Sheets (Cache Miss)...")
+        no_list_set = get_leganto_nolist_data(leganto_id)
+        if no_list_set:
+            for df in [df_aut, df_spr]:
+                if not df.empty and 'New module code' in df.columns:
+                    clean_codes = df['New module code'].astype(str).str.strip().str.upper()
+                    # If contained in the 'no_list_set', Leganto is 'Missing', else 'Has List' (assumed, or we can just use a boolean)
+                    # Looking at other columns, categorical or boolean works. Let's use "Leganto Status"
+                    df['Leganto Missing'] = clean_codes.isin(no_list_set)
+            logging.info(f"✅ Flagged {len(no_list_set)} modules that appear in the Leganto 'no list' dataset.")
+
     logging.info("✅ Main audit data successfully loaded and processed.")
     return df_aut, df_spr
 
@@ -186,3 +205,5 @@ elif view == "📜 Release Changelog":
     view_changelog()
 elif view == "💻 Developer Guide":
     view_developer_guide()
+elif view == "🤝 How to Contribute":
+    view_contribute()

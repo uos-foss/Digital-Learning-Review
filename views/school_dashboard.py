@@ -66,6 +66,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums):
             cols.append('Self-Audited?')
             configs['Self-Audited?'] = "Audited?"
             
+            if 'Leganto Missing' in display_df.columns:
+                display_df['Leganto'] = display_df['Leganto Missing'].apply(lambda x: "❌ No List" if x is True else "✅ OK")
+                cols.append('Leganto')
+                configs['Leganto'] = "Leganto Status"
+            
             clean_display_df = display_df[cols].reset_index(drop=True)
             
             selection = st.dataframe(

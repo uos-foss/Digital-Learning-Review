@@ -233,3 +233,42 @@ def get_updated_ally_scores(spreadsheet_id):
         import logging
         logging.error(f"❌ Error loading updated Ally data: {e}")
         return {}
+
+def get_leganto_nolist_data(spreadsheet_id):
+    """
+    Fetches the Leganto 'no list' course codes from the external spreadsheet
+    and returns a set of clean module codes.
+    """
+    from data_manager import get_spreadsheet_data
+    try:
+        ss, _ = get_spreadsheet_data(spreadsheet_id)
+        # Assuming first worksheet based on inspect script
+        sheet = ss.worksheets()[0] 
+        data = sheet.get_all_values()
+        if len(data) <= 1:
+            return set()
+            
+        # Header row is index 0. Looking for 'Course Code' (usually index 2)
+        headers = data[0]
+        col_idx = -1
+        for i, header in enumerate(headers):
+            if 'Course Code' in str(header):
+                col_idx = i
+                break
+        
+        if col_idx == -1:
+            # Fallback to expected index 2 if not found by name
+            col_idx = 2
+            
+        no_list_codes = set()
+        for row in data[1:]:
+            if len(row) > col_idx:
+                raw_code = str(row[col_idx]).split('.')[0].strip().upper()
+                if raw_code:
+                    no_list_codes.add(raw_code)
+                    
+        return no_list_codes
+    except Exception as e:
+        import logging
+        logging.error(f"❌ Error loading Leganto No-List data: {e}")
+        return set()

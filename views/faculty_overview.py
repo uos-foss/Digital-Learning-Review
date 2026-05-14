@@ -162,7 +162,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums):
         # Static selector anchors the UI interaction
         lens = st.radio(
             "Choose inspection criteria:",
-            ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Self-Audits"],
+            ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Self-Audits", "📚 Missing Reading Lists"],
             horizontal=True,
             label_visibility="collapsed",
             key="priority_lens_selector"
@@ -259,6 +259,28 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums):
                 else:
                     render_status = "All currently listed modules have completed their self-audits! 🌟"
                     render_status_type = "success"
+
+            elif lens == "📚 Missing Reading Lists":
+                if 'Leganto Missing' not in source_data.columns:
+                    render_status = "Leganto configuration data not integrated yet."
+                    render_status_type = "error"
+                else:
+                    missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
+                    
+                    if not missing_leganto_df.empty:
+                        render_status = f"🎯 Found {len(missing_leganto_df)} modules explicitly flagged as missing a Leganto list."
+                        render_status_type = "warning"
+                        
+                        missing_leganto_df['DisplayValue'] = "Missing"
+                        display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
+                        render_df = missing_leganto_df[display_cols].copy()
+                        render_configs = {
+                            "New module code": "Code", "Module name": "Module Name",
+                            "Mod. lead": "Lead", "DisplayValue": "Status"
+                        }
+                    else:
+                        render_status = "Zero modules are flagged as missing Leganto reading lists in the current view! 🎉"
+                        render_status_type = "success"
             
             # 1. Output singular status indicator 
             if render_status:

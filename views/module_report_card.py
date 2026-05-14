@@ -55,7 +55,20 @@ def view_module_report_card(df_aut, df_spr, checklist_sums):
                 st.write(f"**Comments:** {sum_entry['Comments']}")
                 st.caption(f"Last updated: {sum_entry['Timestamp']}")
         
+        # Integration: Add Leganto status warning
         aut_m, spr_m = df_aut[df_aut['New module code'] == selected_code], df_spr[df_spr['New module code'] == selected_code]
+        
+        # Check if missing in either semester record
+        leganto_missing = False
+        if not aut_m.empty and 'Leganto Missing' in aut_m.columns:
+            if aut_m.iloc[0]['Leganto Missing'] is True:
+                leganto_missing = True
+        if not spr_m.empty and 'Leganto Missing' in spr_m.columns:
+            if spr_m.iloc[0]['Leganto Missing'] is True:
+                leganto_missing = True
+                
+        if leganto_missing:
+            st.error("⚠️ **Action Required**: This module is currently flagged as **missing a reading list** in Leganto.")
         
         if not aut_m.empty or not spr_m.empty:
             col1, col2 = st.columns(2)

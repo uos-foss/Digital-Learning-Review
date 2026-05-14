@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Learning Review - Team Briefing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #111;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Urbanist', sans-serif;
+            overflow: hidden;
+        }
+
+        /* Slide Wrapper for Scaling */
+        .slides-wrapper {
+            width: 1280px;
+            height: 720px;
+            position: relative;
+            transform-origin: center center;
+            flex-shrink: 0;
+        }
+
+        /* Slide Visibility Logic */
+        .slide {
+            display: none;
+            background-color: #000;
+            border-radius: 12px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            flex-direction: column;
+            height: 100%;
+            padding: 60px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .slide.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Decorative Elements */
+        .slide::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(222, 255, 154, 0.05) 0%, transparent 70%);
+            z-index: 0;
+        }
+
+        .slide::before {
+            content: '';
+            position: absolute;
+            bottom: 40px;
+            left: 60px;
+            right: 60px;
+            height: 1px;
+            background: rgba(218, 255, 222, 0.2);
+            z-index: 0;
+        }
+
+        .slide>* {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Typography */
+        h1,
+        h2,
+        h3 {
+            color: #f5f5f5;
+            margin: 0;
+            font-weight: 500;
+        }
+
+        h1 span,
+        h2 span {
+            color: #deff9a;
+        }
+
+        p,
+        li,
+        .subtitle {
+            color: #daffde;
+            font-size: 22px;
+            line-height: 1.5;
+        }
+
+        .slide-title {
+            font-size: 52px;
+            margin-bottom: 30px;
+            border-left: 5px solid #deff9a;
+            padding-left: 20px;
+        }
+
+        /* Layouts */
+        .content-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            width: 100%;
+        }
+
+        .tile-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            width: 100%;
+            height: 100%;
+        }
+
+        .tile {
+            background: #1a1a1a;
+            border-radius: 20px;
+            padding: 30px;
+            border-top: 2px solid #deff9a;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tile h3 {
+            color: #deff9a;
+            font-size: 24px;
+            margin-bottom: 15px;
+        }
+
+        .tile i {
+            font-size: 32px;
+            color: #f5f5f5;
+            margin-bottom: 20px;
+        }
+
+        .image-placeholder {
+            background: #222;
+            border-radius: 16px;
+            border: 1px dashed #deff9a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #deff9a;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .dev-badge {
+            background: #deff9a;
+            color: #000;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+
+        /* Controls */
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            display: flex;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .btn {
+            background: #222;
+            border: 1px solid #deff9a;
+            color: #deff9a;
+            padding: 10px 25px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-family: 'Urbanist', sans-serif;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        .btn:hover {
+            background: #deff9a;
+            color: #000;
+        }
+
+        .slide-number {
+            color: #555;
+            font-size: 14px;
+            position: absolute;
+            top: 30px;
+            right: 60px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="slides-wrapper" id="slidesWrapper">
+        <!-- SLIDE 1: INTRO -->
+        <div class="slide active">
+            <div class="slide-number">1 / 8</div>
+            <div class="content-area" style="text-align: center;">
+                <h1 style="font-size: 72px;">Our Digital <span>Learning Dashboard</span></h1>
+                <p class="subtitle" style="font-size: 28px; margin-top: 30px;">
+                    A Collaborative Platform for Educational Excellence
+                </p>
+                <p style="margin-top: 50px; opacity: 0.6;">VLE Review Dashboard | Faculty Team Briefing</p>
+            </div>
+        </div>
+
+        <!-- SLIDE 2: THE VISION -->
+        <div class="slide">
+            <div class="slide-number">2 / 8</div>
+            <h2 class="slide-title">The <span>Unified</span> View</h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <p>We are moving from "wading through data" to "acting on insights."</p>
+                        <p>This dashboard pulls data from Google Sheets: Ally Reports, VLE Audits, Leganto, Illuminate,
+                            anything you want, into one interactive
+                            map.
+                        </p>
+                        <ul style="margin-top: 20px;">
+                            <li><strong>Live Updates:</strong> Edit your Google Sheets, and the dashboard reflects it
+                                instantly.</li>
+                            <li><strong>Clear Priorities:</strong> See exactly which modules need our expert help today.
+                            </li>
+                            <li><strong>Fully Autonomous:</strong> Zero manual file uploads. The engine syncs
+                                dynamically in the background.</li>
+                        </ul>
+                    </div>
+                    <div class="image-placeholder">
+                        <i class="fa-solid fa-diagram-project" style="font-size: 80px; margin-bottom: 20px;"></i>
+                        <p>Merging Scattered Reports<br>into One "Source of Truth"</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 3: THE ECOSYSTEM -->
+        <div class="slide">
+            <div class="slide-number">3 / 8</div>
+            <h2 class="slide-title">Our <span>Digital</span> Ecosystem</h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <p>Currently, our insights are scattered. It’s hard to see the 'Whole
+                            Story' of a module.</p>
+                        <p><strong>The Dashboard acts as a bridge:</strong></p>
+                        <ul style="margin-top: 20px;">
+                            <li><strong>Connects:</strong> Ally scores, Audit data, and Student feedback.</li>
+                            <li><strong>Translates:</strong> Raw numbers into "Priority Actions."</li>
+                            <li><strong>Unifies:</strong> One shared screen for all our schools.</li>
+                        </ul>
+                    </div>
+                    <div class="image-placeholder">
+                        <i class="fa-solid fa-layer-group" style="font-size: 80px; margin-bottom: 20px;"></i>
+                        <p>Aggregating data <br>into 1 Dashboard</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 4: TEAM IMPACT (ROLES) -->
+        <div class="slide">
+            <div class="slide-number">4 / 8</div>
+            <h2 class="slide-title">A Tool for <span>Our Team</span></h2>
+            <div class="content-area">
+                <div class="tile-layout">
+                    <div class="tile">
+                        <i class="fa-solid fa-gears"></i>
+                        <h3>DLAs</h3>
+                        <p>Stop doing "spreadsheet gymnastics." Get instant lists of modules that need support.
+                        </p>
+                    </div>
+                    <div class="tile">
+                        <i class="fa-solid fa-heart-pulse"></i>
+                        <h3>Student Experience</h3>
+                        <p>Monitor accessibility trends across the faculty.</p>
+                    </div>
+                    <div class="tile">
+                        <i class="fa-solid fa-briefcase"></i>
+                        <h3>School & Faculty</h3>
+                        <p>High-level views of compliance and progress.
+                        </p>
+                    </div>
+                    <div class="tile">
+                        <i class="fa-solid fa-briefcase"></i>
+                        <h3>Module Leads</h3>
+                        <p>Self-auditing and feedback to us.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 5: UNDER THE HOOD -->
+        <div class="slide">
+            <div class="slide-number">5 / 8</div>
+            <h2 class="slide-title">How the <span>Magic</span> Works</h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <div class="dev-badge">Behind the Scenes</div>
+                        <h3>The Power of Logic</h3>
+                        <p>We use Python to automate routine tasks—like checking hundreds of modules for key elements—so
+                            we can focus on what really matters.</p>
+                        <p>The code simply acts as an extension of the <strong>expert guidelines we set</strong> as
+                            learning specialists.</p>
+                    </div>
+                    <div style="background: #1a1a1a; padding: 30px; border-radius: 20px; border: 1px solid #deff9a;">
+                        <code style="color: #deff9a; font-family: monospace; font-size: 18px;">
+                            <span style="color: #a3a8b4; opacity: 0.7;"># 💡 Step 1: Define our real-world rule</span><br>
+                            <strong>if</strong> module_review == "Needs Support":<br><br>
+                            <span style="color: #a3a8b4; opacity: 0.7;">&nbsp;&nbsp;# Step 2: Automatically take action!</span><br>
+                            &nbsp;&nbsp;alert_the_team() &nbsp;&nbsp;<span style="color: #a3a8b4; opacity: 0.7;"># (Put on priority list)</span><br>
+                            &nbsp;&nbsp;update_dashboard() <span style="color: #a3a8b4; opacity: 0.7;"># (Refresh our charts)</span>
+                        </code>
+                        <p style="font-size: 16px; margin-top: 25px; opacity: 0.7;">This code reads like a sentence
+                            because it directly mirrors our team workflow.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 6: RECRUITMENT -->
+        <div class="slide">
+            <div class="slide-number">6 / 8</div>
+            <h2 class="slide-title">Pique <span>Your</span> Curiosity</h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div class="image-placeholder" style="background: linear-gradient(45deg, #111, #222);">
+                        <i class="fa-solid fa-code-pull-request" style="font-size: 80px;"></i>
+                    </div>
+                    <div>
+                        <h3>Open the Hood</h3>
+                        <p>If you've ever wanted to build your own digital tools, I'd love to have you join the "Dev
+                            Side"
+                            of this project.</p>
+                        <ul style="margin-top: 20px;">
+                            <li><strong>Logic Design:</strong> Define what "good" looks like, and we'll translate it
+                                into rules together.</li>
+                            <li><strong>User Testing & UX:</strong> Tell us how the tools feel to use, or suggest better
+                                visual layouts.</li>
+                            <li><strong>Feature Wishlist:</strong> Propose features in plain English—contribution does
+                                NOT require coding!</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 7: SUSTAINABILITY -->
+        <div class="slide">
+            <div class="slide-number">7 / 8</div>
+            <h2 class="slide-title">Future <span>Sustainability</span></h2>
+            <div class="content-area">
+                <div class="tile-layout">
+                    <div class="tile">
+                        <i class="fa-solid fa-file-shield"
+                            style="font-size: 24px; color: #deff9a; margin-bottom: 10px;"></i>
+                        <h3>Zero-Code Data Ownership</h3>
+                        <p>We own the data. Anyone on the team can update module audits or record responses directly via
+                            familiar, everyday Google Sheets.</p>
+                    </div>
+                    <div class="tile">
+                        <i class="fa-solid fa-book-bookmark"
+                            style="font-size: 24px; color: #deff9a; margin-bottom: 10px;"></i>
+                        <h3>Developer Handover</h3>
+                        <p>No Single Point of Failure. Secure Docker hosting, central GitHub repos, and complete
+                            built-in Developer Guides ensure continuity.</p>
+                    </div>
+                    <div class="tile">
+                        <i class="fa-solid fa-users-gear"
+                            style="font-size: 24px; color: #deff9a; margin-bottom: 10px;"></i>
+                        <h3>Democratic Roadmap</h3>
+                        <p>We maintain a shared 'Wishlist' where the team proposes and votes on
+                            new metrics.</p>
+                    </div>
+                    <div class="tile">
+                        <i class="fa-solid fa-rocket" style="font-size: 24px; color: #deff9a; margin-bottom: 10px;"></i>
+                        <h3>Designed to Grow</h3>
+                        <p>Ready for what's next. The dashboard is built so we can easily plug in new data sources
+                            later, like AI in the curriculum audits and inclusion metrics.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 8: CLOSING -->
+        <div class="slide">
+            <div class="slide-number">8 / 8</div>
+            <div class="content-area" style="text-align: center;">
+                <h1 style="font-size: 64px; margin-bottom: 20px;">Let’s <span>Build</span> This Together</h1>
+                <p class="subtitle" style="font-size: 28px; margin-bottom: 40px;">
+                    Questions? Ideas? Let's talk.
+                </p>
+
+                <div
+                    style="max-width: 850px; margin: 0 auto; text-align: left; background: rgba(255, 255, 255, 0.05); padding: 35px 45px; border-radius: 16px; border-left: 4px solid #deff9a;">
+                    <h4 style="color: #deff9a; font-size: 24px; margin-top: 0; margin-bottom: 20px;"><i
+                            class="fa-solid fa-comments"></i> Discussion Prompts for the Team:</h4>
+                    <ul style="font-size: 20px; color: #daffde; line-height: 1.7; margin: 0; padding-left: 25px;">
+                        <li><strong>Advisory Group:</strong> Who wants to join a lightweight review group to meet
+                            regularly?</li>
+                        <li><strong>The Priority Gap:</strong> What single metric or visualization is absolutely missing
+                            today?</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div> <!-- End of slides-wrapper -->
+
+    <!-- Controls -->
+    <div class="controls">
+        <button class="btn" id="prevBtn"><i class="fa-solid fa-arrow-left"></i> Previous</button>
+        <button class="btn" id="fullscreenBtn"><i class="fa-solid fa-expand"></i> Fullscreen</button>
+        <button class="btn" id="nextBtn">Next <i class="fa-solid fa-arrow-right"></i></button>
+    </div>
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const wrapper = document.getElementById('slidesWrapper');
+        let currentSlide = 0;
+
+        function showSlide(index) {
+            slides.forEach((slide, i) => {
+                slide.classList.toggle('active', i === index);
+            });
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            currentSlide = (currentSlide + 1) % slides.length;
+            showSlide(currentSlide);
+        });
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            currentSlide = (currentSlide - 1 + slides.length) % slides.length;
+            showSlide(currentSlide);
+        });
+
+        // Keyboard Navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') document.getElementById('nextBtn').click();
+            if (e.key === 'ArrowLeft') document.getElementById('prevBtn').click();
+        });
+
+        // Fullscreen Feature
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement) {
+                fullscreenBtn.innerHTML = '<i class="fa-solid fa-compress"></i> Exit Fullscreen';
+            } else {
+                fullscreenBtn.innerHTML = '<i class="fa-solid fa-expand"></i> Fullscreen';
+            }
+            setTimeout(scaleSlides, 50);
+        });
+
+        // Dynamic Scaling Feature to fit inside any viewport
+        function scaleSlides() {
+            const baseWidth = 1280;
+            const baseHeight = 720;
+            const hPadding = 40;
+            const vPadding = 120; // Allow room for bottom controls
+
+            const winWidth = window.innerWidth - hPadding;
+            const winHeight = window.innerHeight - vPadding;
+
+            const scale = Math.min(winWidth / baseWidth, winHeight / baseHeight);
+
+            // Scale but allow a reasonable upper limit for high-res displays
+            wrapper.style.transform = `scale(${scale})`;
+        }
+
+        window.addEventListener('resize', scaleSlides);
+        window.addEventListener('load', scaleSlides);
+        scaleSlides(); // Run once at launch
+    </script>
+</body>
+
+</html>
