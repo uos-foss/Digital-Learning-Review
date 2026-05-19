@@ -10,7 +10,7 @@ from data_manager import (
     get_all_checklist_entries
 )
 
-def view_module_lead_checklist(df_aut, df_spr, load_checklist_data_cache):
+def view_module_lead_checklist(df_aut, df_spr, load_checklist_data_cache, df_assess=None):
     st.title("✅ Module Lead Checklist")
     st.write("Use this form to self-audit your module and submit findings.")
     
@@ -79,6 +79,46 @@ def view_module_lead_checklist(df_aut, df_spr, load_checklist_data_cache):
     latest_entry = None
     if selected_code:
         latest_entry = get_latest_checklist_entry(checklist_id, "Sheet1", selected_code)
+
+    # Integration: SITS Assessment Strategy for reference
+    if selected_code and df_assess is not None and not df_assess.empty and 'CIS unit code' in df_assess.columns:
+        module_assess = df_assess[df_assess['CIS unit code'] == selected_code]
+        if not module_assess.empty:
+            with st.expander("📝 Reference SITS Assessment Strategy", expanded=True):
+                st.caption("Verify this official assessment profile matches the assessment overview displayed on your module's VLE site:")
+                cols = st.columns(min(len(module_assess), 3))
+                for idx, (_, row) in enumerate(module_assess.iterrows()):
+                    col = cols[idx % len(cols)]
+                    with col:
+                        title = row.get('Assessment title', 'Assessment')
+                        weight = row.get('Assessment weighting', 'N/A')
+                        atype = row.get('Assessment type', 'Other')
+                        wcount = row.get('Word Count', '')
+                        duration = row.get('Exam duration (per hour)', '')
+                        is_final = row.get('Final assessment flag', '')
+                        reassess = row.get('Reassessment', '')
+                        q_mark = row.get('Qualifying mark', '')
+                        
+                        w_str = f"{weight}%" if str(weight).strip().isdigit() else f"{weight}"
+                        
+                        with st.container(border=True):
+                            st.markdown(f"##### **{title}**")
+                            st.markdown(f"**Weighting:** `{w_str}` | **Type:** {atype}")
+                            
+                            details = []
+                            if wcount and str(wcount).strip():
+                                details.append(f"📝 {wcount} words")
+                            if duration and str(duration).strip():
+                                details.append(f"⏱️ {duration} hours")
+                            if is_final and str(is_final).strip().lower() == 'yes':
+                                details.append("🏁 Final Component")
+                            if reassess and str(reassess).strip():
+                                details.append(f"🔄 Reassessment: {reassess}")
+                            if q_mark and str(q_mark).strip():
+                                details.append(f"⚠️ Qual. Mark: {q_mark}")
+                                
+                            if details:
+                                st.markdown("  \n".join(details))
 
     with st.form("checklist_form"):
         if latest_entry:

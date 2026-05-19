@@ -1,7 +1,7 @@
 import streamlit as st
 from processing import get_module_mapping
 
-def view_module_report_card(df_aut, df_spr, checklist_sums):
+def view_module_report_card(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("📋 Module Report Card")
     
     module_mapping = get_module_mapping(df_aut, df_spr)
@@ -86,6 +86,48 @@ def view_module_report_card(df_aut, df_spr, checklist_sums):
                 c4.write("**Assessment:** ❌")
                 st.write("**Comments:** No self-audit submitted yet.")
                 st.caption("Last updated: Never")
+        
+        # Integration: SITS Assessment Strategy
+        if df_assess is not None and not df_assess.empty and 'CIS unit code' in df_assess.columns:
+            module_assess = df_assess[df_assess['CIS unit code'] == selected_code]
+            if not module_assess.empty:
+                with st.expander("📝 SITS Assessment Strategy", expanded=True):
+                    cols = st.columns(min(len(module_assess), 3))
+                    for idx, (_, row) in enumerate(module_assess.iterrows()):
+                        col = cols[idx % len(cols)]
+                        with col:
+                            title = row.get('Assessment title', 'Assessment')
+                            weight = row.get('Assessment weighting', 'N/A')
+                            atype = row.get('Assessment type', 'Other')
+                            wcount = row.get('Word Count', '')
+                            duration = row.get('Exam duration (per hour)', '')
+                            is_final = row.get('Final assessment flag', '')
+                            reassess = row.get('Reassessment', '')
+                            q_mark = row.get('Qualifying mark', '')
+                            
+                            w_str = f"{weight}%" if str(weight).strip().isdigit() else f"{weight}"
+                            
+                            with st.container(border=True):
+                                st.markdown(f"#### **{title}**")
+                                st.markdown(f"**Weighting:** `{w_str}` | **Type:** {atype}")
+                                
+                                details = []
+                                if wcount and str(wcount).strip():
+                                    details.append(f"📝 {wcount} words")
+                                if duration and str(duration).strip():
+                                    details.append(f"⏱️ {duration} hours")
+                                if is_final and str(is_final).strip().lower() == 'yes':
+                                    details.append("🏁 Final Component")
+                                if reassess and str(reassess).strip():
+                                    details.append(f"🔄 Reassessment: {reassess}")
+                                if q_mark and str(q_mark).strip():
+                                    details.append(f"⚠️ Qual. Mark: {q_mark}")
+                                    
+                                if details:
+                                    st.markdown("  \n".join(details))
+            else:
+                with st.expander("📝 SITS Assessment Strategy", expanded=False):
+                    st.info("No SITS assessment strategy records found for this module.")
         
         # Integration: Add Leganto status warning
         aut_m, spr_m = df_aut[df_aut['New module code'] == selected_code], df_spr[df_spr['New module code'] == selected_code]

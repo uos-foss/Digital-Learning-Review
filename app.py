@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -52,14 +52,23 @@ selected_radio = st.sidebar.radio(
     index=core_pages.index(current_core_page) if current_core_page else None
 )
 
+# Initialize session state variables
+if "semester" not in st.session_state:
+    st.session_state.semester = "Autumn"
+if "select_semester_widget" not in st.session_state:
+    st.session_state.select_semester_widget = st.session_state.semester
+
+def update_semester():
+    st.session_state.semester = st.session_state.select_semester_widget
+
 # Relocate the Select Semester radio group directly beneath the main "Go to" navigation radio group.
-selected_semester = st.sidebar.radio(
+st.sidebar.radio(
     "Select Semester", 
     ["Autumn", "Spring"], 
-    index=0 if st.session_state.semester == "Autumn" else 1,
+    key="select_semester_widget",
+    on_change=update_semester,
     help="Active semester filter for school and module-level data."
 )
-st.session_state.semester = selected_semester
 
 # Update view selection if radio button is changed by user
 if selected_radio and selected_radio != current_core_page:
@@ -159,10 +168,23 @@ def load_checklist_data():
     logging.info("✅ Self-audit checklist summaries successfully loaded.")
     return get_checklist_summaries(checklist_id)
 
+@st.cache_data(ttl=3600)
+def load_assessment_data():
+    logging.info("📥 Fetching SITS assessment data from Google Sheets (Cache Miss)...")
+    assessment_id = os.getenv("ASSESSMENT_SPREADSHEET_ID")
+    if not assessment_id:
+        logging.warning("⚠️ ASSESSMENT_SPREADSHEET_ID not configured in env.")
+        return pd.DataFrame()
+    from processing import get_assessment_data
+    df_assess = get_assessment_data(assessment_id)
+    logging.info(f"✅ SITS assessment data successfully loaded ({len(df_assess)} rows).")
+    return df_assess
+
 # Load the data
 with st.spinner("Fetching data from Google Sheets..."):
     df_aut, df_spr = load_audit_data()
     checklist_sums = load_checklist_data()
+    df_assess = load_assessment_data()
 
 # Page Routing
 view = st.session_state.view_selection
@@ -173,13 +195,13 @@ if view in ["💻 Developer Guide", "🤝 How to Contribute"] and st.session_sta
     view = "🏛️ Faculty Overview"
 
 if view == "🏛️ Faculty Overview":
-    view_faculty_overview(df_aut, df_spr, checklist_sums)
+    view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess)
 elif view == "🏫 School Dashboard":
-    view_school_dashboard(df_aut, df_spr, checklist_sums)
+    view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess)
 elif view == "📋 Module Report Card":
-    view_module_report_card(df_aut, df_spr, checklist_sums)
+    view_module_report_card(df_aut, df_spr, checklist_sums, df_assess)
 elif view == "✅ Module Lead Checklist":
-    view_module_lead_checklist(df_aut, df_spr, load_checklist_data)
+    view_module_lead_checklist(df_aut, df_spr, load_checklist_data, df_assess)
 elif view == "💬 App Feedback":
     view_feedback()
 elif view == "💡 Help & Support":

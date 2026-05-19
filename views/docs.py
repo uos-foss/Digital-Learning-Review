@@ -8,13 +8,18 @@ def view_help():
     ### 📂 Navigation & Core Modules
     
     1. **🏛️ Faculty Overview**: 
-       * A high-level birds-eye view of all modules across the faculty. Includes average Ally accessibility scores and total completed self-audits.
+       * A high-level birds-eye view of all modules across the faculty. Includes average Ally accessibility scores, total completed self-audits, and overall SITS assessment distributions (with cross-school comparison).
     2. **🏫 School Dashboard**: 
-       * School-specific analytics (e.g. ALA, ECN, EDC) automatically pre-filtered based on your active school view preference.
+       * School-specific analytics pre-filtered based on your active school view preference. Now features the exact same segmented control analysis tabs as the Faculty Overview (All Modules, Ally Analytics, Compliance Gap, Priority Action List, and Assessment Types).
     3. **📋 Module Report Card**: 
        * A detail-rich, unified card search that presents full audit metrics for a single module side-by-side (Autumn vs. Spring).
     4. **✅ Module Lead Checklist**: 
        * The interactive self-audit form where module leaders can submit reviews directly back to the persistent Google Sheets ledger.
+    
+    ### 📝 SITS Assessment Analysis & School Comparison
+    
+    * **Overall & School Comparison**: On the Faculty Overview's **Assessment Types** tab, you can view the overall donut chart of SITS assessment types or switch to **Compare Schools** to compare strategies across all schools.
+    * **Chart Toggles**: You can view the school comparison using **Absolute Counts** or **Normalized Percentages** to directly compare strategy proportions. A complete cross-tab pivot matrix is also available under the expandable data table.
     
     ### ⚡ Interactive Launch Control & Deep-Linking
     
@@ -46,7 +51,13 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.5.0 (Current) - *Feedback Integration & Multi-School UX*
+    ### 🚀 Version 1.6.0 (Current) - *SITS Assessment Insights & Tab Alignment*
+    * **SITS Assessment Integration**: Added full overall donut chart distribution in Faculty Overview and active strategy metrics inside School Dashboard.
+    * **Compare Schools Sub-view**: Added a dedicated stacked bar chart in Faculty Overview's "Assessment Types" to compare assessment components across schools. Supports both **Absolute Counts** and **Normalized Percentages** chart types, alongside a cross-tab pivot data table.
+    * **Aligned School Dashboard Tabs**: Restructured the School Dashboard layout to use the exact same navigation tabs as the Faculty Overview (All Modules, Ally Analytics, Compliance Gap, Priority Action List, and Assessment Types).
+    * **Semester Toggle Robustness**: Resolved the double-press/double-click bug on the Select Semester radio button by binding it to a session state key and executing immediate `on_change` state callback updates.
+
+    ### 📂 Version 1.5.0 - *Feedback Integration & Multi-School UX*
     * **Integrated User Feedback Form**: Added a dedicated, sidebar-accessible feedback form page (`views/feedback.py`) that writes submissions directly to a Google Sheets ledger.
     * **Multi-School Focus Toggles**: Restructured the School Dashboard, Module Report Card, and Lead Checklist viewports. Users with school-specific accounts can now temporarily uncheck focus to search modules or view dashboards for other schools.
     * **Enhanced Admin & DLA Access**: Upgraded login session handling so ADMIN and DLA accounts default to "All Schools" viewing while retaining toggle controls to inspect individual schools.
