@@ -39,7 +39,9 @@ def check_password():
         "IJC": os.getenv("USER_IJC"),
         "MGT": os.getenv("USER_MGT"),
         "SPR": os.getenv("USER_SPR"),
-        "FACULTY": os.getenv("USER_FACULTY")
+        "FACULTY": os.getenv("USER_FACULTY"),
+        "DLA": os.getenv("USER_DLA"),
+        "ADMIN": os.getenv("USER_ADMIN"),
     }
     USER_CREDENTIALS = {k: v for k, v in USER_CREDENTIALS.items() if v}
 
@@ -69,7 +71,7 @@ def check_password():
             if not st.session_state.get("logged_out_this_session"):
                 st.session_state.logged_in = True
                 st.session_state.username = stored_user
-                if stored_user == "FACULTY":
+                if stored_user == "FACULTY" or stored_user == "DLA" or stored_user == "ADMIN":
                     st.session_state.saved_school = "All"
                 else:
                     st.session_state.saved_school = stored_user
@@ -86,7 +88,7 @@ def check_password():
         if entered_user in USER_CREDENTIALS and USER_CREDENTIALS[entered_user] == entered_pass:
             st.session_state.logged_in = True
             st.session_state.username = entered_user
-            if entered_user == "FACULTY":
+            if entered_user in ["FACULTY", "DLA", "ADMIN"]:
                 st.session_state.saved_school = "All"
             else:
                 st.session_state.saved_school = entered_user

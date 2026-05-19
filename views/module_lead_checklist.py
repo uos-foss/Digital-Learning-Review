@@ -17,11 +17,34 @@ def view_module_lead_checklist(df_aut, df_spr, load_checklist_data_cache):
     module_mapping = get_module_mapping(df_aut, df_spr)
     combined_options = sorted([f"{code} - {name}" for code, name in module_mapping.items()])
     
+    schools_list = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
+    
     # Optional multi-tenant school filter to focus without siloing
     if st.session_state.saved_school != "All":
         filter_by_school = st.checkbox(f"Focus on my school ({st.session_state.saved_school})", value=True, key="cl_focus_school")
         if filter_by_school:
             combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
+        else:
+            selected_school = st.selectbox(
+                "Select School to Focus", 
+                ["All Schools"] + schools_list,
+                index=0,
+                key="cl_school_select",
+                help="Switch to another school's module list."
+            )
+            if selected_school != "All Schools":
+                combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
+    else:
+        # Fallback for "All Schools" users (e.g. FACULTY) to filter module list by school
+        selected_school = st.selectbox(
+            "Filter by School", 
+            ["All Schools"] + schools_list,
+            index=0,
+            key="cl_school_select_all",
+            help="Filter the module selection list by a specific school."
+        )
+        if selected_school != "All Schools":
+            combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
             
     if 'selected_module_code' not in st.session_state:
         st.session_state.selected_module_code = ""
