@@ -54,6 +54,15 @@ def view_module_report_card(df_aut, df_spr, checklist_sums):
                 c4.write(f"**Assessment:** {'✅' if sum_entry['Q4'] else '❌'}")
                 st.write(f"**Comments:** {sum_entry['Comments']}")
                 st.caption(f"Last updated: {sum_entry['Timestamp']}")
+        else:
+            with st.expander("Latest Self-Audit Status: ❌ Incomplete", expanded=True):
+                c1, c2, c3, c4 = st.columns(4)
+                c1.write("**Welcome:** ❌")
+                c2.write("**Staff:** ❌")
+                c3.write("**Outline:** ❌")
+                c4.write("**Assessment:** ❌")
+                st.write("**Comments:** No self-audit submitted yet.")
+                st.caption("Last updated: Never")
         
         # Integration: Add Leganto status warning
         aut_m, spr_m = df_aut[df_aut['New module code'] == selected_code], df_spr[df_spr['New module code'] == selected_code]
