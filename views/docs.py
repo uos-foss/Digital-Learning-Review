@@ -46,7 +46,14 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.4.0 (Current) - *Lazy-Loaded Controllers & Interactive Routing*
+    ### 🚀 Version 1.5.0 (Current) - *Feedback Integration & Multi-School UX*
+    * **Integrated User Feedback Form**: Added a dedicated, sidebar-accessible feedback form page (`views/feedback.py`) that writes submissions directly to a Google Sheets ledger.
+    * **Multi-School Focus Toggles**: Restructured the School Dashboard, Module Report Card, and Lead Checklist viewports. Users with school-specific accounts can now temporarily uncheck focus to search modules or view dashboards for other schools.
+    * **Enhanced Admin & DLA Access**: Upgraded login session handling so ADMIN and DLA accounts default to "All Schools" viewing while retaining toggle controls to inspect individual schools.
+    * **Visual Audit Placeholders**: Fixed the Module Report Card to show a clear "❌ Incomplete" self-audit card indicating missing checklists for un-audited modules rather than displaying empty slots.
+    * **Collaboration Resources**: Integrated an updated slide deck presentation in the "How to Contribute" view utilizing `assets/contribute.html` for better developer onboarding.
+
+    ### 📂 Version 1.4.0 - *Lazy-Loaded Controllers & Interactive Routing*
     * **Segmented Control Router**: Replaced inert HTML tabs with native stateful segmented widgets, completely securing viewport focus and unlocking 100% reliable view-state retention across actions.
     * **Instant Deep-Linking**: Upgraded primary analytics tables into interactive row-selectors. Clicking any row now materializes a direct action launch center to teleport instantly to Report Cards or Checklist views.
     * **Lazy Loading Engine**: Optimized view execution logic so only active viewport logic operates, boosting computational efficiency by preventing invisible charts from loading on background screens.
