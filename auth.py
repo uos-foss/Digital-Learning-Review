@@ -52,6 +52,8 @@ def check_password():
         st.session_state.username = ""
     if "semester" not in st.session_state:
         st.session_state.semester = "Autumn"
+    if "select_semester_widget" not in st.session_state:
+        st.session_state.select_semester_widget = st.session_state.semester
 
     # Handle pending logout safely
     if st.session_state.get("logout_pending"):

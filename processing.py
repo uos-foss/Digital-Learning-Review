@@ -272,3 +272,32 @@ def get_leganto_nolist_data(spreadsheet_id):
         import logging
         logging.error(f"❌ Error loading Leganto No-List data: {e}")
         return set()
+
+def get_assessment_data(spreadsheet_id):
+    """
+    Fetches the assessment data from the assessment spreadsheet
+    and returns it as a pandas DataFrame.
+    """
+    from data_manager import get_spreadsheet_data
+    try:
+        ss, _ = get_spreadsheet_data(spreadsheet_id)
+        sheet = ss.worksheet("All Schools 2025/26")
+        data = sheet.get_all_values()
+        if len(data) <= 1:
+            return pd.DataFrame()
+            
+        headers = data[0]
+        rows = data[1:]
+        df = pd.DataFrame(rows, columns=headers)
+        
+        # Clean columns: trim whitespaces and convert code to uppercase
+        if 'CIS unit code' in df.columns:
+            df['CIS unit code'] = df['CIS unit code'].astype(str).str.strip().str.upper()
+        if 'Module code' in df.columns:
+            df['Module code'] = df['Module code'].astype(str).str.strip().str.upper()
+            
+        return df
+    except Exception as e:
+        import logging
+        logging.error(f"❌ Error loading Assessment data: {e}")
+        return pd.DataFrame()

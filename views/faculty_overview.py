@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from processing import aggregate_faculty_stats, calculate_compliance_gap, is_compliant_val
 
-def view_faculty_overview(df_aut, df_spr, checklist_sums):
+def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("🏛️ Faculty Overview")
     
     # Determine active data based on chosen semester
@@ -28,7 +28,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums):
     
     # ABSOLUTE LOCKDOWN ROUTER: Uses robust native widget for 100% reliable state linkage across reloads.
     # Also enables true lazy-loading, increasing app speed by not calculating inactive views!
-    view_options = ["📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List"]
+    view_options = ["📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
     
     selected_view = st.segmented_control(
         "Navigate View:", 
@@ -334,3 +334,92 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums):
                     "text/csv",
                     key="master_priority_lens_downloader" 
                 )
+
+    elif selected_view == "📝 Assessment Types":
+        st.subheader(f"Assessment Analysis ({semester})")
+        
+        # Sub-navigation for SITS Assessment view
+        sub_view = st.radio(
+            "Analysis View:",
+            ["🌐 Overall Distribution", "🏫 Compare Schools"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="assessment_analysis_sub_nav"
+        )
+        st.write("---")
+        
+        if df_assess is not None and not df_assess.empty:
+            # Get active codes
+            active_codes = set(active_df['New module code'].dropna().astype(str).str.strip().str.upper())
+            matching_assess = df_assess[df_assess['CIS unit code'].isin(active_codes)].copy()
+            
+            if not matching_assess.empty:
+                # Add School column based on CIS unit code prefix
+                schools_list = {"ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"}
+                matching_assess['School'] = matching_assess['CIS unit code'].astype(str).str[:3].str.upper()
+                matching_assess = matching_assess[matching_assess['School'].isin(schools_list)]
+                
+                if sub_view == "🌐 Overall Distribution":
+                    st.markdown("##### **Overall Assessment Type Distribution**")
+                    st.caption("Distribution of assessment types across all active modules in SITS for this semester.")
+                    type_counts = matching_assess['Assessment type'].value_counts().reset_index()
+                    type_counts.columns = ['Assessment Type', 'Count']
+                    
+                    # Render using Altair donut chart
+                    pie_chart = alt.Chart(type_counts).mark_arc(innerRadius=60).encode(
+                        theta=alt.Theta(field="Count", type="quantitative"),
+                        color=alt.Color(field="Assessment Type", type="nominal", legend=alt.Legend(title="Assessment Type")),
+                        tooltip=["Assessment Type", "Count"]
+                    ).properties(
+                        height=400
+                    )
+                    st.altair_chart(pie_chart, use_container_width=True)
+                    
+                    # Also display a nice summary table
+                    with st.expander("Detailed Breakdown", expanded=False):
+                        st.dataframe(type_counts, width="stretch", hide_index=True)
+                        
+                elif sub_view == "🏫 Compare Schools":
+                    st.markdown("##### **Compare Assessment Types Across Schools**")
+                    st.caption("Compare how different schools design their assessment strategies (exams, coursework, etc.) for active modules.")
+                    
+                    # Toggle for Absolute vs Normalized
+                    compare_mode = st.segmented_control(
+                        "Chart Type:",
+                        options=["Absolute Counts", "Normalized Percentages"],
+                        default="Absolute Counts",
+                        key="compare_schools_chart_type"
+                    )
+                    
+                    comparison_data = matching_assess.groupby(['School', 'Assessment type']).size().reset_index(name='Count')
+                    comparison_data.columns = ['School', 'Assessment Type', 'Count']
+                    
+                    if compare_mode == "Absolute Counts":
+                        bar_chart = alt.Chart(comparison_data).mark_bar().encode(
+                            x=alt.X('School:N', title='School', axis=alt.Axis(labelAngle=0)),
+                            y=alt.Y('Count:Q', title='Number of Assessment Components'),
+                            color=alt.Color('Assessment Type:N', legend=alt.Legend(title="Assessment Type")),
+                            tooltip=['School', 'Assessment Type', 'Count']
+                        ).properties(
+                            height=400
+                        )
+                    else:
+                        bar_chart = alt.Chart(comparison_data).mark_bar().encode(
+                            x=alt.X('School:N', title='School', axis=alt.Axis(labelAngle=0)),
+                            y=alt.Y('Count:Q', stack='normalize', axis=alt.Axis(format='%'), title='Percentage of Assessments'),
+                            color=alt.Color('Assessment Type:N', legend=alt.Legend(title="Assessment Type")),
+                            tooltip=['School', 'Assessment Type', 'Count']
+                        ).properties(
+                            height=400
+                        )
+                        
+                    st.altair_chart(bar_chart, use_container_width=True)
+                    
+                    with st.expander("School Comparison Data Table", expanded=False):
+                        # Pivot table for a nice cross-tabulation display
+                        crosstab = pd.crosstab(matching_assess['School'], matching_assess['Assessment type'])
+                        st.dataframe(crosstab, width="stretch")
+            else:
+                st.info("No matching SITS assessment data found for this semester's modules.")
+        else:
+            st.warning("SITS Assessment data is not loaded or is empty.")
