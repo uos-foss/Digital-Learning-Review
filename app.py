@@ -4,6 +4,7 @@ import os
 import datetime
 import logging
 
+  
 # Configure local text-file logging
 logging.basicConfig(
     filename="app.log",
@@ -51,36 +52,7 @@ selected_radio = st.sidebar.radio(
     index=core_pages.index(current_core_page) if current_core_page else None
 )
 
-# Update view selection if radio button is changed by user
-if selected_radio and selected_radio != current_core_page:
-    st.session_state.view_selection = selected_radio
-    st.rerun()
-
-st.sidebar.divider()
-
-# Saved School View / Multi-Tenancy Preferences
-st.sidebar.subheader("👤 User Session")
-st.sidebar.write(f"Logged in as: **{st.session_state.username}**")
-
-schools_list = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
-
-saved_school_idx = 0
-if st.session_state.saved_school in schools_list:
-    saved_school_idx = schools_list.index(st.session_state.saved_school) + 1
-
-selected_saved_school = st.sidebar.selectbox(
-    "Active School View",
-    ["All Schools"] + schools_list,
-    index=saved_school_idx,
-    help="Default school view for team-level ownership without data siloing."
-)
-
-if selected_saved_school == "All Schools":
-    st.session_state.saved_school = "All"
-else:
-    st.session_state.saved_school = selected_saved_school
-
-# Semester Selector (Moved to User Session area)
+# Relocate the Select Semester radio group directly beneath the main "Go to" navigation radio group.
 selected_semester = st.sidebar.radio(
     "Select Semester", 
     ["Autumn", "Spring"], 
@@ -89,47 +61,43 @@ selected_semester = st.sidebar.radio(
 )
 st.session_state.semester = selected_semester
 
-st.sidebar.divider()
-st.sidebar.subheader("📣 Collaborate & Feedback")
-
-if st.sidebar.button("💬 App Feedback", width="stretch"):
-    st.session_state.view_selection = "💬 App Feedback"
+# Update view selection if radio button is changed by user
+if selected_radio and selected_radio != current_core_page:
+    st.session_state.view_selection = selected_radio
     st.rerun()
 
-if st.sidebar.button("🤝 How to Contribute", width="stretch"):
-    st.session_state.view_selection = "🤝 How to Contribute"
-    st.rerun()
+# Compact utility buttons at the bottom of the sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("💬 App Feedback", use_container_width=True, key="side_btn_fb"):
+        st.session_state.view_selection = "💬 App Feedback"
+        st.rerun()
+    if st.session_state.username in ["DLA", "ADMIN"]:
+        if st.button("🤝 How to Contribute", use_container_width=True, key="side_btn_contrib"):
+            st.session_state.view_selection = "🤝 How to Contribute"
+            st.rerun()
+    if st.button("💡 Help & Support", use_container_width=True, key="side_btn_help"):
+        st.session_state.view_selection = "💡 Help & Support"
+        st.rerun()
+    if st.button("📜 Release Changelog", use_container_width=True, key="side_btn_change"):
+        st.session_state.view_selection = "📜 Release Changelog"
+        st.rerun()
+    if st.session_state.username in ["DLA", "ADMIN"]:
+        if st.button("💻 Developer Guide", use_container_width=True, key="side_btn_dev"):
+            st.session_state.view_selection = "💻 Developer Guide"
+            st.rerun()
 
-st.sidebar.divider()
-st.sidebar.subheader("📄 Documentation")
+    # Consolidated footer row
+    st.markdown("---")
+    if st.button(f"Logout - {st.session_state.username}", use_container_width=True, key="btn_logout"):
+        st.session_state.logged_in = False
+        st.session_state.saved_school = "All"
+        st.session_state.username = ""
+        st.session_state.logged_out_this_session = True
+        st.session_state.logout_pending = True
+        st.rerun()
+    st.caption(f"Portal Version: v{__version__}")
 
-if st.sidebar.button("💡 Help & Support", width="stretch"):
-    st.session_state.view_selection = "💡 Help & Support"
-    st.rerun()
-
-if st.sidebar.button("📜 Release Changelog", width="stretch"):
-    st.session_state.view_selection = "📜 Release Changelog"
-    st.rerun()
-
-if st.sidebar.button("💻 Developer Guide", width="stretch"):
-    st.session_state.view_selection = "💻 Developer Guide"
-    st.rerun()
-
-# Display portal version aligned with Git tag history
-st.sidebar.caption(f"Portal Version: v{__version__}")
-
-st.sidebar.divider()
-
-if st.sidebar.button("Log Out", width="stretch"):
-    st.session_state.logged_in = False
-    st.session_state.saved_school = "All"
-    st.session_state.username = ""
-    st.session_state.logged_out_this_session = True
-    st.session_state.logout_pending = True
-    st.rerun()
-
-st.sidebar.divider()
-st.sidebar.info("Aggregating VLE Review audit data across semesters.")
 
 # Data Loading
 @st.cache_data(ttl=3600)
@@ -198,6 +166,11 @@ with st.spinner("Fetching data from Google Sheets..."):
 
 # Page Routing
 view = st.session_state.view_selection
+
+# Restrict admin/dla-only pages from unauthorized access
+if view in ["💻 Developer Guide", "🤝 How to Contribute"] and st.session_state.username not in ["DLA", "ADMIN"]:
+    st.session_state.view_selection = "🏛️ Faculty Overview"
+    view = "🏛️ Faculty Overview"
 
 if view == "🏛️ Faculty Overview":
     view_faculty_overview(df_aut, df_spr, checklist_sums)
