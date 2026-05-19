@@ -75,6 +75,23 @@ def initialize_checklist_headers(spreadsheet_id, worksheet_name):
     if not data or data[0] != headers:
         worksheet.insert_row(headers, index=1)
 
+def initialize_feedback_headers(spreadsheet_id, worksheet_name):
+    """
+    Ensures the feedback worksheet has the correct headers.
+    """
+    headers = ["Timestamp", "User", "School", "Category", "Rating", "Comments"]
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    try:
+        worksheet = spreadsheet.worksheet(worksheet_name)
+    except:
+        worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=len(headers))
+    
+    data = worksheet.get_all_values()
+    # If empty or first row is not the expected headers, insert them
+    if not data or data[0] != headers:
+        worksheet.insert_row(headers, index=1)
+
 def get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code):
     """
     Fetches the most recent checklist entry for a given module code.

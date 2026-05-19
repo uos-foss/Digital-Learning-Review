@@ -20,6 +20,7 @@ from views.school_dashboard import view_school_dashboard
 from views.module_report_card import view_module_report_card
 from views.module_lead_checklist import view_module_lead_checklist
 from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
+from views.feedback import view_feedback
 
 # Page configuration
 st.set_page_config(
@@ -89,6 +90,17 @@ selected_semester = st.sidebar.radio(
 st.session_state.semester = selected_semester
 
 st.sidebar.divider()
+st.sidebar.subheader("📣 Collaborate & Feedback")
+
+if st.sidebar.button("💬 App Feedback", width="stretch"):
+    st.session_state.view_selection = "💬 App Feedback"
+    st.rerun()
+
+if st.sidebar.button("🤝 How to Contribute", width="stretch"):
+    st.session_state.view_selection = "🤝 How to Contribute"
+    st.rerun()
+
+st.sidebar.divider()
 st.sidebar.subheader("📄 Documentation")
 
 if st.sidebar.button("💡 Help & Support", width="stretch"):
@@ -101,10 +113,6 @@ if st.sidebar.button("📜 Release Changelog", width="stretch"):
 
 if st.sidebar.button("💻 Developer Guide", width="stretch"):
     st.session_state.view_selection = "💻 Developer Guide"
-    st.rerun()
-
-if st.sidebar.button("🤝 How to Contribute", width="stretch"):
-    st.session_state.view_selection = "🤝 How to Contribute"
     st.rerun()
 
 # Display portal version aligned with Git tag history
@@ -199,6 +207,8 @@ elif view == "📋 Module Report Card":
     view_module_report_card(df_aut, df_spr, checklist_sums)
 elif view == "✅ Module Lead Checklist":
     view_module_lead_checklist(df_aut, df_spr, load_checklist_data)
+elif view == "💬 App Feedback":
+    view_feedback()
 elif view == "💡 Help & Support":
     view_help()
 elif view == "📜 Release Changelog":
