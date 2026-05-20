@@ -144,6 +144,160 @@ def get_all_checklist_entries(spreadsheet_id, worksheet_name, module_code):
         print(f"Error fetching all entries: {e}")
         return pd.DataFrame()
 
+def initialize_users_sheet(spreadsheet_id):
+    """
+    Ensures the users worksheet exists and has the correct headers.
+    If it is newly created or empty, seeds it with default users from .env.
+    """
+    import hashlib
+    import logging
+    headers = ["Username", "PasswordHash", "Role", "School", "Capabilities", "Status"]
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    
+    # Try to open the sheet, create if missing
+    try:
+        worksheet = spreadsheet.worksheet("Users")
+    except Exception:
+        # Create sheet with appropriate columns
+        worksheet = spreadsheet.add_worksheet(title="Users", rows=100, cols=len(headers))
+        
+    data = worksheet.get_all_values()
+    
+    # If empty or first row is not headers, set headers
+    if not data or data[0] != headers:
+        worksheet.insert_row(headers, index=1)
+        data = [headers]
+        
+    # If there are no data rows, perform auto-seeding
+    if len(data) <= 1:
+        seed_rows = []
+        
+        env_users = {
+            "ALA": (os.getenv("USER_ALA"), "School Module Lead", "ALA"),
+            "ECN": (os.getenv("USER_ECN"), "School Module Lead", "ECN"),
+            "EDC": (os.getenv("USER_EDC"), "School Module Lead", "EDC"),
+            "GPL": (os.getenv("USER_GPL"), "School Module Lead", "GPL"),
+            "IJC": (os.getenv("USER_IJC"), "School Module Lead", "IJC"),
+            "MGT": (os.getenv("USER_MGT"), "School Module Lead", "MGT"),
+            "SPR": (os.getenv("USER_SPR"), "School Module Lead", "SPR"),
+            "FACULTY": (os.getenv("USER_FACULTY"), "Faculty Reviewer", "All"),
+            "DLA": (os.getenv("USER_DLA"), "Digital Learning Advisor", "All"),
+            "ADMIN": (os.getenv("USER_ADMIN"), "System Administrator", "All"),
+        }
+        
+        for username, (password, role, school) in env_users.items():
+            if password:
+                # Hash password with SHA-256
+                pass_hash = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
+                # Capabilities string
+                caps = "view_all" if role in ["System Administrator", "Digital Learning Advisor", "Faculty Reviewer"] else "view_school"
+                seed_rows.append([username, pass_hash, role, school, caps, "Active"])
+                
+        if seed_rows:
+            worksheet.append_rows(seed_rows)
+            logging.info(f"🌱 Seeded {len(seed_rows)} default users from .env into Google Sheets database.")
+            
+    # Always ensure Roles sheet is initialized
+    initialize_roles_sheet(spreadsheet_id)
+
+def initialize_roles_sheet(spreadsheet_id):
+    """
+    Ensures that the 'Roles' worksheet exists in the spreadsheet.
+    If it is newly created or empty, seeds it with default roles and capabilities.
+    """
+    import logging
+    headers = ["Role", "Capabilities"]
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    
+    # Try to open the sheet, create if missing
+    try:
+        worksheet = spreadsheet.worksheet("Roles")
+    except Exception:
+        # Create sheet with appropriate columns
+        worksheet = spreadsheet.add_worksheet(title="Roles", rows=50, cols=len(headers))
+        
+    data = worksheet.get_all_values()
+    
+    # If empty or first row is not headers, set headers
+    if not data or data[0] != headers:
+        worksheet.insert_row(headers, index=1)
+        data = [headers]
+        
+    # If there are no data rows, perform auto-seeding
+    if len(data) <= 1:
+        seed_roles = [
+            ["System Administrator", "View Faculty Overview, complete module checklist"],
+            ["Digital Learning Advisor", "View Faculty Overview, complete module checklist"],
+            ["Faculty Reviewer", "View Faculty Overview, complete module checklist"],
+            ["School Module Lead", "View only own school, complete module checklist"],
+            ["School Auditor", "View only own school, view module checklist"],
+            ["School Leadership", "View Faculty Overview, View only own school, view module checklist"]
+        ]
+        worksheet.append_rows(seed_roles)
+        logging.info(f"🌱 Seeded {len(seed_roles)} default roles into Google Sheets database.")
+
+def update_role_row(spreadsheet_id, role_name, column_name, new_value):
+    """
+    Finds the row corresponding to the role_name and updates the specified column.
+    """
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    worksheet = spreadsheet.worksheet("Roles")
+    data = worksheet.get_all_values()
+    
+    if not data:
+        raise ValueError("Roles sheet is empty.")
+        
+    headers = data[0]
+    if column_name not in headers:
+        raise ValueError(f"Column '{column_name}' not found in sheet headers.")
+        
+    col_idx = headers.index(column_name) + 1
+    
+    # Locate role row index (1-based index)
+    row_idx = -1
+    for idx, row in enumerate(data):
+        if len(row) > 0 and str(row[0]).strip().lower() == str(role_name).strip().lower():
+            row_idx = idx + 1
+            break
+            
+    if row_idx == -1:
+        raise ValueError(f"Role '{role_name}' not found in database.")
+        
+    worksheet.update_cell(row_idx, col_idx, str(new_value))
+
+def update_user_row(spreadsheet_id, username, column_name, new_value):
+    """
+    Finds the row corresponding to the username and updates the specified column.
+    """
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    worksheet = spreadsheet.worksheet("Users")
+    data = worksheet.get_all_values()
+    
+    if not data:
+        raise ValueError("Users sheet is empty.")
+        
+    headers = data[0]
+    if column_name not in headers:
+        raise ValueError(f"Column '{column_name}' not found in sheet headers.")
+        
+    col_idx = headers.index(column_name) + 1
+    
+    # Locate user row index (1-based index)
+    row_idx = -1
+    for idx, row in enumerate(data):
+        if len(row) > 0 and str(row[0]).strip().upper() == str(username).strip().upper():
+            row_idx = idx + 1
+            break
+            
+    if row_idx == -1:
+        raise ValueError(f"User '{username}' not found in database.")
+        
+    worksheet.update_cell(row_idx, col_idx, str(new_value))
+
 if __name__ == "__main__":
     # Quick test to verify connection
     try:

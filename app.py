@@ -37,14 +37,27 @@ from auth import check_password
 if not check_password():
     st.stop()
 
-if "view_selection" not in st.session_state:
-    st.session_state.view_selection = "🏛️ Faculty Overview"
+# Load user capabilities list
+user_caps = st.session_state.get("capabilities", [])
+
+# Dynamically construct allowed core pages list based on user capabilities
+core_pages = []
+if any(c.lower() == "view faculty overview" for c in user_caps):
+    core_pages.append("🏛️ Faculty Overview")
+    
+core_pages.append("🏫 School Dashboard")
+core_pages.append("📋 Module Report Card")
+
+if any(c.lower() in ["complete module checklist", "view module checklist"] for c in user_caps):
+    core_pages.append("✅ Module Checklist")
+
+if "view_selection" not in st.session_state or (st.session_state.view_selection not in core_pages and st.session_state.view_selection not in ["💬 App Feedback", "💡 Help & Support", "📜 Release Changelog", "💻 Developer Guide", "🤝 How to Contribute", "🔧 Admin Panel"]):
+    st.session_state.view_selection = core_pages[0] if core_pages else "🏫 School Dashboard"
 
 # Sidebar Navigation (Accessible only after login)
 st.sidebar.title("FoSS Digital Learning Review Portal")
-core_pages = ["🏛️ Faculty Overview", "🏫 School Dashboard", "📋 Module Report Card", "✅ Module Checklist"]
 
-# Determine current selected core page (None if currently viewing documentation)
+# Determine current selected core page (None if currently viewing documentation/utilities)
 current_core_page = st.session_state.view_selection if st.session_state.view_selection in core_pages else None
 
 selected_radio = st.sidebar.radio(
@@ -195,12 +208,13 @@ with st.spinner("Fetching data from Google Sheets..."):
 view = st.session_state.view_selection
 
 # Restrict admin/dla-only pages from unauthorized access
+default_home = core_pages[0] if core_pages else "🏫 School Dashboard"
 if view in ["💻 Developer Guide", "🤝 How to Contribute"] and st.session_state.username not in ["DLA", "ADMIN"]:
-    st.session_state.view_selection = "🏛️ Faculty Overview"
-    view = "🏛️ Faculty Overview"
+    st.session_state.view_selection = default_home
+    view = default_home
 elif view == "🔧 Admin Panel" and st.session_state.username != "ADMIN":
-    st.session_state.view_selection = "🏛️ Faculty Overview"
-    view = "🏛️ Faculty Overview"
+    st.session_state.view_selection = default_home
+    view = default_home
 
 if view == "🏛️ Faculty Overview":
     view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess)

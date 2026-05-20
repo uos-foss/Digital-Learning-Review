@@ -4,7 +4,7 @@ import altair as alt
 import os
 import re
 import logging
-from data_manager import get_spreadsheet_data, initialize_checklist_headers, initialize_feedback_headers
+from data_manager import get_spreadsheet_data, initialize_checklist_headers, initialize_feedback_headers, update_user_row, append_row_to_sheet
 
 def parse_log_line(line):
     """
@@ -20,6 +20,37 @@ def parse_log_line(line):
             "Message": match.group(3)
         }
     return None
+
+@st.cache_data(ttl=60)
+def load_feedback_records_cached(feedback_id):
+    """Fetches feedback raw rows from Google Sheets, cached for 60 seconds."""
+    ss, _ = get_spreadsheet_data(feedback_id)
+    sheet = ss.worksheet("Sheet1")
+    return sheet.get_all_values()
+
+@st.cache_data(ttl=60)
+def load_users_records_cached(users_sheet_id):
+    """Fetches user registry raw rows from Google Sheets, cached for 60 seconds."""
+    try:
+        from data_manager import initialize_users_sheet
+        initialize_users_sheet(users_sheet_id)
+    except Exception:
+        pass
+    ss, _ = get_spreadsheet_data(users_sheet_id)
+    sheet = ss.worksheet("Users")
+    return sheet.get_all_values()
+
+@st.cache_data(ttl=60)
+def load_roles_records_cached(users_sheet_id):
+    """Fetches roles registry raw rows from Google Sheets, cached for 60 seconds."""
+    try:
+        from data_manager import initialize_roles_sheet
+        initialize_roles_sheet(users_sheet_id)
+    except Exception:
+        pass
+    ss, _ = get_spreadsheet_data(users_sheet_id)
+    sheet = ss.worksheet("Roles")
+    return sheet.get_all_values()
 
 def read_parsed_logs():
     """Reads app.log and parses it into a Pandas DataFrame."""
@@ -68,6 +99,15 @@ def mask_key(val):
     if len(val_str) <= 12:
         return "*" * len(val_str)
     return f"{val_str[:6]}...{val_str[-6:]}"
+
+def get_dataframe_size_kb(df):
+    """Calculates memory usage of a Pandas DataFrame in Kilobytes."""
+    if df is None or df.empty:
+        return 0.0
+    try:
+        return df.memory_usage(deep=True).sum() / 1024.0
+    except Exception:
+        return 0.0
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     # Strict lockdown verification
@@ -124,6 +164,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 "Leganto No-List ID (LEGANTO_NOLIST_ID)",
                 "Feedback Collector ID (FEEDBACK_SPREADSHEET_ID)",
                 "SITS Assessment ID (ASSESSMENT_SPREADSHEET_ID)",
+                "User Database ID (USERS_SPREADSHEET_ID)",
                 "Google Client Email",
                 "Google Project ID"
             ],
@@ -134,6 +175,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 mask_key(os.getenv("LEGANTO_NOLIST_ID")),
                 mask_key(os.getenv("FEEDBACK_SPREADSHEET_ID")),
                 mask_key(os.getenv("ASSESSMENT_SPREADSHEET_ID")),
+                mask_key(os.getenv("USERS_SPREADSHEET_ID")),
                 mask_key(os.getenv("GOOGLE_CLIENT_EMAIL")),
                 os.getenv("GOOGLE_PROJECT_ID", "❌ NOT CONFIGURED")
             ],
@@ -144,6 +186,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 "🟢 Active" if os.getenv("LEGANTO_NOLIST_ID") else "🟡 Unconfigured",
                 "🟢 Active" if os.getenv("FEEDBACK_SPREADSHEET_ID") else "🔴 Empty",
                 "🟢 Active" if os.getenv("ASSESSMENT_SPREADSHEET_ID") else "🟡 Unconfigured",
+                "🟢 Active" if os.getenv("USERS_SPREADSHEET_ID") else "🔴 Empty",
                 "🟢 Authenticated" if os.getenv("GOOGLE_CLIENT_EMAIL") else "🔴 Missing Credentials",
                 "🟢 Bound" if os.getenv("GOOGLE_PROJECT_ID") else "🔴 Missing Credentials"
             ]
@@ -163,9 +206,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         else:
             try:
                 with st.spinner("Fetching latest feedback records..."):
-                    ss, _ = get_spreadsheet_data(feedback_id)
-                    sheet = ss.worksheet("Sheet1")
-                    raw_data = sheet.get_all_values()
+                    raw_data = load_feedback_records_cached(feedback_id)
                     
                 if len(raw_data) <= 1:
                     st.info("No user feedback records have been submitted yet.")
@@ -357,6 +398,58 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.success("App cache successfully purged! All data will reload on next render.")
                 st.balloons()
                 
+        st.markdown("##### **Cache & Memory Footprint**")
+        with st.container(border=True):
+            # Calculate sizes
+            aut_sz = get_dataframe_size_kb(df_aut)
+            spr_sz = get_dataframe_size_kb(df_spr)
+            assess_sz = get_dataframe_size_kb(df_assess)
+            
+            # Feedback size
+            feed_sz = 0.0
+            feedback_id = os.getenv("FEEDBACK_SPREADSHEET_ID")
+            if feedback_id:
+                try:
+                    raw_feed = load_feedback_records_cached(feedback_id)
+                    df_f = pd.DataFrame(raw_feed[1:], columns=raw_feed[0]) if len(raw_feed) > 1 else pd.DataFrame()
+                    feed_sz = get_dataframe_size_kb(df_f)
+                except Exception:
+                    pass
+            
+            # Users size
+            users_sz = 0.0
+            users_sheet_id = os.getenv("USERS_SPREADSHEET_ID")
+            if users_sheet_id:
+                try:
+                    raw_users = load_users_records_cached(users_sheet_id)
+                    df_u = pd.DataFrame(raw_users[1:], columns=raw_users[0]) if len(raw_users) > 1 else pd.DataFrame()
+                    users_sz = get_dataframe_size_kb(df_u)
+                except Exception:
+                    pass
+            # Logs size
+            log_sz_kb = 0.0
+            if os.path.exists("app.log"):
+                try:
+                    log_sz_kb = os.path.getsize("app.log") / 1024.0
+                except Exception:
+                    pass
+                    
+            total_sz = aut_sz + spr_sz + assess_sz + feed_sz + users_sz
+            
+            c1, c2 = st.columns([2, 3])
+            with c1:
+                st.metric("Total Estimated Cache Size", f"{total_sz:.2f} KB")
+                st.metric("System Log File (app.log)", f"{log_sz_kb:.2f} KB" if log_sz_kb < 1024.0 else f"{log_sz_kb/1024.0:.2f} MB")
+            with c2:
+                st.markdown(f"""
+                - **Autumn Semester Review Data**: `{aut_sz:.2f} KB`
+                - **Spring Semester Review Data**: `{spr_sz:.2f} KB`
+                - **SITS Assessments Dataset**: `{assess_sz:.2f} KB`
+                - **User Feedback Cache**: `{feed_sz:.2f} KB`
+                - **Users Registry Cache**: `{users_sz:.2f} KB`
+                - **Active Log File (`app.log`)**: `{log_sz_kb:.2f} KB`
+                """)
+                
         st.markdown("##### **Google Sheet Database Health Diagnostics**")
         with st.container(border=True):
             st.write("Ensure spreadsheet headers align with current schema columns (Checklist headers, Feedback collector columns).")
@@ -391,61 +484,248 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.error(f"Failed to truncate logs: {e}")
                     
     # ----------------------------------------------------
-    # TAB 5: USER CONTROL (FUTURE ROADMAP)
+    # TAB 5: USER CONTROL
     # ----------------------------------------------------
     elif selected_tab == "👤 User Control":
         st.subheader("👤 Portal Access & User Control")
         
-        st.info("💡 **Roadmap Notice**: Dynamic user administration (adding/deactivating accounts and toggling user roles) is currently scheduled for the next release. The mock panel below illustrates how these controls will operate.")
-        
-        st.markdown("##### **Active User Registry**")
-        
-        # Load user credentials from environment variables for active visualization
-        user_list = [
-            {"Username": "ALA", "Default School": "ALA", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "ECN", "Default School": "ECN", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "EDC", "Default School": "EDC", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "GPL", "Default School": "GPL", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "IJC", "Default School": "IJC", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "MGT", "Default School": "MGT", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "SPR", "Default School": "SPR", "System Role": "School Module Lead", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "FACULTY", "Default School": "All (Faculty Wide)", "System Role": "Faculty Reviewer", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "DLA", "Default School": "All (Faculty Wide)", "System Role": "Digital Learning Advisor", "Auth Source": "Environment (.env)", "Status": "Active"},
-            {"Username": "ADMIN", "Default School": "All (Faculty Wide)", "System Role": "System Administrator", "Auth Source": "Environment (.env)", "Status": "Active"}
-        ]
-        df_users = pd.DataFrame(user_list)
-        st.dataframe(df_users, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        
-        # Mock interactive controls
-        st.markdown("##### **Access Control Actions (Mock Controls)**")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.selectbox("Select User account:", df_users["Username"])
-            st.segmented_control("System Role:", ["School Module Lead", "Faculty Reviewer", "Digital Learning Advisor", "System Administrator"], default="School Module Lead")
-            st.segmented_control("Access Status:", ["Active", "Suspended / Disabled"], default="Active")
-            st.button("Update User Profile", disabled=True, use_container_width=True)
-            
-        with c2:
-            st.text_input("New Username (School Code or Identifier):", placeholder="e.g. MAT")
-            st.selectbox("Default School Context:", ["All (Faculty Wide)", "ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"])
-            st.text_input("Password:", type="password", placeholder="Enter strong password...")
-            st.button("Create Account Registry", type="primary", disabled=True, use_container_width=True)
-            
-        st.markdown("---")
-        st.markdown("##### **Feature Capability Toggles (Mock Controls)**")
-        st.write("Administrators will be able to restrict specific feature subsets without deploying code modifications:")
-        
-        tc1, tc2 = st.columns(2)
-        with tc1:
-            st.toggle("Enable VLE Checklist self-audit form submissions", value=True, disabled=True)
-            st.toggle("Enable Leganto missing lists warning checks", value=True, disabled=True)
-            st.toggle("Allow feedback submissions from active users", value=True, disabled=True)
-        with tc2:
-            st.toggle("Maintenance Mode (Locks portal for all non-ADMIN accounts)", value=False, disabled=True)
-            st.toggle("Enable SITS assessment integration analytics", value=True, disabled=True)
-            st.toggle("Force HTTPS SSL Enforcement", value=True, disabled=True)
-            
-        st.caption("Capabilities and credentials management will be migrated to a secure database worksheet in Google Sheets in the upcoming update.")
+        users_sheet_id = os.getenv("USERS_SPREADSHEET_ID")
+        if not users_sheet_id:
+            st.warning("⚠️ USERS_SPREADSHEET_ID is not configured in environment variables. User database cannot be accessed.")
+        else:
+            try:
+                # Load users and roles from sheets
+                with st.spinner("Loading active user & roles registry..."):
+                    raw_users = load_users_records_cached(users_sheet_id)
+                    raw_roles = load_roles_records_cached(users_sheet_id)
+                
+                if len(raw_users) <= 1:
+                    st.info("The Users registry is empty or missing headers.")
+                elif len(raw_roles) <= 1:
+                    st.info("The Roles registry is empty or missing headers.")
+                else:
+                    headers = raw_users[0]
+                    rows = raw_users[1:]
+                    df_users = pd.DataFrame(rows, columns=headers)
+                    
+                    role_headers = raw_roles[0]
+                    role_rows = raw_roles[1:]
+                    df_roles = pd.DataFrame(role_rows, columns=role_headers)
+                    
+                    roles_list = sorted(df_roles["Role"].unique().tolist())
+                    schools_list = ["All", "ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
+                    available_caps = ["View Faculty Overview", "View only own school", "view module checklist", "complete module checklist"]
+                    
+                    sub_tabs = st.tabs(["👤 User Accounts", "🛡️ Role Capabilities"])
+                    
+                    with sub_tabs[0]:
+                        # User Accounts Management
+                        # Search field to filter registry
+                        search_query = st.text_input("🔍 Search registry (Username, Role, School):", placeholder="Enter username, role, or school code to filter...", key="search_user_accounts")
+                        
+                        filtered_df = df_users.copy()
+                        if search_query.strip():
+                            q = search_query.strip().lower()
+                            filtered_df = filtered_df[
+                                filtered_df["Username"].str.lower().str.contains(q, na=False) |
+                                filtered_df["Role"].str.lower().str.contains(q, na=False) |
+                                filtered_df["School"].str.lower().str.contains(q, na=False)
+                            ]
+                        
+                        st.markdown("##### **Active User Registry**")
+                        display_df = filtered_df.copy()
+                        if "PasswordHash" in display_df.columns:
+                            display_df["PasswordHash"] = "••••••••"
+                        
+                        # Strip Capabilities from user view display since it's role-based
+                        user_cols = [c for c in display_df.columns if c != "Capabilities"]
+                        display_df_view = display_df[user_cols]
+                        
+                        selection_users = st.dataframe(
+                            display_df_view,
+                            column_config={
+                                "Username": st.column_config.TextColumn("Username", width="small"),
+                                "PasswordHash": st.column_config.TextColumn("Password (Hashed)", width="small"),
+                                "Role": st.column_config.TextColumn("System Role", width="medium"),
+                                "School": st.column_config.TextColumn("School Code", width="small"),
+                                "Status": st.column_config.TextColumn("Access Status", width="small")
+                            },
+                            use_container_width=True,
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key="admin_user_registry_dataframe"
+                        )
+                        
+                        st.divider()
+                        st.markdown("##### **Access Control Actions**")
+                        c1, c2 = st.columns(2)
+                        
+                        with c1:
+                            st.markdown("**Update Existing User Profile**")
+                            selected_user = None
+                            if selection_users.selection.rows:
+                                selected_idx = selection_users.selection.rows[0]
+                                if selected_idx < len(display_df_view):
+                                    selected_user = display_df_view.iloc[selected_idx]["Username"]
+                                    
+                            if not selected_user:
+                                st.info("💡 **Select a user row** in the Active User Registry table above to edit their profile details.")
+                            else:
+                                st.markdown(f"Editing Profile: **{selected_user}**")
+                                u_row = df_users[df_users["Username"] == selected_user].iloc[0]
+                                u_role = u_row["Role"]
+                                u_school = u_row["School"]
+                                u_status = u_row["Status"]
+                                
+                                role_default = u_role if u_role in roles_list else roles_list[0]
+                                school_default = u_school if u_school in schools_list else schools_list[0]
+                                status_default = "Active" if u_status.upper() == "ACTIVE" else "Disabled"
+                                
+                                new_role = st.selectbox("Assign System Role:", roles_list, index=roles_list.index(role_default), key=f"edit_role_{selected_user}")
+                                new_school = st.selectbox("Assign School Context:", schools_list, index=schools_list.index(school_default), key=f"edit_school_{selected_user}")
+                                new_status = st.segmented_control("Access Status:", ["Active", "Disabled"], default=status_default, key=f"edit_status_{selected_user}")
+                                
+                                new_pwd = st.text_input("Reset Password (leave empty to keep current):", type="password", key=f"reset_pwd_{selected_user}")
+                                
+                                if st.button("Update User Profile", type="primary", use_container_width=True, key=f"btn_update_{selected_user}"):
+                                    try:
+                                        update_user_row(users_sheet_id, selected_user, "Role", new_role)
+                                        update_user_row(users_sheet_id, selected_user, "School", new_school)
+                                        update_user_row(users_sheet_id, selected_user, "Status", new_status)
+                                        
+                                        if new_pwd.strip():
+                                            import hashlib
+                                            pass_hash = hashlib.sha256(new_pwd.strip().encode("utf-8")).hexdigest()
+                                            update_user_row(users_sheet_id, selected_user, "PasswordHash", pass_hash)
+                                            
+                                        logging.info(f"👤 User profile updated for '{selected_user}' via Admin Panel.")
+                                        st.success(f"User '{selected_user}' updated successfully!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Error updating user profile: {ex}")
+                                        
+                        with c2:
+                            st.markdown("**Create New User Account**")
+                            add_username = st.text_input("New Username (e.g. school code or email prefix):", placeholder="e.g. MAT", key="new_user_uname").strip()
+                            add_pwd = st.text_input("Account Password:", type="password", placeholder="Enter strong password...", key="new_user_pwd")
+                            add_role = st.selectbox("Select Account Role:", roles_list, index=0, key="new_user_role")
+                            add_school = st.selectbox("Select Allowed School:", schools_list, index=0, key="new_user_school")
+                            
+                            if st.button("Create Account Registry", type="primary", use_container_width=True, key="btn_create_user"):
+                                if not add_username:
+                                    st.warning("Please enter a username.")
+                                elif not add_pwd.strip():
+                                    st.warning("Please enter a password.")
+                                elif add_username.upper() in df_users["Username"].str.upper().unique():
+                                    st.error(f"Username '{add_username}' already exists in registry.")
+                                else:
+                                    try:
+                                        import hashlib
+                                        pass_hash = hashlib.sha256(add_pwd.strip().encode("utf-8")).hexdigest()
+                                        row_to_add = [add_username.upper(), pass_hash, add_role, add_school, "", "Active"]
+                                        append_row_to_sheet(users_sheet_id, "Users", row_to_add)
+                                        logging.info(f"👤 Created new user account '{add_username.upper()}' via Admin Panel.")
+                                        st.success(f"User account '{add_username.upper()}' created successfully!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Error creating user account: {ex}")
+                                        
+                    with sub_tabs[1]:
+                        # Role Capabilities Management
+                        st.markdown("##### **Role Capabilities Directory**")
+                        st.dataframe(df_roles, use_container_width=True, hide_index=True)
+                        
+                        st.divider()
+                        st.markdown("##### **Role Configuration Actions**")
+                        rc1, rc2 = st.columns(2)
+                        
+                        with rc1:
+                            st.markdown("**Update Role Capabilities**")
+                            selected_edit_role = st.selectbox("Select Role to Configure:", roles_list, key="edit_role_select_box")
+                            role_caps_str = df_roles[df_roles["Role"] == selected_edit_role].iloc[0]["Capabilities"]
+                            role_caps_list = [c.strip() for c in role_caps_str.split(",") if c.strip()]
+                            resolved_role_caps = []
+                            for c in role_caps_list:
+                                if c == "view_all":
+                                    resolved_role_caps.extend(["View Faculty Overview", "complete module checklist"])
+                                elif c == "view_school":
+                                    resolved_role_caps.extend(["View only own school", "complete module checklist"])
+                                else:
+                                    resolved_role_caps.append(c)
+                            resolved_role_caps = list(set(resolved_role_caps))
+                            
+                            # Checkbox configurator for capabilities
+                            st.markdown("**Assigned Capabilities:**")
+                            role_caps_edit = []
+                            for cap in available_caps:
+                                is_checked = cap in resolved_role_caps
+                                if st.checkbox(
+                                    cap,
+                                    value=is_checked,
+                                    key=f"chk_edit_{selected_edit_role}_{cap.replace(' ', '_')}"
+                                ):
+                                    role_caps_edit.append(cap)
+                                    
+                            if st.button("Save Role Capabilities", type="primary", use_container_width=True, key="btn_save_role_caps"):
+                                try:
+                                    from data_manager import update_role_row
+                                    new_caps_str = ", ".join(role_caps_edit)
+                                    update_role_row(users_sheet_id, selected_edit_role, "Capabilities", new_caps_str)
+                                    logging.info(f"🛡️ Capabilities updated for role '{selected_edit_role}' via Admin Panel.")
+                                    st.success(f"Capabilities for role '{selected_edit_role}' saved successfully!")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"Error saving role capabilities: {ex}")
+                                    
+                        with rc2:
+                            st.markdown("**Create New System Role**")
+                            new_role_name = st.text_input("New Role Name:", placeholder="e.g. Guest Observer", key="new_role_name_input").strip()
+                            
+                            st.markdown("**Select Initial Capabilities:**")
+                            new_role_caps = []
+                            for cap in available_caps:
+                                if st.checkbox(
+                                    cap,
+                                    value=False,
+                                    key=f"chk_new_{cap.replace(' ', '_')}"
+                                ):
+                                    new_role_caps.append(cap)
+                                    
+                            if st.button("Create Role", type="primary", use_container_width=True, key="btn_create_role"):
+                                if not new_role_name:
+                                    st.warning("Please enter a role name.")
+                                elif new_role_name.lower() in [r.lower() for r in roles_list]:
+                                    st.error(f"Role '{new_role_name}' already exists.")
+                                else:
+                                    try:
+                                        from data_manager import append_row_to_sheet
+                                        new_caps_str = ", ".join(new_role_caps)
+                                        append_row_to_sheet(users_sheet_id, "Roles", [new_role_name, new_caps_str])
+                                        logging.info(f"🛡️ Created new role '{new_role_name}' via Admin Panel.")
+                                        st.success(f"Role '{new_role_name}' created successfully!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Error creating role: {ex}")
+                                        
+                    st.markdown("---")
+                    st.markdown("##### **Feature Capability Toggles**")
+                    st.write("Capability toggles let you enable or disable specific features dynamically across the portal:")
+                    
+                    tc1, tc2 = st.columns(2)
+                    with tc1:
+                        st.toggle("Enable VLE Checklist self-audit form submissions", value=True, disabled=True, key="tog_checklist")
+                        st.toggle("Enable Leganto missing lists warning checks", value=True, disabled=True, key="tog_leganto")
+                        st.toggle("Allow feedback submissions from active users", value=True, disabled=True, key="tog_feedback")
+                    with tc2:
+                        st.toggle("Maintenance Mode (Locks portal for all non-ADMIN accounts)", value=False, disabled=True, key="tog_maint")
+                        st.toggle("Enable SITS assessment integration analytics", value=True, disabled=True, key="tog_sits")
+                        st.toggle("Force HTTPS SSL Enforcement", value=True, disabled=True, key="tog_ssl")
+                        
+                    st.caption("Capabilities and credentials management are saved directly to your secure Users and Roles worksheets in Google Sheets.")
+            except Exception as e:
+                st.error(f"Error connecting to the Users spreadsheet database: {e}")
