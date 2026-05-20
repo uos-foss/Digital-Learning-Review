@@ -7,32 +7,39 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     
     schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
     
-    # If saved_school is not "All", show the focus checkbox. If unchecked, let them select another school context.
-    if st.session_state.saved_school != "All":
-        filter_by_school = st.checkbox(
-            f"Focus on my school ({st.session_state.saved_school})", 
-            value=True, 
-            key="sd_focus_school",
-            help="Uncheck to toggle or view other schools."
-        )
-        if filter_by_school:
-            school = st.session_state.saved_school
+    user_caps = st.session_state.get("capabilities", [])
+    only_own_school = any(c.lower() == "view only own school" for c in user_caps)
+    
+    if only_own_school:
+        school = st.session_state.saved_school
+        st.info(f"Locked to school context: **{school}**")
+    else:
+        # If saved_school is not "All", show the focus checkbox. If unchecked, let them select another school context.
+        if st.session_state.saved_school != "All":
+            filter_by_school = st.checkbox(
+                f"Focus on my school ({st.session_state.saved_school})", 
+                value=True, 
+                key="sd_focus_school",
+                help="Uncheck to toggle or view other schools."
+            )
+            if filter_by_school:
+                school = st.session_state.saved_school
+            else:
+                school = st.selectbox(
+                    "Select School to View", 
+                    schools, 
+                    index=schools.index(st.session_state.saved_school) if st.session_state.saved_school in schools else 0,
+                    key="sd_school_select",
+                    help="Select a specific school to view its dashboard."
+                )
         else:
+            # Fallback for "All Schools" users (e.g. FACULTY)
             school = st.selectbox(
                 "Select School to View", 
                 schools, 
-                index=schools.index(st.session_state.saved_school) if st.session_state.saved_school in schools else 0,
-                key="sd_school_select",
-                help="Select a specific school to view its dashboard."
+                key="sd_school_select_all",
+                help="Please select a specific school to view its dashboard."
             )
-    else:
-        # Fallback for "All Schools" users (e.g. FACULTY)
-        school = st.selectbox(
-            "Select School to View", 
-            schools, 
-            key="sd_school_select_all",
-            help="Please select a specific school to view its dashboard."
-        )
         
     semester = st.session_state.semester
     st.header(f"{school} - {semester} Semester")
