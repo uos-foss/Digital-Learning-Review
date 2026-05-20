@@ -22,6 +22,7 @@ from views.module_report_card import view_module_report_card
 from views.module_lead_checklist import view_module_lead_checklist
 from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
 from views.feedback import view_feedback
+from views.admin_panel import view_admin_panel
 
 # Page configuration
 st.set_page_config(
@@ -41,7 +42,7 @@ if "view_selection" not in st.session_state:
 
 # Sidebar Navigation (Accessible only after login)
 st.sidebar.title("FoSS Digital Learning Review Portal")
-core_pages = ["🏛️ Faculty Overview", "🏫 School Dashboard", "📋 Module Report Card", "✅ Module Lead Checklist"]
+core_pages = ["🏛️ Faculty Overview", "🏫 School Dashboard", "📋 Module Report Card", "✅ Module Checklist"]
 
 # Determine current selected core page (None if currently viewing documentation)
 current_core_page = st.session_state.view_selection if st.session_state.view_selection in core_pages else None
@@ -94,6 +95,10 @@ with st.sidebar:
     if st.session_state.username in ["DLA", "ADMIN"]:
         if st.button("💻 Developer Guide", use_container_width=True, key="side_btn_dev"):
             st.session_state.view_selection = "💻 Developer Guide"
+            st.rerun()
+    if st.session_state.username == "ADMIN":
+        if st.button("🔧 Admin Panel", use_container_width=True, key="side_btn_admin"):
+            st.session_state.view_selection = "🔧 Admin Panel"
             st.rerun()
 
     # Consolidated footer row
@@ -193,6 +198,9 @@ view = st.session_state.view_selection
 if view in ["💻 Developer Guide", "🤝 How to Contribute"] and st.session_state.username not in ["DLA", "ADMIN"]:
     st.session_state.view_selection = "🏛️ Faculty Overview"
     view = "🏛️ Faculty Overview"
+elif view == "🔧 Admin Panel" and st.session_state.username != "ADMIN":
+    st.session_state.view_selection = "🏛️ Faculty Overview"
+    view = "🏛️ Faculty Overview"
 
 if view == "🏛️ Faculty Overview":
     view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess)
@@ -200,7 +208,7 @@ elif view == "🏫 School Dashboard":
     view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess)
 elif view == "📋 Module Report Card":
     view_module_report_card(df_aut, df_spr, checklist_sums, df_assess)
-elif view == "✅ Module Lead Checklist":
+elif view == "✅ Module Checklist":
     view_module_lead_checklist(df_aut, df_spr, load_checklist_data, df_assess)
 elif view == "💬 App Feedback":
     view_feedback()
@@ -212,3 +220,5 @@ elif view == "💻 Developer Guide":
     view_developer_guide()
 elif view == "🤝 How to Contribute":
     view_contribute()
+elif view == "🔧 Admin Panel":
+    view_admin_panel(df_aut, df_spr, checklist_sums, df_assess)
