@@ -51,7 +51,11 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.6.0 (Current) - *SITS Assessment Insights & Tab Alignment*
+    ### 🚀 Version 1.7.0 (Current) - *Pluggable Auth & Admin Panel*
+    * **Pluggable Authentication**: Upgraded to a pluggable authentication system integrating with user and roles sheets.
+    * **Admin Panel**: Introduced a dedicated Admin UI for managing users, roles, and application settings directly from the dashboard.
+
+    ### 📂 Version 1.6.0 - *SITS Assessment Insights & Tab Alignment*
     * **SITS Assessment Integration**: Added full overall donut chart distribution in Faculty Overview and active strategy metrics inside School Dashboard.
     * **Compare Schools Sub-view**: Added a dedicated stacked bar chart in Faculty Overview's "Assessment Types" to compare assessment components across schools. Supports both **Absolute Counts** and **Normalized Percentages** chart types, alongside a cross-tab pivot data table.
     * **Aligned School Dashboard Tabs**: Restructured the School Dashboard layout to use the exact same navigation tabs as the Faculty Overview (All Modules, Ally Analytics, Compliance Gap, Priority Action List, and Assessment Types).
