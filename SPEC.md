@@ -11,7 +11,7 @@ The Digital Learning Review Dashboard is a Streamlit-based web application that 
 - **Language:** Python 3.13
 - **Framework:** Streamlit
 - **Data Manipulation:** Pandas
-- **Data Integration:** Google Sheets API (`gspread`, `google-auth`)
+- **Data Integration:** Google Sheets API (`gspread`, `google-auth`, `tenacity` for rate limit backoff)
 - **Deployment & Infrastructure:** Docker & Docker Compose. Currently deployed on an Ubuntu VM, accessible at [https://fossdigital.shef.ac.uk/digital-learning-review/](https://fossdigital.shef.ac.uk/digital-learning-review/). (Note: CI/CD pipelines are not yet established).
 
 ## 3. Data Sources & Workflows
@@ -46,8 +46,8 @@ The application uses a custom authentication system (`auth.py`) mapped to user c
 ## 6. Codebase Structure
 - `app.py`: The main entry point, handles routing, session state, caching, and sidebar navigation.
 - `auth.py`: Manages login, session persistence, and capability-based access control.
-- `data_manager.py`: Handles Google Sheets API authentication and raw data fetching.
-- `processing.py`: Contains the ETL logic, merging different data sources, and calculating metrics like "Ally Shift".
+- `data_manager.py`: Handles Google Sheets API authentication, raw data fetching, and implements exponential backoff (`tenacity`) for API rate limit handling.
+- `processing.py`: Contains the ETL logic, merging different data sources, calculating metrics like "Ally Shift", and a defensive formatting pipeline for sanitizing outgoing data.
 - `views/`: Contains individual Streamlit page modules (e.g., `school_dashboard.py`, `faculty_overview.py`) to keep `app.py` clean.
 - `assets/`: Static files and branding.
 - `diagnostics/`: Tools for checking data integrity.
