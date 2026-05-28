@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -39,91 +39,20 @@ if not check_password():
 
 # Load user capabilities list
 user_caps = st.session_state.get("capabilities", [])
+role = st.session_state.get("username", "USER")
 
-# Dynamically construct allowed core pages list based on user capabilities
-core_pages = []
-if any(c.lower() == "view faculty overview" for c in user_caps):
-    core_pages.append("🏛️ Faculty Overview")
-    
-core_pages.append("🏫 School Dashboard")
-core_pages.append("📋 Module Report Card")
-
-if any(c.lower() in ["complete module checklist", "view module checklist"] for c in user_caps):
-    core_pages.append("✅ Module Checklist")
-
-if "view_selection" not in st.session_state or (st.session_state.view_selection not in core_pages and st.session_state.view_selection not in ["💬 App Feedback", "💡 Help & Support", "📜 Release Changelog", "💻 Developer Guide", "🤝 How to Contribute", "🔧 Admin Panel"]):
-    st.session_state.view_selection = core_pages[0] if core_pages else "🏫 School Dashboard"
-
-# Sidebar Navigation (Accessible only after login)
-st.sidebar.title("FoSS Digital Learning Review Portal")
-
-# Determine current selected core page (None if currently viewing documentation/utilities)
-current_core_page = st.session_state.view_selection if st.session_state.view_selection in core_pages else None
-
-selected_radio = st.sidebar.radio(
-    "Go to",
-    core_pages,
-    index=core_pages.index(current_core_page) if current_core_page else None
-)
+# Determine accessible pages
+can_view_faculty = any(c.lower() == "view faculty overview" for c in user_caps)
+can_view_checklist = any(c.lower() in ["complete module checklist", "view module checklist"] for c in user_caps)
+is_admin = role == "ADMIN"
+is_dla_or_admin = role in ["DLA", "ADMIN"]
 
 # Initialize session state variables
 if "semester" not in st.session_state:
     st.session_state.semester = "Autumn"
-if "select_semester_widget" not in st.session_state:
-    st.session_state.select_semester_widget = st.session_state.semester
 
 def update_semester():
     st.session_state.semester = st.session_state.select_semester_widget
-
-# Relocate the Select Semester radio group directly beneath the main "Go to" navigation radio group.
-st.sidebar.radio(
-    "Select Semester", 
-    ["Autumn", "Spring"], 
-    key="select_semester_widget",
-    on_change=update_semester,
-    help="Active semester filter for school and module-level data."
-)
-
-# Update view selection if radio button is changed by user
-if selected_radio and selected_radio != current_core_page:
-    st.session_state.view_selection = selected_radio
-    st.rerun()
-
-# Compact utility buttons at the bottom of the sidebar
-with st.sidebar:
-    st.markdown("---")
-    if st.button("💬 App Feedback", use_container_width=True, key="side_btn_fb"):
-        st.session_state.view_selection = "💬 App Feedback"
-        st.rerun()
-    if st.session_state.username in ["DLA", "ADMIN"]:
-        if st.button("🤝 How to Contribute", use_container_width=True, key="side_btn_contrib"):
-            st.session_state.view_selection = "🤝 How to Contribute"
-            st.rerun()
-    if st.button("💡 Help & Support", use_container_width=True, key="side_btn_help"):
-        st.session_state.view_selection = "💡 Help & Support"
-        st.rerun()
-    if st.button("📜 Release Changelog", use_container_width=True, key="side_btn_change"):
-        st.session_state.view_selection = "📜 Release Changelog"
-        st.rerun()
-    if st.session_state.username in ["DLA", "ADMIN"]:
-        if st.button("💻 Developer Guide", use_container_width=True, key="side_btn_dev"):
-            st.session_state.view_selection = "💻 Developer Guide"
-            st.rerun()
-    if st.session_state.username == "ADMIN":
-        if st.button("🔧 Admin Panel", use_container_width=True, key="side_btn_admin"):
-            st.session_state.view_selection = "🔧 Admin Panel"
-            st.rerun()
-
-    # Consolidated footer row
-    st.markdown("---")
-    if st.button(f"Logout - {st.session_state.username}", use_container_width=True, key="btn_logout"):
-        st.session_state.logged_in = False
-        st.session_state.saved_school = "All"
-        st.session_state.username = ""
-        st.session_state.logged_out_this_session = True
-        st.session_state.logout_pending = True
-        st.rerun()
-    st.caption(f"Portal Version: v{__version__}")
 
 
 # Data Loading
@@ -204,35 +133,119 @@ with st.spinner("Fetching data from Google Sheets..."):
     checklist_sums = load_checklist_data()
     df_assess = load_assessment_data()
 
-# Page Routing
-view = st.session_state.view_selection
 
-# Restrict admin/dla-only pages from unauthorized access
-default_home = core_pages[0] if core_pages else "🏫 School Dashboard"
-if view in ["💻 Developer Guide", "🤝 How to Contribute"] and st.session_state.username not in ["DLA", "ADMIN"]:
-    st.session_state.view_selection = default_home
-    view = default_home
-elif view == "🔧 Admin Panel" and st.session_state.username != "ADMIN":
-    st.session_state.view_selection = default_home
-    view = default_home
-
-if view == "🏛️ Faculty Overview":
+# Page Wrapper Functions
+def page_faculty_overview():
     view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess)
-elif view == "🏫 School Dashboard":
+
+def page_school_dashboard():
     view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess)
-elif view == "📋 Module Report Card":
+
+def page_module_report_card():
     view_module_report_card(df_aut, df_spr, checklist_sums, df_assess)
-elif view == "✅ Module Checklist":
+
+def page_module_checklist():
     view_module_lead_checklist(df_aut, df_spr, load_checklist_data, df_assess)
-elif view == "💬 App Feedback":
+
+def page_feedback():
     view_feedback()
-elif view == "💡 Help & Support":
+
+def page_help():
     view_help()
-elif view == "📜 Release Changelog":
+
+def page_changelog():
     view_changelog()
-elif view == "💻 Developer Guide":
+
+def page_dev_guide():
     view_developer_guide()
-elif view == "🤝 How to Contribute":
+
+def page_contribute():
     view_contribute()
-elif view == "🔧 Admin Panel":
+
+def page_admin():
     view_admin_panel(df_aut, df_spr, checklist_sums, df_assess)
+
+# Define st.Page objects
+pg_faculty = st.Page(page_faculty_overview, title="Faculty Overview", icon=":material/account_balance:")
+pg_school = st.Page(page_school_dashboard, title="School Dashboard", icon=":material/dashboard:")
+pg_module = st.Page(page_module_report_card, title="Module Report Card", icon=":material/receipt_long:")
+pg_checklist = st.Page(page_module_checklist, title="Module Checklist", icon=":material/fact_check:")
+
+pg_feedback = st.Page(page_feedback, title="App Feedback", icon=":material/chat:")
+pg_help = st.Page(page_help, title="Help & Support", icon=":material/lightbulb:")
+pg_changelog = st.Page(page_changelog, title="Release Changelog", icon=":material/update:")
+
+pg_dev = st.Page(page_dev_guide, title="Developer Guide", icon=":material/code:")
+pg_contrib = st.Page(page_contribute, title="How to Contribute", icon=":material/handshake:")
+pg_admin = st.Page(page_admin, title="Admin Panel", icon=":material/settings:")
+
+
+# Build Navigation array for routing
+pages_list = []
+if can_view_faculty:
+    pages_list.append(pg_faculty)
+pages_list.append(pg_school)
+pages_list.append(pg_module)
+if can_view_checklist:
+    pages_list.append(pg_checklist)
+
+pages_list.extend([pg_feedback, pg_help, pg_changelog])
+
+if is_dla_or_admin:
+    pages_list.extend([pg_dev, pg_contrib])
+if is_admin:
+    pages_list.append(pg_admin)
+
+nav = st.navigation(pages_list, position="hidden")
+
+# --- CUSTOM SIDEBAR LAYOUT ---
+with st.sidebar:
+    st.title("FoSS Digital Learning Review Portal")
+    
+    # Semester Selector placed at the top (above main navigation)
+    st.radio(
+        "Select Semester", 
+        ["Autumn", "Spring", "All year"], 
+        key="select_semester_widget",
+        index=["Autumn", "Spring", "All year"].index(st.session_state.semester) if st.session_state.semester in ["Autumn", "Spring", "All year"] else 0,
+        on_change=update_semester,
+        help="Active semester filter for school and module-level data."
+    )
+    
+    st.divider()
+
+    st.caption("Main")
+    if can_view_faculty:
+        st.page_link(pg_faculty)
+    st.page_link(pg_school)
+    st.page_link(pg_module)
+    if can_view_checklist:
+        st.page_link(pg_checklist)
+
+    st.caption("Utilities")
+    st.page_link(pg_feedback)
+    st.page_link(pg_help)
+    st.page_link(pg_changelog)
+
+    if is_dla_or_admin or is_admin:
+        st.caption("Admin/Developer")
+        if is_dla_or_admin:
+            st.page_link(pg_dev)
+            st.page_link(pg_contrib)
+        if is_admin:
+            st.page_link(pg_admin)
+            
+    st.divider()
+    
+    def handle_logout():
+        st.session_state.logged_in = False
+        st.session_state.saved_school = "All"
+        st.session_state.username = ""
+        st.session_state.logged_out_this_session = True
+        st.session_state.logout_pending = True
+
+    st.button(f"Logout - {role}", on_click=handle_logout, use_container_width=True)
+    st.caption(f"Portal Version: v{__version__}")
+
+# Run navigation
+nav.run()
