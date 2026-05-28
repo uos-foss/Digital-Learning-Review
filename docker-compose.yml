@@ -5,10 +5,15 @@ services:
     build: .
     container_name: vle_review_portal
     ports:
-      - "8500:8501"
+      # Map host 8500 to container 8500
+      - "8500:8500"
     env_file:
       - .env
     volumes:
       # Persist local app.log logs on the host system
       - ./app.log:/app/app.log
+      # Mount the .streamlit directory so it reads your config.toml
+      - ./.streamlit:/app/.streamlit:ro
+    # Force Streamlit to use the right port, binding address, and path
+    command: streamlit run main.py --server.port=8500 --server.address=0.0.0.0 --server.baseUrlPath=digital-learning-review
     restart: unless-stopped
