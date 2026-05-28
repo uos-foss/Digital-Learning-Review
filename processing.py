@@ -301,3 +301,29 @@ def get_assessment_data(spreadsheet_id):
         import logging
         logging.error(f"❌ Error loading Assessment data: {e}")
         return pd.DataFrame()
+
+def sanitize_row_data(row_data):
+    """
+    Defensively formats row data before writing back to Google Sheets.
+    Casts all elements to strings, strips leading/trailing whitespaces,
+    removes newlines, and prevents formula injection.
+    """
+    sanitized = []
+    for item in row_data:
+        if item is None or pd.isna(item):
+            sanitized.append("")
+            continue
+            
+        # Cast to string
+        item_str = str(item).strip()
+        
+        # Prevent multiline breaking standard single-line cells
+        item_str = item_str.replace('\n', ' ').replace('\r', ' ')
+        
+        # Prevent formula injection (unless it's an intended formula, but usually users don't write formulas from UI)
+        if item_str.startswith('='):
+            item_str = "'" + item_str
+            
+        sanitized.append(item_str)
+        
+    return sanitized

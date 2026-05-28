@@ -3,6 +3,8 @@ import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from processing import sanitize_row_data
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,6 +36,7 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     return gspread.authorize(creds)
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def get_spreadsheet_data(spreadsheet_id):
     """
     Fetches all worksheets from a spreadsheet and returns them as a dictionary of DataFrames.
@@ -44,6 +47,7 @@ def get_spreadsheet_data(spreadsheet_id):
     
     return spreadsheet, worksheets
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def append_row_to_sheet(spreadsheet_id, worksheet_name, row_data):
     """
     Appends a row of data to a specific worksheet.
@@ -51,8 +55,10 @@ def append_row_to_sheet(spreadsheet_id, worksheet_name, row_data):
     client = get_gspread_client()
     spreadsheet = client.open_by_key(spreadsheet_id)
     worksheet = spreadsheet.worksheet(worksheet_name)
-    worksheet.append_row(row_data)
+    sanitized_data = sanitize_row_data(row_data)
+    worksheet.append_row(sanitized_data)
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def initialize_checklist_headers(spreadsheet_id, worksheet_name):
     """
     Ensures the checklist worksheet has the correct headers.
@@ -75,6 +81,7 @@ def initialize_checklist_headers(spreadsheet_id, worksheet_name):
     if not data or data[0] != headers:
         worksheet.insert_row(headers, index=1)
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def initialize_feedback_headers(spreadsheet_id, worksheet_name):
     """
     Ensures the feedback worksheet has the correct headers.
@@ -92,6 +99,7 @@ def initialize_feedback_headers(spreadsheet_id, worksheet_name):
     if not data or data[0] != headers:
         worksheet.insert_row(headers, index=1)
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code):
     """
     Fetches the most recent checklist entry for a given module code.
@@ -114,6 +122,7 @@ def get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code):
         print(f"Error fetching latest entry: {e}")
         return None
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def get_all_checklist_entries(spreadsheet_id, worksheet_name, module_code):
     """
     Fetches all checklist entries for a given module code.
@@ -144,6 +153,7 @@ def get_all_checklist_entries(spreadsheet_id, worksheet_name, module_code):
         print(f"Error fetching all entries: {e}")
         return pd.DataFrame()
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def initialize_users_sheet(spreadsheet_id):
     """
     Ensures the users worksheet exists and has the correct headers.
@@ -201,6 +211,7 @@ def initialize_users_sheet(spreadsheet_id):
     # Always ensure Roles sheet is initialized
     initialize_roles_sheet(spreadsheet_id)
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def initialize_roles_sheet(spreadsheet_id):
     """
     Ensures that the 'Roles' worksheet exists in the spreadsheet.
@@ -238,6 +249,7 @@ def initialize_roles_sheet(spreadsheet_id):
         worksheet.append_rows(seed_roles)
         logging.info(f"🌱 Seeded {len(seed_roles)} default roles into Google Sheets database.")
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def update_role_row(spreadsheet_id, role_name, column_name, new_value):
     """
     Finds the row corresponding to the role_name and updates the specified column.
@@ -268,6 +280,7 @@ def update_role_row(spreadsheet_id, role_name, column_name, new_value):
         
     worksheet.update_cell(row_idx, col_idx, str(new_value))
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def update_user_row(spreadsheet_id, username, column_name, new_value):
     """
     Finds the row corresponding to the username and updates the specified column.

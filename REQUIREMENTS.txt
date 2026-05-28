@@ -4,4 +4,4 @@ gspread
 google-auth
 python-dotenv
 extra-streamlit-components
-
+tenacity
