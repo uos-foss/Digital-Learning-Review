@@ -51,7 +51,13 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.7.0 (Current) - *Pluggable Auth & Admin Panel*
+    ### 🚀 Version 1.8.0 (Current) - *UI/UX Navigation Refresh*
+    * **Native Streamlit Navigation**: Transitioned from legacy radio mapping to Streamlit's native `st.navigation()` and `st.page_link` system.
+    * **Sidebar Groupings**: Rebuilt the sidebar with visually organized groupings (Main, Utilities, Admin/Developer).
+    * **Material Icons**: Replaced OS-dependent emojis with crisp, native Streamlit Material Icons across all views.
+    * **Semester Selector**: Relocated the "Select Semester" widget to the top of the sidebar and added an "All year" option.
+
+    ### 📂 Version 1.7.0 - *Pluggable Auth & Admin Panel*
     * **Pluggable Authentication**: Upgraded to a pluggable authentication system integrating with user and roles sheets.
     * **Admin Panel**: Introduced a dedicated Admin UI for managing users, roles, and application settings directly from the dashboard.
 
