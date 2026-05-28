@@ -15,5 +15,5 @@ services:
       # Mount the .streamlit directory so it reads your config.toml
       - ./.streamlit:/app/.streamlit:ro
     # Force Streamlit to use the right port, binding address, and path
-    command: streamlit run main.py --server.port=8500 --server.address=0.0.0.0 --server.baseUrlPath=digital-learning-review
+    command: streamlit run app.py --server.port=8500 --server.address=0.0.0.0 --server.baseUrlPath=digital-learning-review
     restart: unless-stopped
