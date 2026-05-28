@@ -99,56 +99,41 @@ def initialize_feedback_headers(spreadsheet_id, worksheet_name):
     if not data or data[0] != headers:
         worksheet.insert_row(headers, index=1)
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code):
     """
-    Fetches the most recent checklist entry for a given module code.
+    Fetches the most recent checklist entry for a given module code from SQLite.
     """
-    client = get_gspread_client()
-    spreadsheet = client.open_by_key(spreadsheet_id)
     try:
-        worksheet = spreadsheet.worksheet(worksheet_name)
-        data = worksheet.get_all_values()
-        if len(data) <= 1:
-            return None
-        
-        # Search from bottom to top for the most recent match
-        for row in reversed(data):
-            # Ensure row has enough columns
-            if len(row) > 1 and row[1] == module_code: 
-                return row
+        from database import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # SQLite query returning the most recent row
+            # Since self_audit_checklist keeps only the latest via UPSERT, we just select it.
+            cursor.execute("SELECT timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments FROM self_audit_checklist WHERE module_code = ?", (module_code,))
+            row = cursor.fetchone()
+            if row:
+                return [row['timestamp'], row['module_code'], row['module_name'], row['welcome_message'], row['contacts_complete'], row['outline_visible'], row['assessment_overview'], row['comments']]
         return None
     except Exception as e:
-        print(f"Error fetching latest entry: {e}")
+        print(f"Error fetching latest entry from SQLite: {e}")
         return None
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5), retry=retry_if_exception_type(gspread.exceptions.APIError))
 def get_all_checklist_entries(spreadsheet_id, worksheet_name, module_code):
     """
     Fetches all checklist entries for a given module code.
+    Since we upsert in SQLite, history is limited to the Google Sheets backup.
+    For this view, we can just return the SQLite row as a DataFrame for now, 
+    or query the full history from Google Sheets if explicitly requested.
+    We'll return the SQLite row wrapped in a DataFrame to preserve the interface without hitting the API.
     """
-    client = get_gspread_client()
-    spreadsheet = client.open_by_key(spreadsheet_id)
     try:
-        worksheet = spreadsheet.worksheet(worksheet_name)
-        data = worksheet.get_all_values()
-        if len(data) <= 1:
-            return pd.DataFrame()
-        
-        headers = data[0]
-        # Filter rows by module code (index 1)
-        matches = [row for row in data[1:] if len(row) > 1 and row[1] == module_code]
-        
-        if not matches:
-            return pd.DataFrame()
-            
-        df = pd.DataFrame(matches, columns=headers)
-        
-        # Ensure Timestamp exists before sorting
-        if "Timestamp" in df.columns:
-            df = df.sort_values(by="Timestamp", ascending=False)
-            
-        return df
+        import pandas as pd
+        row = get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code)
+        if row:
+            headers = ["Timestamp", "Module Code", "Module Name", "Welcome message present?", "Key staff contacts complete?", "Module outline visible?", "Assessment overview consistent with SITS?", "Comments"]
+            df = pd.DataFrame([row], columns=headers)
+            return df
+        return pd.DataFrame()
     except Exception as e:
         print(f"Error fetching all entries: {e}")
         return pd.DataFrame()

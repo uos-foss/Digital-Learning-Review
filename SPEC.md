@@ -61,12 +61,197 @@ The active development roadmap includes the following initiatives. They are stru
 - **Technical Scope:** Use the project ../GPL-assessment-criteria-new as the exemplar, migrate legacy radio-button sidebar to Streamlit's native st.navigation and st.page_link API. Strip out OS-dependent emojis and replace them with crisp, native Streamlit Material Icons.
 - **Success Criteria:** The application should align visually with the GPL Assessment Criteria Generator project ../GPL-assessment-criteria-new. 
 
-### 7.2. Integration of Additional Audit Data Sources
+### 7.2. Move to a Hybrid Cache-Database Model
+- **Context/Rationale:** Relying entirely on gspread is a major architectural bottleneck, given that a lot of the data in the sheets is fairly static. 
+- **Technical Scope:** 
+Static/Slow-Moving Data (SITS, Ally, Leganto, Main Audit): Keep these in Google Sheets, but instead of querying them on every user session, use a SQLite as a read-cache. High-Write Data (Self-Audit Checklist): Write directly to the database first for instant, reliable updates, and asynchronously sync back to Google Sheets if a backup is required.
+
+Define the Database Schema: Create a Python script (database.py) to initialize an SQLite database.
+
+Build a Background Data Sync: Fetch data from Google Sheets, clean it using your processing.py logic, and dump it into SQLite.
+
+Update data_manager.py: Point your Streamlit views to read directly from SQLite instead of hitting gspread on runtime.
+
+- **Success Criteria:** [User to define the expected outputs, e.g., new charts on the School Dashboard based on the new data.]
+
+### 7.3. Integration of Additional Audit Data Sources
 - **Context/Rationale:** [User to specify what new data is being brought in, e.g., Canvas APIs, internal student systems, survey results.]
 - **Technical Scope:** Expected creation of new fetchers in `data_manager.py` and ETL logic in `processing.py`.
 - **Success Criteria:** [User to define the expected outputs, e.g., new charts on the School Dashboard based on the new data.]
 
-### 7.3. Implementation of Alternative Authentication Methods
+### 7.4. Implementation of Alternative Authentication Methods
 - **Context/Rationale:** [User to explain the shift from the current system, e.g., moving to University SSO/SAML, OAuth with Google/Microsoft.]
 - **Technical Scope:** Refactoring or replacing `auth.py`, updating capability mapping, and ensuring secure session state persistence.
 - **Success Criteria:** [User to define the exact login flow and security requirements.]
+
+### 7.5. Migration to a Hybrid Cache-Database Layer (SQLite)
+
+- **Context/Rationale:** Heavy write operations from simultaneous Module Leads filling out checklists can trigger Google API rate limits (`quota exceeded`), degrading user experience. Introducing an SQLite layer minimizes Google API requests by serving read queries from local cache and accepting high-volume checklist writes instantly.
+    
+- **Data Flow Architecture:**
+    
+    ```
+    [ Google Sheets ] ──(sync_data.py)──> [ Local SQLite Cache (Read) ] ──> [ Streamlit App ]
+                                                                                  │
+    [ Google Backup ] <──(Async Sync)──── [ Local SQLite DB (Write) ] <───────────┘
+    ```
+    
+- **Database Schema Specification:** The SQLite database file should reside at `./data/audit_cache.db` and be persisted across Docker container updates.
+    
+    #### Table: `main_vle_audit` (Local Cache of Static Audit Sheet)
+    
+    |Column Name|SQLite Type|Description|
+    |---|---|---|
+    |`module_code`|TEXT (PK)|Unique module identifier|
+    |`module_name`|TEXT|Human-readable name of the module|
+    |`semester`|TEXT|Autumn (Aut) / Spring (Spr)|
+    |`school`|TEXT|Faculty school/department|
+    |`ally_score`|REAL|Overall Ally Score|
+    |`sga_visible`|INTEGER|Boolean (0/1) indicating Skills development visibility|
+    |`briefs_shared`|INTEGER|Boolean (0/1) indicating Assessment briefs shared|
+    
+    #### Table: `self_audit_checklist` (High-Write Operational Datastore)
+    
+    |Column Name|SQLite Type|Description|
+    |---|---|---|
+    |`id`|TEXT (PK)|Compound unique key (`module_code` + `semester`)|
+    |`module_code`|TEXT|Linked module code|
+    |`semester`|TEXT|Targeted semester|
+    |`structure_complete`|INTEGER|Checkbox state (0 or 1)|
+    |`briefs_uploaded`|INTEGER|Checkbox state (0 or 1)|
+    |`accessibility_checked`|INTEGER|Checkbox state (0 or 1)|
+    |`last_updated`|TEXT|UTC Timestamp of change (ISO format)|
+    |`updated_by`|TEXT|Username/Email of modifier|
+    
+- **Execution Blueprint: `database.py`**
+    
+    ```
+    import sqlite3
+    import os
+    import pandas as pd
+    
+    DB_DIR = "data"
+    DB_PATH = os.path.join(DB_DIR, "audit_cache.db")
+    
+    def init_db():
+        """Initializes schema and tables if they do not exist."""
+        os.makedirs(DB_DIR, exist_ok=True)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+    
+        # Create high-write dynamic table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS self_audit_checklist (
+                id TEXT PRIMARY KEY,
+                module_code TEXT,
+                semester TEXT,
+                structure_complete INTEGER DEFAULT 0,
+                briefs_uploaded INTEGER DEFAULT 0,
+                accessibility_checked INTEGER DEFAULT 0,
+                last_updated TEXT,
+                updated_by TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+    
+    def get_db_connection():
+        """Returns a connection to the SQLite database with dictionary rows."""
+        init_db()
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        return conn
+    
+    def cache_dataframe_to_sqlite(df: pd.DataFrame, table_name: str):
+        """Writes static audit DataFrames directly to database (overwrites existing tables)."""
+        with get_db_connection() as conn:
+            df.to_sql(table_name, conn, if_exists='replace', index=False)
+    ```
+    
+- **Execution Blueprint: `sync_data.py`**
+    
+    ```
+    import sys
+    import pandas as pd
+    from database import cache_dataframe_to_sqlite, init_db
+    
+    def run_synchronization():
+        """ETL pipeline extracting Google Sheets data and writing to SQLite."""
+        print("🔄 Pulling raw data from Google Sheets API...")
+        try:
+            init_db()
+            # Fetch and clean from existing pipeline
+            # raw_df = fetch_all_google_sheets_data()
+            # clean_df = clean_gspread_data(raw_df)
+    
+            # Simulated output save
+            # cache_dataframe_to_sqlite(clean_df, "main_vle_audit")
+            print("✅ Sync Process Completed: Local SQLite cache updated.")
+        except Exception as e:
+            print(f"❌ Synchronisation failed: {str(e)}", file=sys.stderr)
+    
+    if __name__ == "__main__":
+        run_synchronization()
+    ```
+    
+- **Execution Blueprint: Streamlit Data Read/Write Mechanics**
+    
+    ```
+    import pandas as pd
+    import streamlit as st
+    from datetime import datetime
+    from database import get_db_connection
+    
+    @st.cache_data(ttl=600)
+    def load_audit_data_from_cache() -> pd.DataFrame:
+        """Reads cached audit data instantly from local SQLite storage."""
+        try:
+            with get_db_connection() as conn:
+                df = pd.read_sql_query("SELECT * FROM main_vle_audit", conn)
+            return df
+        except Exception as e:
+            st.error(f"Error reading cache database: {e}")
+            return pd.DataFrame()
+    
+    def save_checklist_record(module_code: str, semester: str, data: dict, user: str):
+        """Saves or updates checklist answers directly to SQLite to protect Google API quotas."""
+        record_id = f"{module_code}_{semester}"
+        now_str = datetime.utcnow().isoformat()
+    
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO self_audit_checklist (
+                    id, module_code, semester, structure_complete, briefs_uploaded, accessibility_checked, last_updated, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    structure_complete=excluded.structure_complete,
+                    briefs_uploaded=excluded.briefs_uploaded,
+                    accessibility_checked=excluded.accessibility_checked,
+                    last_updated=excluded.last_updated,
+                    updated_by=excluded.updated_by
+            """, (
+                record_id, module_code, semester, 
+                data.get('structure_complete', 0),
+                data.get('briefs_uploaded', 0),
+                data.get('accessibility_checked', 0),
+                now_str, user
+            ))
+            conn.commit()
+    ```
+    
+- **Container Volume Configuration (`docker-compose.yml`):** Ensure database persistence is guaranteed by mapping host directories to the container path:
+    
+    ```
+    version: '3.8'
+    
+    services:
+      streamlit-dashboard:
+        build: .
+        container_name: vle_dashboard_app
+        restart: always
+        ports:
+          - "8501:8501"
+        volumes:
+          - ./data:/app/data  # Persists cache database safely on host system
+    ```

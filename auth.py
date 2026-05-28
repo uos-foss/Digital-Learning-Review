@@ -92,34 +92,16 @@ class EnvAuthProvider(BaseAuthProvider):
 @st.cache_data(ttl=60)
 def load_sheets_users():
     """
-    Fetches the registry of users from Google Sheets.
+    Fetches the registry of users from SQLite.
     Cached for 60 seconds to allow responsive administrator updates.
     """
     import pandas as pd
-    from data_manager import get_spreadsheet_data
-    sheet_id = os.getenv("USERS_SPREADSHEET_ID")
-    if not sheet_id:
-        logging.warning("⚠️ USERS_SPREADSHEET_ID is empty.")
-        return {}
+    import logging
+    from database import get_db_connection
     try:
-        # Ensure Users and Roles sheets are auto-initialized/seeded
-        try:
-            from data_manager import initialize_users_sheet
-            initialize_users_sheet(sheet_id)
-        except Exception as ie:
-            logging.error(f"❌ Error auto-initializing users sheet: {ie}")
+        with get_db_connection() as conn:
+            df = pd.read_sql_query("SELECT * FROM users", conn)
             
-        ss, _ = get_spreadsheet_data(sheet_id)
-        sheet = ss.worksheet("Users")
-        raw_data = sheet.get_all_values()
-        if len(raw_data) <= 1:
-            return {}
-        
-        headers = raw_data[0]
-        rows = raw_data[1:]
-        
-        df = pd.DataFrame(rows, columns=headers)
-        
         users_dict = {}
         for _, row in df.iterrows():
             uname = str(row.get("Username", "")).strip().upper()
@@ -133,53 +115,34 @@ def load_sheets_users():
                 }
         return users_dict
     except Exception as e:
-        logging.error(f"❌ Error loading users from Google Sheets: {e}")
+        logging.error(f"❌ Error loading users from SQLite: {e}")
         return {}
 
 @st.cache_data(ttl=60)
 def load_sheets_roles():
     """
-    Queries the 'Roles' worksheet from USERS_SPREADSHEET_ID Google Sheet
+    Queries the 'roles' table from SQLite
     and returns a dictionary mapping role names to their capabilities.
     """
     import logging
-    from data_manager import get_gspread_client
-    
-    spreadsheet_id = os.getenv("USERS_SPREADSHEET_ID")
-    if not spreadsheet_id:
-        return {}
-        
+    from database import get_db_connection
     try:
-        # Ensure Roles sheet is auto-initialized/seeded
-        try:
-            from data_manager import initialize_roles_sheet
-            initialize_roles_sheet(spreadsheet_id)
-        except Exception as ie:
-            logging.error(f"❌ Error auto-initializing roles sheet: {ie}")
+        import pandas as pd
+        with get_db_connection() as conn:
+            df = pd.read_sql_query("SELECT * FROM roles", conn)
             
-        client = get_gspread_client()
-        spreadsheet = client.open_by_key(spreadsheet_id)
-        worksheet = spreadsheet.worksheet("Roles")
-        data = worksheet.get_all_values()
-        
-        if not data or len(data) <= 1:
-            return {}
-            
-        headers = data[0]
-        rows = data[1:]
-        
         roles_dict = {}
-        for r in rows:
-            if len(r) > 0:
-                role_name = str(r[0]).strip()
-                caps_val = str(r[1]).strip() if len(r) > 1 else ""
+        for _, row in df.iterrows():
+            role_name = str(row.get("Role", "")).strip()
+            caps_val = str(row.get("Capabilities", "")).strip()
+            if role_name:
                 roles_dict[role_name.lower()] = {
                     "Role": role_name,
                     "Capabilities": caps_val
                 }
         return roles_dict
     except Exception as e:
-        logging.error(f"❌ Error loading Roles sheet: {e}")
+        logging.error(f"❌ Error loading Roles from SQLite: {e}")
         return {}
 
 class GoogleSheetsAuthProvider(BaseAuthProvider):

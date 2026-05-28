@@ -126,7 +126,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         "💬 Feedback Explorer", 
         "📋 Log Viewer", 
         "⚙️ Operations Control",
-        "👤 User Control"
+        "👤 User Control",
+        "🗄️ Database Explorer"
     ]
     
     selected_tab = st.segmented_control(
@@ -391,11 +392,25 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         
         st.markdown("##### **Data Sync & Cache Operations**")
         with st.container(border=True):
-            st.write("Force-clearing streamlit caches will force the application to fetch fresh data records from Google Sheets on the next page interaction.")
-            if st.button("🔄 Purge Data Cache (st.cache_data.clear)", type="primary", use_container_width=True):
+            st.write("Force an immediate synchronization of all data from Google Sheets into the local SQLite cache.")
+            if st.button("🔄 Sync Data Now (Google Sheets → SQLite)", type="primary", use_container_width=True):
+                with st.spinner("Synchronizing data..."):
+                    from sync_data import run_synchronization
+                    try:
+                        run_synchronization()
+                        st.cache_data.clear()
+                        logging.info("♻️ Data sync forced manually via the Admin Panel.")
+                        st.success("Data successfully synchronized! App cache purged.")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Sync failed: {e}")
+            
+            st.divider()
+            st.write("Force-clearing streamlit caches will force the application to fetch fresh data records from local caches on the next page interaction.")
+            if st.button("🗑️ Purge Memory Cache (st.cache_data.clear)", use_container_width=True):
                 st.cache_data.clear()
                 logging.info("♻️ System cache was cleared manually via the Admin Panel.")
-                st.success("App cache successfully purged! All data will reload on next render.")
+                st.success("Memory cache successfully purged! All data will reload on next render.")
                 st.balloons()
                 
         st.markdown("##### **Cache & Memory Footprint**")
@@ -729,3 +744,47 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.caption("Capabilities and credentials management are saved directly to your secure Users and Roles worksheets in Google Sheets.")
             except Exception as e:
                 st.error(f"Error connecting to the Users spreadsheet database: {e}")
+
+    # ----------------------------------------------------
+    # TAB 6: DATABASE EXPLORER
+    # ----------------------------------------------------
+    elif selected_tab == "🗄️ Database Explorer":
+        st.subheader("🗄️ SQLite Database Explorer")
+        st.write("Directly query and view the contents of your local cache tables.")
+        
+        try:
+            from database import get_db_connection
+            with get_db_connection() as conn:
+                # Get all table names
+                tables_df = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", conn)
+                
+                if tables_df.empty:
+                    st.info("The local database is currently empty. Please run a data sync.")
+                else:
+                    tables_list = tables_df['name'].tolist()
+                    selected_table = st.selectbox("Select Table to View:", tables_list)
+                    
+                    st.divider()
+                    st.markdown(f"##### **Table: `{selected_table}`**")
+                    
+                    # Fetch data
+                    table_data = pd.read_sql_query(f"SELECT * FROM {selected_table}", conn)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Total Rows", len(table_data))
+                    with col2:
+                        st.metric("Total Columns", len(table_data.columns))
+                        
+                    st.dataframe(table_data, use_container_width=True, hide_index=True)
+                    
+                    # Download button
+                    csv = table_data.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label=f"📥 Download '{selected_table}' as CSV",
+                        data=csv,
+                        file_name=f"{selected_table}_export.csv",
+                        mime="text/csv",
+                    )
+        except Exception as e:
+            st.error(f"Error querying SQLite database: {e}")
