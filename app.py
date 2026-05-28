@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -23,6 +23,10 @@ from views.module_lead_checklist import view_module_lead_checklist
 from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
+from background_tasks import start_scheduler
+
+# Start background sync daemon
+start_scheduler()
 
 # Page configuration
 st.set_page_config(
@@ -58,13 +62,15 @@ def update_semester():
 # Data Loading
 @st.cache_data(ttl=3600)
 def load_audit_data():
-    logging.info("📥 Fetching VLE Review main audit data from Google Sheets (Cache Miss)...")
-    main_id = os.getenv("MAIN_SPREADSHEET_ID")
-    from data_manager import get_spreadsheet_data
-    from processing import get_processed_audit_data
-    ss, _ = get_spreadsheet_data(main_id)
-    df_aut = get_processed_audit_data(ss, "All Schools Aut")
-    df_spr = get_processed_audit_data(ss, "All Schools SPR")
+    logging.info("📥 Fetching VLE Review main audit data from local SQLite cache...")
+    try:
+        from database import get_db_connection
+        with get_db_connection() as conn:
+            df_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn)
+            df_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn)
+    except Exception as e:
+        logging.error(f"Error reading from SQLite cache: {e}")
+        df_aut, df_spr = pd.DataFrame(), pd.DataFrame()
     # Merge updated Ally scores if ALLY_SPREADSHEET_ID is configured in env
     ally_id = os.getenv("ALLY_SPREADSHEET_ID")
     if ally_id:
@@ -109,11 +115,38 @@ def load_audit_data():
 
 @st.cache_data(ttl=3600)
 def load_checklist_data():
-    logging.info("📥 Fetching self-audit checklist data from Google Sheets (Cache Miss)...")
-    checklist_id = os.getenv("CHECKLIST_SPREADSHEET_ID")
-    from processing import get_checklist_summaries
-    logging.info("✅ Self-audit checklist summaries successfully loaded.")
-    return get_checklist_summaries(checklist_id)
+    logging.info("📥 Fetching self-audit checklist data from SQLite cache...")
+    try:
+        from database import get_db_connection
+        with get_db_connection() as conn:
+            df = pd.read_sql_query("SELECT * FROM self_audit_checklist", conn)
+            summaries = {}
+            for _, row in df.iterrows():
+                m_code = row['module_code']
+                q1 = str(row['welcome_message']).upper() == "TRUE"
+                q2 = str(row['contacts_complete']).upper() == "TRUE"
+                q3 = str(row['outline_visible']).upper() == "TRUE"
+                q4 = str(row['assessment_overview']).upper() == "TRUE"
+                
+                q_states = [q1, q2, q3, q4]
+                true_count = sum(q_states)
+                if true_count == len(q_states):
+                    status = "✅ Complete"
+                elif true_count > 0:
+                    status = "🟡 Partial"
+                else:
+                    status = "❌ Incomplete"
+                    
+                summaries[m_code] = {
+                    'Timestamp': row['timestamp'],
+                    'Q1': q1, 'Q2': q2, 'Q3': q3, 'Q4': q4,
+                    'Status': status,
+                    'Comments': row['comments']
+                }
+            return summaries
+    except Exception as e:
+        logging.error(f"Error loading checklist from SQLite: {e}")
+        return {}
 
 @st.cache_data(ttl=3600)
 def load_assessment_data():

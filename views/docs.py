@@ -51,7 +51,13 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.8.0 (Current) - *UI/UX Navigation Refresh*
+    ### 🚀 Version 1.9.0 (Current) - *SQLite Hybrid Cache & Operations Toolkit*
+    * **SQLite Hybrid Cache-Database**: Migrated read operations and checklist submissions to a local SQLite database to dramatically accelerate app responsiveness and completely eliminate Google Sheets API quota limits.
+    * **Background Synchronization Daemon**: Deployed a silent backend ETL pipeline running asynchronously to keep data in perfect sync with Google Sheets without blocking the UI.
+    * **Database Explorer**: Integrated a comprehensive SQLite database viewer directly into the Admin Panel for rapid diagnostics.
+    * **Robustness Improvements**: Added automatic retry mechanics with exponential backoff for all persistent sheet writes.
+
+    ### 📂 Version 1.8.0 - *UI/UX Navigation Refresh*
     * **Native Streamlit Navigation**: Transitioned from legacy radio mapping to Streamlit's native `st.navigation()` and `st.page_link` system.
     * **Sidebar Groupings**: Rebuilt the sidebar with visually organized groupings (Main, Utilities, Admin/Developer).
     * **Material Icons**: Replaced OS-dependent emojis with crisp, native Streamlit Material Icons across all views.
