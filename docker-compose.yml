@@ -5,8 +5,8 @@ services:
     build: .
     container_name: vle_review_portal
     ports:
-      # Map host 8500 to container 8500
-      - "8500:8500"
+      # 🌟 FORCE BIND TO THE HOST'S LOCALHOST LOOPBACK FOR NATIVE CADDY
+      - "127.0.0.1:8500:8500"
     env_file:
       - .env
     volumes:
