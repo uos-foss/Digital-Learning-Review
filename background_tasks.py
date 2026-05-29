@@ -1,14 +1,56 @@
 import threading
 import time
 import logging
+import os
 from sync_data import run_synchronization
 from data_manager import append_row_to_sheet
+from database import get_unsynced_checklists, mark_checklists_synced
+
+def push_unsynced_checklists():
+    """Pushes any locally unsynced checklists to Google Sheets in batches."""
+    spreadsheet_id = os.getenv("CHECKLIST_SPREADSHEET_ID")
+    if not spreadsheet_id:
+        return
+        
+    unsynced = get_unsynced_checklists()
+    if not unsynced:
+        return
+        
+    logging.info(f"Pushing {len(unsynced)} unsynced checklists to Google Sheets...")
+    synced_ids = []
+    
+    for record in unsynced:
+        # Reconstruct the row layout expected by Google Sheets
+        row_data = [
+            record.get("timestamp", ""),
+            record.get("module_code", ""),
+            record.get("module_name", ""),
+            record.get("welcome_message", ""),
+            record.get("contacts_complete", ""),
+            record.get("outline_visible", ""),
+            record.get("assessment_overview", ""),
+            record.get("comments", "")
+        ]
+        
+        try:
+            append_row_to_sheet(spreadsheet_id, "Sheet1", row_data)
+            synced_ids.append(record["id"])
+        except Exception as e:
+            logging.error(f"❌ Failed to sync checklist {record.get('module_code')}: {e}")
+            
+    if synced_ids:
+        mark_checklists_synced(synced_ids)
+        logging.info(f"✅ Successfully synced {len(synced_ids)} checklists to Google Sheets.")
 
 def background_sync_loop(interval_seconds=3600):
     """Loop that runs synchronization periodically."""
     logging.info(f"Background sync daemon started. Syncing every {interval_seconds} seconds.")
     while True:
         try:
+            # First, push any local offline writes up to Google Sheets
+            push_unsynced_checklists()
+            
+            # Then, run the ETL pull from Google Sheets to local SQLite
             run_synchronization()
         except Exception as e:
             logging.error(f"Background sync failed: {e}")
@@ -23,15 +65,3 @@ def start_scheduler():
         thread.start()
         return thread
     _start_thread()
-
-def async_backup_checklist(spreadsheet_id, worksheet_name, row_data):
-    """Pushes checklist to Google Sheets asynchronously."""
-    def _backup():
-        try:
-            append_row_to_sheet(spreadsheet_id, worksheet_name, row_data)
-            logging.info(f"✅ Async backup to Google Sheets completed for module: {row_data[1]}")
-        except Exception as e:
-            logging.error(f"❌ Async backup to Google Sheets failed: {e}")
-            
-    thread = threading.Thread(target=_backup, daemon=True)
-    thread.start()

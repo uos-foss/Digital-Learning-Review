@@ -10,7 +10,7 @@ The Digital Learning Review Dashboard is a Streamlit-based web application that 
 ## 🛠️ Tech Stack & Architecture
 - **Language:** Python 3.13
 - **Framework:** Streamlit
-- **Data:** Pandas, Google Sheets API (`gspread`, `google-auth`)
+- **Data:** SQLite, Pandas, Google Sheets API (`gspread`, `google-auth`)
 - **Deployment:** Docker & Docker Compose (Ubuntu VM at [https://fossdigital.shef.ac.uk/digital-learning-review/](https://fossdigital.shef.ac.uk/digital-learning-review/))
 
 ## 📊 Data Sources

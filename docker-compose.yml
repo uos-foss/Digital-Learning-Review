@@ -14,6 +14,8 @@ services:
       - ./app.log:/app/app.log
       # Mount the .streamlit directory so it reads your config.toml
       - ./.streamlit:/app/.streamlit:ro
+      # Mount shared SQLite database directory to allow concurrent sibling container access
+      - /opt/shared-audit-data:/app/data
     # Force Streamlit to use the right port, binding address, and path
     command: streamlit run app.py --server.port=8500 --server.address=0.0.0.0 --server.baseUrlPath=digital-learning-review
     restart: unless-stopped

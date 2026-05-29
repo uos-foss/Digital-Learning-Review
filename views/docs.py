@@ -51,7 +51,12 @@ def view_changelog():
     st.write("Track the recent updates and system releases for the VLE Review Audit Platform.")
     
     st.markdown("""
-    ### 🚀 Version 1.9.0 (Current) - *SQLite Hybrid Cache & Operations Toolkit*
+    ### 🚀 Version 1.10.0 (Current) - *Background Sync & SQLite Concurrency*
+    * **SQLite WAL Mode**: Refactored the local database engine to use Write-Ahead Logging (WAL) and busy timeouts, allowing true concurrency across multiple dashboard instances.
+    * **Batched Background Sync**: Replaced the per-request Google Sheets push with a robust background synchronization daemon that reliably pushes offline checklist edits to the cloud.
+    * **Database Mount Readiness**: Configured system architectures for isolated host volume mounting.
+
+    ### 📂 Version 1.9.0 - *SQLite Hybrid Cache & Operations Toolkit*
     * **SQLite Hybrid Cache-Database**: Migrated read operations and checklist submissions to a local SQLite database to dramatically accelerate app responsiveness and completely eliminate Google Sheets API quota limits.
     * **Background Synchronization Daemon**: Deployed a silent backend ETL pipeline running asynchronously to keep data in perfect sync with Google Sheets without blocking the UI.
     * **Database Explorer**: Integrated a comprehensive SQLite database viewer directly into the Admin Panel for rapid diagnostics.
