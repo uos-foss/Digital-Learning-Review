@@ -1,13 +1,16 @@
 import sqlite3
 import os
 import pandas as pd
+import platform
 
-DB_DIR = "data"
-DB_PATH = os.path.join(DB_DIR, "audit_cache.db")
+DB_PATH = os.getenv("DB_PATH", os.path.join("data", "audit_cache.db"))
 
 def init_db():
     """Initializes schema and tables if they do not exist."""
-    os.makedirs(DB_DIR, exist_ok=True)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -22,17 +25,45 @@ def init_db():
             contacts_complete TEXT,
             outline_visible TEXT,
             assessment_overview TEXT,
-            comments TEXT
+            comments TEXT,
+            is_synced INTEGER DEFAULT 0
         )
     """)
+    
+    # Graceful migration for existing DB
+    try:
+        cursor.execute("ALTER TABLE self_audit_checklist ADD COLUMN is_synced INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass # Column already exists
+        
     conn.commit()
     conn.close()
 
 def get_db_connection():
-    """Returns a connection to the SQLite database with dictionary rows."""
-    init_db()
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    """
+    Establishes an SQLite connection. Uses a shared path if in a production
+    Linux container environment, or a local path if running on a development Mac.
+    """
+    # 1. Determine the path dynamically based on environment or OS
+    if platform.system() == "Darwin":  # 'Darwin' means macOS
+        # Local Mac path (relative to your current project root)
+        db_path = "./data/audit_cache.db"
+    else:
+        # Production Ubuntu/Docker path
+        db_path = os.getenv("DB_PATH", "/app/data/audit_cache.db")
+    
+    # 2. Ensure the enclosing folder structure exists locally or in-container
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    conn = sqlite3.connect(db_path)
+
+    # 🌟 THE FIX: Allow accessing columns by names (string keys) instead of tuple numbers
     conn.row_factory = sqlite3.Row
+    
+    # Enable WAL mode for asynchronous concurrency
+    conn.execute("PRAGMA journal_mode=WAL;")
+    # Set a busy timeout (5000ms) to handle multi-client queues gracefully
+    conn.execute("PRAGMA busy_timeout=5000;")
     return conn
 
 def cache_dataframe_to_sqlite(df: pd.DataFrame, table_name: str):
@@ -58,8 +89,8 @@ def save_checklist_record(record_id: str, data_row: list):
         
         cursor.execute("""
             INSERT INTO self_audit_checklist (
-                id, timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments, is_synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
                 timestamp=excluded.timestamp,
                 module_name=excluded.module_name,
@@ -67,8 +98,26 @@ def save_checklist_record(record_id: str, data_row: list):
                 contacts_complete=excluded.contacts_complete,
                 outline_visible=excluded.outline_visible,
                 assessment_overview=excluded.assessment_overview,
-                comments=excluded.comments
+                comments=excluded.comments,
+                is_synced=0
         """, (
             record_id, timestamp, module_code, module_name, welcome_msg, contacts, outline, assessment, comments
         ))
+        conn.commit()
+
+def get_unsynced_checklists():
+    """Returns a list of checklist records that haven't been synced to Google Sheets yet."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM self_audit_checklist WHERE is_synced = 0")
+        return [dict(row) for row in cursor.fetchall()]
+
+def mark_checklists_synced(record_ids: list):
+    """Marks a list of checklist IDs as synced."""
+    if not record_ids:
+        return
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join('?' * len(record_ids))
+        cursor.execute(f"UPDATE self_audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()

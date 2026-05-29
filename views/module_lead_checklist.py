@@ -157,11 +157,9 @@ def view_module_lead_checklist(df_aut, df_spr, load_checklist_data_cache, df_ass
                 row = [timestamp, selected_code, matched_name, q1, q2, q3, q4, comments]
                 try:
                     from database import save_checklist_record
-                    from background_tasks import async_backup_checklist
                     
                     record_id = selected_code.strip().upper()
                     save_checklist_record(record_id, row)
-                    async_backup_checklist(checklist_id, "Sheet1", row)
                     
                     load_checklist_data_cache.clear()
                     logging.info(f"✅ Self-audit checklist submitted successfully for module '{selected_code}' by user '{st.session_state.username}'.")
