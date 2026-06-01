@@ -3,7 +3,27 @@ import os
 import pandas as pd
 import platform
 
-DB_PATH = os.getenv("DB_PATH", os.path.join("data", "audit_cache.db"))
+def get_database_path():
+    """
+    Dynamically determines the path to the shared SQLite database.
+    1. If running inside Docker (production VM), uses standard '/app/data/audit_cache.db'.
+    2. If running locally, looks for a sibling 'shared-data' directory 
+       or defaults to a local './data/audit_cache.db' directory.
+    """
+    production_path = os.getenv("DB_PATH", "/app/data/audit_cache.db")
+    if (os.name == "posix" and os.path.exists("/app/data")) or os.environ.get("AM_I_DOCKER") == "true":
+        return production_path
+
+    # Check for ../shared-data/ sibling folder relative to this file
+    sibling_shared_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "shared-data"))
+    if os.path.exists(sibling_shared_dir):
+        return os.path.join(sibling_shared_dir, "audit_cache.db")
+
+    # Default fallback to localized project folder
+    local_fallback_dir = os.path.join(os.path.dirname(__file__), "data")
+    return os.path.join(local_fallback_dir, "audit_cache.db")
+
+DB_PATH = get_database_path()
 
 def init_db():
     """Initializes schema and tables if they do not exist."""
@@ -41,21 +61,12 @@ def init_db():
 
 def get_db_connection():
     """
-    Establishes an SQLite connection. Uses a shared path if in a production
-    Linux container environment, or a local path if running on a development Mac.
+    Establishes an SQLite connection to the shared database.
     """
-    # 1. Determine the path dynamically based on environment or OS
-    if platform.system() == "Darwin":  # 'Darwin' means macOS
-        # Local Mac path (relative to your current project root)
-        db_path = "./data/audit_cache.db"
-    else:
-        # Production Ubuntu/Docker path
-        db_path = os.getenv("DB_PATH", "/app/data/audit_cache.db")
+    # 1. Ensure the enclosing folder structure exists locally or in-container
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     
-    # 2. Ensure the enclosing folder structure exists locally or in-container
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(DB_PATH)
 
     # 🌟 THE FIX: Allow accessing columns by names (string keys) instead of tuple numbers
     conn.row_factory = sqlite3.Row
