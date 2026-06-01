@@ -56,6 +56,25 @@ def init_db():
     except sqlite3.OperationalError:
         pass # Column already exists
         
+    # Create AI Audit write queue table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_audit_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            module_code TEXT,
+            module_title TEXT,
+            school TEXT,
+            user_id TEXT,
+            gen_ai_activity TEXT,
+            assessment_title TEXT,
+            assessment_type TEXT,
+            ai_usability TEXT,
+            ai_intended_use TEXT,
+            status TEXT,
+            is_synced INTEGER DEFAULT 0
+        )
+    """)
+        
     conn.commit()
     conn.close()
 
@@ -131,4 +150,46 @@ def mark_checklists_synced(record_ids: list):
         cursor = conn.cursor()
         placeholders = ','.join('?' * len(record_ids))
         cursor.execute(f"UPDATE self_audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
+        conn.commit()
+
+def save_ai_response(payload: dict):
+    """Saves a new AI Audit response to the local queue."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO ai_audit_queue (
+                timestamp, module_code, module_title, school, user_id,
+                gen_ai_activity, assessment_title, assessment_type,
+                ai_usability, ai_intended_use, status, is_synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        """, (
+            payload.get("Timestamp", ""),
+            payload.get("Module Code", ""),
+            payload.get("Module Title", ""),
+            payload.get("School", ""),
+            payload.get("User ID", ""),
+            payload.get("Gen AI Learning Activity", ""),
+            payload.get("Assessment Title", ""),
+            payload.get("Assessment Type", ""),
+            payload.get("AI Usability", ""),
+            payload.get("AI Intended Use", ""),
+            payload.get("Status", "")
+        ))
+        conn.commit()
+
+def get_unsynced_ai_responses():
+    """Returns a list of AI Audit records that haven't been synced to Google Sheets yet."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM ai_audit_queue WHERE is_synced = 0")
+        return [dict(row) for row in cursor.fetchall()]
+
+def mark_ai_responses_synced(record_ids: list):
+    """Marks a list of AI Audit queue IDs as synced."""
+    if not record_ids:
+        return
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join('?' * len(record_ids))
+        cursor.execute(f"UPDATE ai_audit_queue SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()

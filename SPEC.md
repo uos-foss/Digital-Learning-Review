@@ -1,7 +1,9 @@
 # Project Specification: Digital Learning Review Dashboard
 
 ## 1. Project Overview
-The Digital Learning Review Dashboard is a Streamlit-based web application that aggregates and visualizes Virtual Learning Environment (VLE) audit data. It serves as a central hub for faculty to track compliance, accessibility scores, and review self-audit checklists across various modules, schools, and semesters. 
+The Digital Learning Review Dashboard is a Streamlit-based web application that aggregates and visualizes Virtual Learning Environment (VLE) audit data. It is being built to replace a lengthy manual spreadsheet called the VLE Audit, where manual checks were done to all faculty VLE modules and findings recorded in the audit spreadsheet. The new dashboard aims to replace this by pulling much of the data from other sources. The manual audit data remains in there temporarily so there is data to look at and work with, but it will be removed at some point.
+
+It serves as a central hub for faculty to track compliance, accessibility scores, and review self-audit checklists across various modules, schools, and semesters. 
 
 **Primary Goals & KPIs:**
 - Achieve high Ally accessibility scores across modules.
