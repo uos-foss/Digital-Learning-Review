@@ -19,6 +19,26 @@ def sync_main_audit():
         except Exception as e:
             print(f"❌ Error syncing Main Audit Data: {e}")
 
+def sync_assessment_data():
+    print("🔄 Pulling SITS Assessment Data...")
+    from data_manager import get_spreadsheet_data
+    sheet_id = os.getenv("ASSESSMENT_SPREADSHEET_ID")
+    if sheet_id:
+        try:
+            ss, _ = get_spreadsheet_data(sheet_id)
+            sheet = ss.worksheet("All Schools 2026/27")
+            data = sheet.get_all_values()
+            if len(data) > 1:
+                df = pd.DataFrame(data[1:], columns=data[0])
+                if 'CIS unit code' in df.columns:
+                    df['CIS unit code'] = df['CIS unit code'].astype(str).str.strip().str.upper()
+                if 'Module code' in df.columns:
+                    df['Module code'] = df['Module code'].astype(str).str.strip().str.upper()
+                cache_dataframe_to_sqlite(df, "sits_assessment_2026_27")
+            print("✅ Assessment Data synced.")
+        except Exception as e:
+            print(f"❌ Error syncing Assessment Data: {e}")
+
 def sync_users_and_roles():
     print("🔄 Pulling Users and Roles...")
     from data_manager import get_spreadsheet_data
@@ -87,6 +107,7 @@ def run_synchronization():
     try:
         init_db()
         sync_main_audit()
+        sync_assessment_data()
         sync_users_and_roles()
         sync_checklists()
         sync_ai_responses()
