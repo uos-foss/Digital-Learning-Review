@@ -64,6 +64,23 @@ def sync_checklists():
         except Exception as e:
             print(f"❌ Error syncing Checklists: {e}")
 
+def sync_ai_responses():
+    print("🔄 Pulling AI Responses...")
+    from data_manager import get_spreadsheet_data
+    sheet_id = os.getenv("AI_RESPONSES_SPREADSHEET_ID")
+    if sheet_id:
+        try:
+            ss, _ = get_spreadsheet_data(sheet_id)
+            # Fetch data from the first worksheet
+            worksheet = ss.get_worksheet(0)
+            data = worksheet.get_all_values()
+            if len(data) > 1:
+                df_responses = pd.DataFrame(data[1:], columns=data[0])
+                cache_dataframe_to_sqlite(df_responses, "ai_audit_responses")
+            print("✅ AI Responses synced.")
+        except Exception as e:
+            print(f"❌ Error syncing AI Responses: {e}")
+
 def run_synchronization():
     """ETL pipeline extracting Google Sheets data and writing to SQLite."""
     print("🔄 Starting Data Synchronization...")
@@ -72,6 +89,7 @@ def run_synchronization():
         sync_main_audit()
         sync_users_and_roles()
         sync_checklists()
+        sync_ai_responses()
         print("✅ Full Sync Process Completed.")
     except Exception as e:
         print(f"❌ Synchronisation failed: {str(e)}", file=sys.stderr)
