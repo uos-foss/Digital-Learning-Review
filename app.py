@@ -18,15 +18,13 @@ __version__ = "1.10.0"
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
 from views.school_dashboard import view_school_dashboard
-from views.module_report_card import view_module_report_card
-from views.module_lead_checklist import view_module_lead_checklist
+from views.module_report import view_module_report
 from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
-from background_tasks import start_scheduler
-
-# Start background sync daemon
-start_scheduler()
+# background sync daemon is disabled as we moved to SQLite primary database
+# from background_tasks import start_scheduler
+# start_scheduler()
 
 # Page configuration
 st.set_page_config(
@@ -96,7 +94,6 @@ role = st.session_state.get("username", "USER")
 
 # Determine accessible pages
 can_view_faculty = any(c.lower() == "view faculty overview" for c in user_caps)
-can_view_checklist = any(c.lower() in ["complete module checklist", "view module checklist"] for c in user_caps)
 is_admin = role == "ADMIN"
 is_dla_or_admin = role in ["DLA", "ADMIN"]
 
@@ -109,108 +106,256 @@ def update_semester():
 
 
 # Data Loading
-@st.cache_data(ttl=3600)
+def table_exists(conn, table_name):
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cursor.fetchone() is not None
+
+@st.cache_data(ttl=10)
 def load_audit_data():
-    logging.info("📥 Fetching VLE Review main audit data from local SQLite cache...")
+    logging.info("📥 Constructing module list from SITS as single source of truth...")
     try:
         from database import get_db_connection
         with get_db_connection() as conn:
-            df_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn)
-            df_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn)
-    except Exception as e:
-        logging.error(f"Error reading from SQLite cache: {e}")
-        df_aut, df_spr = pd.DataFrame(), pd.DataFrame()
-    # Merge updated Ally scores if ALLY_SPREADSHEET_ID is configured in env
-    ally_id = os.getenv("ALLY_SPREADSHEET_ID")
-    if ally_id:
-        from processing import get_updated_ally_scores
-        logging.info("📥 Fetching updated Ally overall scores from Google Sheets (Cache Miss)...")
-        ally_map = get_updated_ally_scores(ally_id)
-        if ally_map:
-            # Map new Ally scores based on 'New module code' column (cleaned to match keys)
-            for df in [df_aut, df_spr]:
-                if not df.empty and 'New module code' in df.columns:
-                    # Clean and strip 'New module code' series to map safely
-                    clean_codes = df['New module code'].astype(str).str.strip().str.upper()
-                    
-                    df['Ally Measured'] = clean_codes.map(lambda c: ally_map.get(c, {}).get('measured') if isinstance(ally_map.get(c), dict) else None).fillna(df['Ally 25/26 All'])
-                    df['Ally Weighted'] = clean_codes.map(lambda c: ally_map.get(c, {}).get('weighted') if isinstance(ally_map.get(c), dict) else None).fillna(df['Ally Measured'])
-                    df['Total Files'] = clean_codes.map(lambda c: ally_map.get(c, {}).get('files') if isinstance(ally_map.get(c), dict) else 0).fillna(0)
-                    
-                    # Keep 'Ally 25/26 All' updated with Weighted so existing cards/charts keep working
-                    df['Ally 25/26 All'] = df['Ally Weighted']
-                    
-                    # Calculate the shift
-                    df['Ally Shift'] = df['Ally Weighted'] - df['Ally Measured']
-            logging.info(f"✅ Successfully integrated {len(ally_map)} updated Ally scores and calculated shift metrics.")
+            # Check if sits_assessment_2026_27 table exists in SQLite
+            if not table_exists(conn, "sits_assessment_2026_27"):
+                logging.warning("⚠️ sits_assessment_2026_27 table not found in database. Falling back to legacy tables.")
+                df_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn) if table_exists(conn, "main_vle_audit_aut") else pd.DataFrame()
+                df_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn) if table_exists(conn, "main_vle_audit_spr") else pd.DataFrame()
+                return df_aut, df_spr
 
-    # Merge Leganto no-list data if configured
-    leganto_id = os.getenv("LEGANTO_NOLIST_ID")
-    if leganto_id:
-        from processing import get_leganto_nolist_data
-        logging.info("📥 Fetching Leganto no-list data from Google Sheets (Cache Miss)...")
-        no_list_set = get_leganto_nolist_data(leganto_id)
-        if no_list_set:
-            for df in [df_aut, df_spr]:
-                if not df.empty and 'New module code' in df.columns:
-                    clean_codes = df['New module code'].astype(str).str.strip().str.upper()
-                    # If contained in the 'no_list_set', Leganto is 'Missing', else 'Has List' (assumed, or we can just use a boolean)
-                    # Looking at other columns, categorical or boolean works. Let's use "Leganto Status"
-                    df['Leganto Missing'] = clean_codes.isin(no_list_set)
-            logging.info(f"✅ Flagged {len(no_list_set)} modules that appear in the Leganto 'no list' dataset.")
+            df_sits = pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
+            
+            # Load legacy reference tables if they exist
+            legacy_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn) if table_exists(conn, "main_vle_audit_aut") else pd.DataFrame()
+            legacy_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn) if table_exists(conn, "main_vle_audit_spr") else pd.DataFrame()
+            
+            # Load local Ally and Leganto tables if they exist
+            df_ally_local = pd.read_sql_query("SELECT * FROM ally_scores", conn) if table_exists(conn, "ally_scores") else pd.DataFrame()
+            df_leganto_local = pd.read_sql_query("SELECT * FROM leganto_nolist", conn) if table_exists(conn, "leganto_nolist") else pd.DataFrame()
 
-    logging.info("✅ Main audit data successfully loaded and processed.")
-    return df_aut, df_spr
+        # Combine legacy tables to build reference lookups
+        legacy_combined = pd.concat([df for df in [legacy_aut, legacy_spr] if not df.empty], ignore_index=True)
+        if not legacy_combined.empty and 'New module code' in legacy_combined.columns:
+            legacy_combined['New module code'] = legacy_combined['New module code'].astype(str).str.strip().str.upper()
+            legacy_combined = legacy_combined.drop_duplicates(subset=['New module code'])
+            ref_lookup = legacy_combined.set_index('New module code').to_dict(orient='index')
+        else:
+            ref_lookup = {}
 
-@st.cache_data(ttl=3600)
-def load_checklist_data():
-    logging.info("📥 Fetching self-audit checklist data from SQLite cache...")
-    try:
-        from database import get_db_connection
-        with get_db_connection() as conn:
-            df = pd.read_sql_query("SELECT * FROM self_audit_checklist", conn)
-            summaries = {}
-            for _, row in df.iterrows():
-                m_code = row['module_code']
-                q1 = str(row['welcome_message']).upper() == "TRUE"
-                q2 = str(row['contacts_complete']).upper() == "TRUE"
-                q3 = str(row['outline_visible']).upper() == "TRUE"
-                q4 = str(row['assessment_overview']).upper() == "TRUE"
-                
-                q_states = [q1, q2, q3, q4]
-                true_count = sum(q_states)
-                if true_count == len(q_states):
-                    status = "✅ Complete"
-                elif true_count > 0:
-                    status = "🟡 Partial"
-                else:
-                    status = "❌ Incomplete"
-                    
-                summaries[m_code] = {
-                    'Timestamp': row['timestamp'],
-                    'Q1': q1, 'Q2': q2, 'Q3': q3, 'Q4': q4,
-                    'Status': status,
-                    'Comments': row['comments']
+        # Local Ally lookup
+        ally_local_map = {}
+        if not df_ally_local.empty and 'module_code' in df_ally_local.columns:
+            df_ally_local['module_code'] = df_ally_local['module_code'].astype(str).str.strip().str.upper()
+            for _, row in df_ally_local.iterrows():
+                ally_local_map[row['module_code']] = {
+                    'measured': row.get('measured', None),
+                    'weighted': row.get('weighted', None),
+                    'files': row.get('files', 0)
                 }
-            return summaries
+
+        # Local Leganto set
+        leganto_local_set = set()
+        if not df_leganto_local.empty and 'module_code' in df_leganto_local.columns:
+            leganto_local_set = set(df_leganto_local['module_code'].astype(str).str.strip().str.upper())
+
+        # Extract unique modules from SITS
+        if df_sits.empty or 'CIS unit code' not in df_sits.columns:
+            logging.warning("⚠️ sits_assessment_2026_27 is empty or missing 'CIS unit code' column.")
+            return pd.DataFrame(), pd.DataFrame()
+            
+        df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
+        unique_modules = df_sits.drop_duplicates(subset=['CIS unit code']).copy()
+        
+        # Build the final records
+        records = []
+        for _, row in unique_modules.iterrows():
+            code = row['CIS unit code']
+            name = row.get('Module name', '')
+            lead = row.get('Academic contact', '')
+            level = row.get('Module level', '')
+            period = str(row.get('Period', '')).strip().upper()
+            
+            # Map period to semester
+            if period == 'S1':
+                semester = 'Autumn'
+            elif period == 'S2':
+                semester = 'Spring'
+            else:
+                semester = 'All year'
+                
+            # Retrieve legacy reference fields if they exist
+            ref_fields = ref_lookup.get(code, {})
+            
+            # Get Ally scores (prefer local ally_scores table, fallback to legacy)
+            measured_score = None
+            weighted_score = None
+            files_count = 0
+            
+            if code in ally_local_map:
+                measured_score = ally_local_map[code]['measured']
+                weighted_score = ally_local_map[code]['weighted']
+                files_count = ally_local_map[code]['files']
+            else:
+                # Fallback to legacy audit row
+                measured_score = ref_fields.get('Ally Measured', ref_fields.get('Ally 25/26 All', None))
+                weighted_score = ref_fields.get('Ally Weighted', ref_fields.get('Ally 25/26 All', None))
+                files_count = ref_fields.get('Total Files', ref_fields.get('Ally 25/26 Files', 0))
+
+            # Cast / fallback values
+            measured_score = pd.to_numeric(measured_score, errors='coerce')
+            weighted_score = pd.to_numeric(weighted_score, errors='coerce')
+            files_count = pd.to_numeric(files_count, errors='coerce')
+            if pd.isna(measured_score): measured_score = None
+            if pd.isna(weighted_score): weighted_score = None
+            if pd.isna(files_count): files_count = 0
+
+            # Get Leganto Status (prefer local leganto_nolist table, fallback to legacy)
+            if df_leganto_local.empty:
+                leganto_missing = ref_fields.get('Leganto Missing', False)
+                # handle potential string representation
+                if str(leganto_missing).upper() in ['TRUE', '1']:
+                    leganto_missing = True
+                elif str(leganto_missing).upper() in ['FALSE', '0', '']:
+                    leganto_missing = False
+            else:
+                leganto_missing = code in leganto_local_set
+
+            record = {
+                'New module code': code,
+                'Module name': name,
+                'Mod. lead': lead,
+                'Prog. lead': ref_fields.get('Prog. lead', ''),
+                'UG/ PG/ Other': level,
+                'URL': ref_fields.get('URL', ''),
+                'Semester': semester,
+                'Ally Measured': measured_score,
+                'Ally Weighted': weighted_score,
+                'Ally 25/26 All': weighted_score if weighted_score is not None else measured_score,
+                'Total Files': files_count,
+                'Ally Shift': (weighted_score - measured_score) if (weighted_score is not None and measured_score is not None) else 0.0,
+                'Leganto Missing': leganto_missing,
+                
+                # Include other legacy audit columns as reference
+                'Available to students?': ref_fields.get('Available to students?', ''),
+                'Draft': ref_fields.get('Draft', ''),
+                'Published': ref_fields.get('Published', ''),
+                'Encore linked and visible': ref_fields.get('Encore linked and visible', ''),
+                'Learning materials structure in place': ref_fields.get('Learning materials structure in place', ''),
+                'Welcome to your module message?': ref_fields.get('Welcome to your module message?', ''),
+                'Key staff contacts complete?': ref_fields.get('Key staff contacts complete?', ''),
+                'Module outline complete?': ref_fields.get('Module outline complete?', ''),
+                'How you will be assessed visible?': ref_fields.get('How you will be assessed visible?', ''),
+                'Skills development (SGAs) visible?': ref_fields.get('Skills development (SGAs) visible?', ''),
+                'Accessibility statement visible?': ref_fields.get('Accessibility statement visible?', ''),
+                'School handbook visible?': ref_fields.get('School handbook visible?', ''),
+                'Assessment overview - present and consistent with SITS': ref_fields.get('Assessment overview - present and consistent with SITS', ''),
+                'Assessment support and guidance visible to students?': ref_fields.get('Assessment support and guidance visible to students?', ''),
+                'University help and study support visible to students?': ref_fields.get('University help and study support visible to students?', ''),
+                'Comments': ref_fields.get('Comments', '')
+            }
+            records.append(record)
+            
+        df_all = pd.DataFrame(records)
+        
+        # Partition
+        df_aut = df_all[df_all['Semester'] == 'Autumn'].copy()
+        df_spr = df_all[df_all['Semester'] == 'Spring'].copy()
+        df_all_year = df_all[df_all['Semester'] == 'All year'].copy()
+        
+        # All year modules run in both semesters, so include them in both lists
+        df_aut = pd.concat([df_aut, df_all_year], ignore_index=True)
+        df_spr = pd.concat([df_spr, df_all_year], ignore_index=True)
+        
+        logging.info(f"✅ Successfully compiled SITS module list (Autumn: {len(df_aut)}, Spring: {len(df_spr)}).")
+        return df_aut, df_spr
     except Exception as e:
-        logging.error(f"Error loading checklist from SQLite: {e}")
+        logging.error(f"Error loading SITS audit data: {e}")
+        return pd.DataFrame(), pd.DataFrame()
+
+@st.cache_data(ttl=10)
+def load_checklist_data():
+    logging.info("📥 Fetching dynamic audit checklist data from SQLite...")
+    try:
+        from database import get_db_connection, get_active_audit_fields
+        active_fields = get_active_audit_fields()
+        active_field_ids = {f['id'] for f in active_fields}
+        
+        with get_db_connection() as conn:
+            if not table_exists(conn, "audit_responses"):
+                return {}
+            df_resp = pd.read_sql_query("SELECT * FROM audit_responses", conn)
+            
+        if df_resp.empty:
+            return {}
+            
+        summaries = {}
+        for m_code, group in df_resp.groupby('module_code'):
+            m_code = str(m_code).strip().upper()
+            responses = {}
+            timestamps = []
+            auditors = []
+            
+            for _, row in group.iterrows():
+                fid = row['field_id']
+                val = row['value']
+                responses[fid] = val
+                if row['timestamp']:
+                    timestamps.append(row['timestamp'])
+                if row['auditor_username']:
+                    auditors.append(row['auditor_username'])
+                    
+            answered_active = [fid for fid in responses if fid in active_field_ids]
+            
+            if not active_field_ids:
+                status = "✅ Complete"
+            elif len(answered_active) >= len(active_field_ids):
+                status = "✅ Complete"
+            elif len(answered_active) > 0:
+                status = "🟡 Partial"
+            else:
+                status = "❌ Incomplete"
+                
+            latest_ts = max(timestamps) if timestamps else "Unknown"
+            latest_auditor = auditors[-1] if auditors else "Unknown"
+            
+            # Pack fields for the display
+            summaries[m_code] = {
+                'Status': status,
+                'Timestamp': latest_ts,
+                'Auditor': latest_auditor,
+                'Responses': responses,
+                'Comments': responses.get('comments', '')
+            }
+            
+        return summaries
+    except Exception as e:
+        logging.error(f"Error loading checklist summaries from SQLite: {e}")
         return {}
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=10)
 def load_assessment_data():
-    logging.info("📥 Fetching SITS assessment data from Google Sheets (Cache Miss)...")
-    assessment_id = os.getenv("ASSESSMENT_SPREADSHEET_ID")
-    if not assessment_id:
-        logging.warning("⚠️ ASSESSMENT_SPREADSHEET_ID not configured in env.")
+    logging.info("📥 Fetching SITS assessment data from SQLite...")
+    try:
+        from database import get_db_connection
+        with get_db_connection() as conn:
+            if table_exists(conn, "sits_assessment_2026_27"):
+                df_assess = pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
+                if 'CIS unit code' in df_assess.columns:
+                    df_assess['CIS unit code'] = df_assess['CIS unit code'].astype(str).str.strip().str.upper()
+                if 'Module code' in df_assess.columns:
+                    df_assess['Module code'] = df_assess['Module code'].astype(str).str.strip().str.upper()
+                logging.info(f"✅ SITS assessment data successfully loaded ({len(df_assess)} rows).")
+                return df_assess
+            else:
+                logging.warning("⚠️ sits_assessment_2026_27 table does not exist in SQLite.")
+                return pd.DataFrame()
+    except Exception as e:
+        logging.error(f"Error reading SITS assessment data: {e}")
         return pd.DataFrame()
-    from processing import get_assessment_data
-    df_assess = get_assessment_data(assessment_id)
-    logging.info(f"✅ SITS assessment data successfully loaded ({len(df_assess)} rows).")
-    return df_assess
 
 # Load the data
-with st.spinner("Fetching data from Google Sheets..."):
+with st.spinner("Fetching data from SQLite database..."):
     df_aut, df_spr = load_audit_data()
     checklist_sums = load_checklist_data()
     df_assess = load_assessment_data()
@@ -223,26 +368,28 @@ def page_faculty_overview():
 def page_school_dashboard():
     view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess)
 
-def page_module_report_card():
-    view_module_report_card(df_aut, df_spr, checklist_sums, df_assess)
+def page_module_report():
+    view_module_report(df_aut, df_spr, checklist_sums, df_assess, load_checklist_data)
 
-def page_module_checklist():
-    view_module_lead_checklist(df_aut, df_spr, load_checklist_data, df_assess)
-
-def page_feedback():
-    view_feedback()
-
-def page_help():
-    view_help()
-
-def page_changelog():
-    view_changelog()
-
-def page_dev_guide():
-    view_developer_guide()
-
-def page_contribute():
-    view_contribute()
+def page_resources_and_support():
+    tabs_list = ["💡 Help & Support", "💬 App Feedback", "📋 Release Changelog"]
+    if is_dla_or_admin:
+        tabs_list.extend(["💻 Developer Guide", "🤝 How to Contribute"])
+        
+    tabs = st.tabs(tabs_list)
+    
+    with tabs[0]:
+        view_help()
+    with tabs[1]:
+        view_feedback()
+    with tabs[2]:
+        view_changelog()
+        
+    if is_dla_or_admin:
+        with tabs[3]:
+            view_developer_guide()
+        with tabs[4]:
+            view_contribute()
 
 def page_admin():
     view_admin_panel(df_aut, df_spr, checklist_sums, df_assess)
@@ -250,15 +397,8 @@ def page_admin():
 # Define st.Page objects
 pg_faculty = st.Page(page_faculty_overview, title="Faculty Overview", icon=":material/account_balance:")
 pg_school = st.Page(page_school_dashboard, title="School Dashboard", icon=":material/dashboard:")
-pg_module = st.Page(page_module_report_card, title="Module Report Card", icon=":material/receipt_long:")
-pg_checklist = st.Page(page_module_checklist, title="Module Checklist", icon=":material/fact_check:")
-
-pg_feedback = st.Page(page_feedback, title="App Feedback", icon=":material/chat:")
-pg_help = st.Page(page_help, title="Help & Support", icon=":material/lightbulb:")
-pg_changelog = st.Page(page_changelog, title="Release Changelog", icon=":material/update:")
-
-pg_dev = st.Page(page_dev_guide, title="Developer Guide", icon=":material/code:")
-pg_contrib = st.Page(page_contribute, title="How to Contribute", icon=":material/handshake:")
+pg_module = st.Page(page_module_report, title="Module report", icon=":material/receipt_long:")
+pg_resources = st.Page(page_resources_and_support, title="Resources & Support", icon=":material/info:")
 pg_admin = st.Page(page_admin, title="Admin Panel", icon=":material/settings:")
 
 
@@ -268,13 +408,8 @@ if can_view_faculty:
     pages_list.append(pg_faculty)
 pages_list.append(pg_school)
 pages_list.append(pg_module)
-if can_view_checklist:
-    pages_list.append(pg_checklist)
+pages_list.append(pg_resources)
 
-pages_list.extend([pg_feedback, pg_help, pg_changelog])
-
-if is_dla_or_admin:
-    pages_list.extend([pg_dev, pg_contrib])
 if is_admin:
     pages_list.append(pg_admin)
 
@@ -301,21 +436,11 @@ with st.sidebar:
         st.page_link(pg_faculty)
     st.page_link(pg_school)
     st.page_link(pg_module)
-    if can_view_checklist:
-        st.page_link(pg_checklist)
+    st.page_link(pg_resources)
 
-    st.caption("Utilities")
-    st.page_link(pg_feedback)
-    st.page_link(pg_help)
-    st.page_link(pg_changelog)
-
-    if is_dla_or_admin or is_admin:
+    if is_admin:
         st.caption("Admin/Developer")
-        if is_dla_or_admin:
-            st.page_link(pg_dev)
-            st.page_link(pg_contrib)
-        if is_admin:
-            st.page_link(pg_admin)
+        st.page_link(pg_admin)
             
     st.divider()
     

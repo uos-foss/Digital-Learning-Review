@@ -40,8 +40,7 @@ The application uses a custom authentication system (`auth.py`) mapped to user c
 ## 5. Core Views & Navigation
 - **🏫 School Dashboard:** The default core view, filtering data by school and active semester.
 - **🏛️ Faculty Overview:** High-level aggregated data across the entire faculty.
-- **📋 Module Report Card:** Deep dive into a specific module's compliance and scores.
-- **✅ Module Checklist:** Interface for viewing/completing self-audits.
+- **📋 Module Report:** Deep dive into a specific module's compliance, scores, and checklist audit items.
 - **Utilities:** App Feedback, Help & Support, Release Changelog.
 - **Admin/Developer Views:** Admin Panel, Developer Guide, How to Contribute.
 

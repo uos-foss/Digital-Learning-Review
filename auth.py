@@ -90,7 +90,7 @@ class EnvAuthProvider(BaseAuthProvider):
         return []
 
 @st.cache_data(ttl=60)
-def load_sheets_users():
+def load_sqlite_users():
     """
     Fetches the registry of users from SQLite.
     Cached for 60 seconds to allow responsive administrator updates.
@@ -119,7 +119,7 @@ def load_sheets_users():
         return {}
 
 @st.cache_data(ttl=60)
-def load_sheets_roles():
+def load_sqlite_roles():
     """
     Queries the 'roles' table from SQLite
     and returns a dictionary mapping role names to their capabilities.
@@ -145,14 +145,14 @@ def load_sheets_roles():
         logging.error(f"❌ Error loading Roles from SQLite: {e}")
         return {}
 
-class GoogleSheetsAuthProvider(BaseAuthProvider):
+class SQLiteAuthProvider(BaseAuthProvider):
     """
-    Phase 2 Authentication: Queries a Google Sheets user ledger containing
+    SQLite Authentication: Queries an SQLite user ledger containing
     usernames, roles, password hashes, and user capabilities.
     """
     def authenticate(self, username: str, password: str) -> bool:
         import hashlib
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users and users[uname]["Status"] == "ACTIVE":
             entered_hash = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
@@ -160,30 +160,30 @@ class GoogleSheetsAuthProvider(BaseAuthProvider):
         return False
 
     def is_valid_user(self, username: str) -> bool:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         return uname in users and users[uname]["Status"] == "ACTIVE"
 
     def get_school_context(self, username: str) -> str:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users:
             return users[uname]["School"]
         return "All"
 
     def get_user_role(self, username: str) -> str:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users:
             return users[uname]["Role"]
         return "School Module Lead"
 
     def get_user_capabilities(self, username: str) -> list:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users:
             role = users[uname]["Role"]
-            roles_map = load_sheets_roles()
+            roles_map = load_sqlite_roles()
             if role.lower() in roles_map:
                 caps_str = roles_map[role.lower()]["Capabilities"]
                 raw_caps = [c.strip() for c in caps_str.split(",") if c.strip()]
@@ -223,11 +223,12 @@ class ActiveDirectoryAuthProvider(BaseAuthProvider):
 def get_auth_provider() -> BaseAuthProvider:
     """Factory to retrieve the active Auth Provider configured in the environment."""
     provider_name = os.getenv("AUTH_PROVIDER", "").strip().upper()
-    if provider_name == "SHEETS" or (not provider_name and os.getenv("USERS_SPREADSHEET_ID")):
-        return GoogleSheetsAuthProvider()
+    if provider_name == "ENV":
+        return EnvAuthProvider()
     elif provider_name in ["AD", "ACTIVE_DIRECTORY"]:
         return ActiveDirectoryAuthProvider()
-    return EnvAuthProvider()
+    # SQLite is the default primary provider
+    return SQLiteAuthProvider()
 
 def check_password():
     """Returns `True` if the user is authenticated (via session or persistent cookie)."""

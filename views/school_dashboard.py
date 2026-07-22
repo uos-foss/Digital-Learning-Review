@@ -225,8 +225,20 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
 
             elif selected_view == "✅ Compliance Gap":
                 st.subheader(f"Compliance Gap Analysis ({semester})")
-                st.caption("Shows the percentage of modules fully meeting audit criteria across key structural areas.")
-                gaps = calculate_compliance_gap(school_df)
+                
+                audit_source = st.radio(
+                    "Select Audit Dataset:",
+                    ["New Audit Checklist (SQLite Primary)", "Legacy VLE Audit (25/26 Reference)"],
+                    horizontal=True,
+                    key="sd_compliance_dataset_selector"
+                )
+                
+                if audit_source == "Legacy VLE Audit (25/26 Reference)":
+                    gaps = calculate_compliance_gap(school_df)
+                else:
+                    from processing import calculate_dynamic_compliance_gap
+                    gaps = calculate_dynamic_compliance_gap(school_code=school)
+                
                 if gaps:
                     gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])
                     gap_df['Compliance %'] = gap_df['Compliance %'] * 100

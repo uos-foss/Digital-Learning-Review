@@ -327,3 +327,70 @@ def sanitize_row_data(row_data):
         sanitized.append(item_str)
         
     return sanitized
+
+def calculate_dynamic_compliance_gap(school_code=None):
+    """
+    Calculates compliance gap metrics dynamically from active SQLite audit fields and responses.
+    """
+    from database import get_db_connection, get_active_audit_fields
+    import pandas as pd
+    
+    active_fields = get_active_audit_fields()
+    if not active_fields:
+        return {}
+        
+    # We compute compliance only for boolean audit fields
+    boolean_fields = [f for f in active_fields if f['field_type'] == 'boolean']
+    if not boolean_fields:
+        return {}
+        
+    with get_db_connection() as conn:
+        # Check if SITS and response tables exist
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sits_assessment_2026_27'")
+        if not cursor.fetchone():
+            return {}
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_responses'")
+        if not cursor.fetchone():
+            return {}
+            
+        # Get SITS unique modules
+        df_sits = pd.read_sql_query("SELECT DISTINCT [CIS unit code] FROM sits_assessment_2026_27", conn)
+        
+        # Get active responses
+        field_ids_str = ','.join([f"'{f['id']}'" for f in boolean_fields])
+        df_resp = pd.read_sql_query(f"SELECT module_code, field_id, value FROM audit_responses WHERE field_id IN ({field_ids_str})", conn)
+        
+    if df_sits.empty:
+        return {}
+        
+    df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
+    
+    # Filter modules by school if specified
+    if school_code and school_code != 'All':
+        df_sits = df_sits[df_sits['CIS unit code'].str.startswith(school_code, na=False)]
+        
+    total_modules = len(df_sits)
+    if total_modules == 0:
+        return {}
+        
+    # Calculate compliance gap for each field
+    gaps = {}
+    for field in boolean_fields:
+        fid = field['id']
+        label = field['label']
+        
+        # Filter responses for this field
+        field_resps = df_resp[df_resp['field_id'] == fid].copy()
+        field_resps['module_code'] = field_resps['module_code'].astype(str).str.strip().str.upper()
+        
+        # Keep only responses that correspond to our filtered modules list
+        valid_codes = set(df_sits['CIS unit code'])
+        field_resps = field_resps[field_resps['module_code'].isin(valid_codes)]
+        
+        # Count true/yes values
+        compliant_count = field_resps['value'].apply(lambda x: str(x).upper() in ['TRUE', 'YES', '1']).sum()
+        
+        gaps[label] = float(compliant_count / total_modules)
+        
+    return gaps
