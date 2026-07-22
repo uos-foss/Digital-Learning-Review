@@ -35,6 +35,55 @@ st.set_page_config(
     layout="wide"
 )
 
+# Custom CSS for Premium Design & Modern Typography (Outfit / Google Fonts)
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+    
+    html, body, [class*="css"], .stApp {
+        font-family: 'Outfit', sans-serif;
+    }
+    
+    /* Make metric cards feel premium and card-like */
+    div[data-testid="stMetric"] {
+        background-color: rgba(120, 120, 120, 0.05);
+        border: 1px solid rgba(120, 120, 120, 0.15);
+        padding: 15px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.02);
+        transition: all 0.25s ease-in-out;
+    }
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.06);
+        border-color: rgba(120, 120, 120, 0.25);
+    }
+    
+    /* Soft border for containers and expanders */
+    div[data-testid="stExpander"] {
+        border-radius: 10px;
+        border: 1px solid rgba(120, 120, 120, 0.15);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+    }
+    
+    /* Styling headers */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Style button transitions */
+    button[data-testid="stBaseButton-secondary"] {
+        transition: all 0.2s ease-in-out;
+        border-radius: 8px;
+    }
+    button[data-testid="stBaseButton-secondary"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 from auth import check_password
 
 # Secure Authentication & Session Persistence
