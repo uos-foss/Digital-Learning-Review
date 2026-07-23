@@ -12,6 +12,32 @@ from database import (
     update_module_lead_sqlite
 )
 
+def title_case_name(name: str) -> str:
+    if not name:
+        return name
+    words = name.split()
+    title_words = []
+    for word in words:
+        if '-' in word:
+            parts = word.split('-')
+            processed_parts = []
+            for part in parts:
+                p = part.capitalize()
+                if p.lower().startswith('mc') and len(p) > 2:
+                    p = 'Mc' + p[2:].capitalize()
+                elif len(p) > 2 and p[:2].upper() in ["O'", "D'", "L'"]:
+                    p = p[:2].upper() + p[2:].capitalize()
+                processed_parts.append(p)
+            word = '-'.join(processed_parts)
+        else:
+            word = word.capitalize()
+            if word.lower().startswith('mc') and len(word) > 2:
+                word = 'Mc' + word[2:].capitalize()
+            elif len(word) > 2 and word[:2].upper() in ["O'", "D'", "L'"]:
+                word = word[:2].upper() + word[2:].capitalize()
+        title_words.append(word)
+    return ' '.join(title_words)
+
 def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_checklist_data_cache=None):
     st.title("📋 Module Report")
     
@@ -95,13 +121,17 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         
         # 1. Overview Metadata Header Card
         if active_row is not None:
-            mod_lead = str(active_row.get('Mod. lead', '')).strip()
-            if not mod_lead or mod_lead == 'nan':
+            raw_mod_lead = str(active_row.get('Mod. lead', '')).strip()
+            if not raw_mod_lead or raw_mod_lead.lower() == 'nan':
                 mod_lead = "*Not Specified*"
+            else:
+                mod_lead = title_case_name(raw_mod_lead)
                 
-            prog_lead = str(active_row.get('Prog. lead', '')).strip()
-            if not prog_lead or prog_lead == 'nan':
+            raw_prog_lead = str(active_row.get('Prog. lead', '')).strip()
+            if not raw_prog_lead or raw_prog_lead.lower() == 'nan':
                 prog_lead = "*Not Specified*"
+            else:
+                prog_lead = title_case_name(raw_prog_lead)
                 
             ug_pg = str(active_row.get('UG/ PG/ Other', '')).strip()
             if not ug_pg or ug_pg == 'nan':
@@ -175,19 +205,23 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 col_score, col_progress, col_files = st.columns([1.3, 1.7, 1.0])
                 
                 with col_score:
-                    # Color coding logic
-                    if score_val >= 0.90:
-                        color = "#10B981" # Green
-                        level = "Excellent Accessibility"
-                    elif score_val >= 0.70:
+                    # Color coding logic (matching Blackboard Ally score tiers and descriptions)
+                    if score_val >= 1.0:
+                        color = "#047857" # Dark Green
+                        level = "Perfect"
+                        description = "Perfect! No accessibility issues were found by the tool."
+                    elif score_val >= 0.67:
+                        color = "#10B981" # Light Green
+                        level = "High"
+                        description = "Almost there. The file is mostly accessible, but minor improvements are still possible."
+                    elif score_val >= 0.34:
                         color = "#F59E0B" # Amber/Orange
-                        level = "Good Accessibility"
-                    elif score_val >= 0.50:
-                        color = "#EF4444" # Red
-                        level = "Needs Improvement"
+                        level = "Medium"
+                        description = "A little better. The file is somewhat accessible and needs improvement."
                     else:
-                        color = "#DC2626" # Deep Red
-                        level = "Critical Action Required"
+                        color = "#EF4444" # Red
+                        level = "Low"
+                        description = "Needs help! The file has severe or multiple accessibility issues."
                     
                     st.markdown(f"""
                     <div style="text-align: center; border-radius: 10px; padding: 12px 8px; background-color: {color}10; border: 1px solid {color}33; box-shadow: 0 2px 6px {color}08; margin-top: 5px;">
@@ -200,6 +234,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
                     st.markdown("**Ally Score Progress:**")
                     st.progress(score_val)
+                    st.caption(description)
                     
                 with col_files:
                     st.metric("Files Scanned", f"{files_val}", help="Total number of uploaded learning materials and files processed by Ally.")

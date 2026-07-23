@@ -108,8 +108,8 @@ def get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             # SQLite query returning the most recent row
-            # Since self_audit_checklist keeps only the latest via UPSERT, we just select it.
-            cursor.execute("SELECT timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments FROM self_audit_checklist WHERE module_code = ?", (module_code,))
+            # Since audit_checklist keeps only the latest via UPSERT, we just select it.
+            cursor.execute("SELECT timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments FROM audit_checklist WHERE module_code = ?", (module_code,))
             row = cursor.fetchone()
             if row:
                 return [row['timestamp'], row['module_code'], row['module_name'], row['welcome_message'], row['contacts_complete'], row['outline_visible'], row['assessment_overview'], row['comments']]

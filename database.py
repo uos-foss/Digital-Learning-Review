@@ -2,6 +2,7 @@ import sqlite3
 import os
 import pandas as pd
 import platform
+import logging
 
 def get_database_path():
     """
@@ -37,7 +38,7 @@ def init_db():
 
     # Create high-write dynamic table for checklists
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS self_audit_checklist (
+        CREATE TABLE IF NOT EXISTS audit_checklist (
             id TEXT PRIMARY KEY,
             timestamp TEXT,
             module_code TEXT,
@@ -53,9 +54,13 @@ def init_db():
     
     # Graceful migration for existing DB
     try:
-        cursor.execute("ALTER TABLE self_audit_checklist ADD COLUMN is_synced INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass # Column already exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='self_audit_checklist'")
+        if cursor.fetchone():
+            cursor.execute("INSERT OR REPLACE INTO audit_checklist SELECT * FROM self_audit_checklist")
+            cursor.execute("DROP TABLE self_audit_checklist")
+            logging.info("Migrated legacy self_audit_checklist to audit_checklist successfully.")
+    except Exception as e:
+        logging.error(f"Migration error from self_audit_checklist to audit_checklist: {e}")
         
     # Create AI Audit write queue table
     cursor.execute("""
@@ -274,7 +279,7 @@ def save_checklist_record(record_id: str, data_row: list):
         comments = str(data_row[7]) if len(data_row) > 7 else ""
         
         cursor.execute("""
-            INSERT INTO self_audit_checklist (
+            INSERT INTO audit_checklist (
                 id, timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments, is_synced
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
@@ -295,7 +300,7 @@ def get_unsynced_checklists():
     """Returns a list of checklist records that haven't been synced to Google Sheets yet."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM self_audit_checklist WHERE is_synced = 0")
+        cursor.execute("SELECT * FROM audit_checklist WHERE is_synced = 0")
         return [dict(row) for row in cursor.fetchall()]
 
 def mark_checklists_synced(record_ids: list):
@@ -305,7 +310,7 @@ def mark_checklists_synced(record_ids: list):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         placeholders = ','.join('?' * len(record_ids))
-        cursor.execute(f"UPDATE self_audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
+        cursor.execute(f"UPDATE audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()
 
 def save_ai_response(payload: dict):

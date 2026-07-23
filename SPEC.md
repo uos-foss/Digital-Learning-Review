@@ -3,11 +3,11 @@
 ## 1. Project Overview
 The Digital Learning Review Dashboard is a Streamlit-based web application that aggregates and visualizes Virtual Learning Environment (VLE) audit data. It is being built to replace a lengthy manual spreadsheet called the VLE Audit, where manual checks were done to all faculty VLE modules and findings recorded in the audit spreadsheet. The new dashboard aims to replace this by pulling much of the data from other sources. The manual audit data remains in there temporarily so there is data to look at and work with, but it will be removed at some point.
 
-It serves as a central hub for faculty to track compliance, accessibility scores, and review self-audit checklists across various modules, schools, and semesters. 
+It serves as a central hub for faculty to track compliance, accessibility scores, and review audit checklists across various modules, schools, and semesters. 
 
 **Primary Goals & KPIs:**
 - Achieve high Ally accessibility scores across modules.
-- Ensure full compliance with the module lead self-audit checklists.
+- Ensure full compliance with the module lead audit checklists.
 
 ## 2. Architecture & Tech Stack
 - **Language:** Python 3.13
@@ -22,7 +22,7 @@ The application relies heavily on Google Sheets as its backend database. The env
 - **Main Audit Data (`MAIN_SPREADSHEET_ID`):** Contains "All Schools Aut" and "All Schools SPR" tabs. May involve manual edits by auditors.
 - **Ally Accessibility Scores (`ALLY_SPREADSHEET_ID`):** Contains module accessibility data. Updated monthly with new tabs added.
 - **Leganto Lists (`LEGANTO_NOLIST_ID`):** Tracks modules missing reading lists. Updated monthly with new tabs.
-- **Self-Audit Checklist (`CHECKLIST_SPREADSHEET_ID`):** A synchronous sheet where module leads input data. It experiences heavy write operations during specific periods of the academic year.
+- **Audit Checklist (`CHECKLIST_SPREADSHEET_ID`):** A synchronous sheet where module leads and support staff input data. It experiences heavy write operations during specific periods of the academic year.
 - **SITS Assessment Data (`ASSESSMENT_SPREADSHEET_ID`):** Contains formal assessment data. Updated annually with new tabs added.
 
 **Caching Strategy:** The app uses Streamlit's `@st.cache_data` with a Time-To-Live (TTL) of 3600 seconds (1 hour) to minimize API calls to Google Sheets while keeping data reasonably fresh.

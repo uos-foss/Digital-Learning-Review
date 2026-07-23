@@ -8,13 +8,13 @@ def view_help():
     ### 📂 Navigation & Core Modules
     
     1. **🏛️ Faculty Overview**: 
-       * A high-level birds-eye view of all modules across the faculty. Includes average Ally accessibility scores, total completed self-audits, and overall SITS assessment distributions (with cross-school comparison).
+       * A high-level birds-eye view of all modules across the faculty. Includes average Ally accessibility scores, total completed audits, and overall SITS assessment distributions (with cross-school comparison).
     2. **🏫 School Dashboard**: 
        * School-specific analytics pre-filtered based on your active school view preference. Now features the exact same segmented control analysis tabs as the Faculty Overview (All Modules, Ally Analytics, Compliance Gap, Priority Action List, and Assessment Types).
     3. **📋 Module Report Card**: 
        * A detail-rich, unified card search that presents full audit metrics for a single module side-by-side (Autumn vs. Spring).
-    4. **✅ Module Lead Checklist**: 
-       * The interactive self-audit form where module leaders can submit reviews directly back to the persistent Google Sheets ledger.
+    4. **✅ Module Checklist**: 
+       * The interactive audit form where module leaders can submit reviews directly back to the persistent Google Sheets ledger.
     
     ### 📝 SITS Assessment Analysis & School Comparison
     
@@ -82,7 +82,7 @@ def view_changelog():
     * **Integrated User Feedback Form**: Added a dedicated, sidebar-accessible feedback form page (`views/feedback.py`) that writes submissions directly to a Google Sheets ledger.
     * **Multi-School Focus Toggles**: Restructured the School Dashboard, Module Report Card, and Lead Checklist viewports. Users with school-specific accounts can now temporarily uncheck focus to search modules or view dashboards for other schools.
     * **Enhanced Admin & DLA Access**: Upgraded login session handling so ADMIN and DLA accounts default to "All Schools" viewing while retaining toggle controls to inspect individual schools.
-    * **Visual Audit Placeholders**: Fixed the Module Report Card to show a clear "❌ Incomplete" self-audit card indicating missing checklists for un-audited modules rather than displaying empty slots.
+    * **Visual Audit Placeholders**: Fixed the Module Report Card to show a clear "❌ Incomplete" audit card indicating missing checklists for un-audited modules rather than displaying empty slots.
     * **Collaboration Resources**: Integrated an updated slide deck presentation in the "How to Contribute" view utilizing `assets/contribute.html` for better developer onboarding.
 
     ### 📂 Version 1.4.0 - *Lazy-Loaded Controllers & Interactive Routing*
@@ -92,7 +92,7 @@ def view_changelog():
     * **Performance Threshold Lenses**: Completely refactored the Priority Action suite, injecting dynamic analytics lenses for compliance gap summaries and checklist rosters in a single, unified, non-shifting viewport.
 
     ### 📂 Version 1.3.0 - *Local Activity Logging & Layout Tuning*
-    * **Centralized File Logging**: Configured a persistent `app.log` file tracking successful logins, logouts, database syncs, and self-audit submissions.
+    * **Centralized File Logging**: Configured a persistent `app.log` file tracking successful logins, logouts, database syncs, and audit submissions.
     * **Stateless Page Routing**: Refactored the sidebar radio navigation widget to be stateless, resolving previous state-retention overrides when clicking support links.
     * **Sidebar Aesthetics**: Separated core operational tools from help/changelog resources using dedicated full-width action buttons.
     
@@ -107,7 +107,7 @@ def view_changelog():
     ### 📈 Version 1.0.0 - *Saved Views & Session States*
     * **Active School View**: Created sidebar preferences and smart default selectors to tailor viewports dynamically without siloing.
     * **Unified Search**: Standardized module search fields to eliminate dropdown focus issues.
-    * **Checklist Version History**: Added Google Sheets integration for self-audits with a complete historical version trail.
+    * **Checklist Version History**: Added Google Sheets integration for audits with a complete historical version trail.
     """)
 
 def view_developer_guide():

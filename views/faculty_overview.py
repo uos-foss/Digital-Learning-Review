@@ -22,7 +22,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     with col4:
         st.metric("Spring Avg Ally", f"{stats.get('Spring Avg Ally', 0):.1%}")
     with col5:
-        st.metric("Self-Audits Done", len(checklist_sums))
+        st.metric("Audits Completed", len(checklist_sums))
 
     st.divider()
     
@@ -174,7 +174,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         # Static selector anchors the UI interaction
         lens = st.radio(
             "Choose inspection criteria:",
-            ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Self-Audits", "📚 Missing Reading Lists"],
+            ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
             horizontal=True,
             label_visibility="collapsed",
             key="priority_lens_selector"
@@ -250,7 +250,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         render_status = "All modules meet healthy baseline structural thresholds!"
                         render_status_type = "success"
 
-            elif lens == "📋 Missing Self-Audits":
+            elif lens == "📋 Missing Audits":
                 def get_status(code):
                     c_str = str(code).strip()
                     return checklist_sums[c_str].get('Status', "🟡 Partial") if c_str in checklist_sums else "❌ Not Submitted"
@@ -259,7 +259,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 missing_df = source_data[source_data['DisplayValue'] != "✅ Complete"].sort_values('DisplayValue', ascending=False)
                 
                 if not missing_df.empty:
-                    render_status = f"🎯 Found {len(missing_df)} modules either pending self-audit or with partial submissions."
+                    render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
                     render_status_type = "warning"
                     
                     display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
@@ -269,7 +269,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         "Mod. lead": "Lead", "DisplayValue": "Submission Status"
                     }
                 else:
-                    render_status = "All currently listed modules have completed their self-audits! 🌟"
+                    render_status = "All currently listed modules have completed their audits! 🌟"
                     render_status_type = "success"
 
             elif lens == "📚 Missing Reading Lists":

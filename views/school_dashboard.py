@@ -50,13 +50,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
         school_df = target_df[target_df['New module code'].str.startswith(school, na=False)].copy()
         
         if not school_df.empty:
-            # Integration: Add self-audit status
+            # Integration: Add audit status
             def get_audit_status(code):
                 if code in checklist_sums:
                     return checklist_sums[code]['Status']
                 return "❌ No"
             
-            school_df['Self-Audited?'] = school_df['New module code'].apply(get_audit_status)
+            school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
             
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -65,8 +65,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 avg_ally = school_df['Ally 25/26 All'].mean() if 'Ally 25/26 All' in school_df.columns else 0
                 st.metric("Avg Ally Score", f"{avg_ally:.1%}")
             with col3:
-                audited_count = school_df['Self-Audited?'].apply(lambda x: x != "❌ No").sum()
-                st.metric("Self-Audit Participation", f"{(audited_count / len(school_df)):.1%}")
+                audited_count = school_df['Audited?'].apply(lambda x: x != "❌ No").sum()
+                st.metric("Audit Participation", f"{(audited_count / len(school_df)):.1%}")
             
             # Prepare SITS assessment data for the school
             matching_assess = pd.DataFrame()
@@ -115,8 +115,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     display_df['Shift (Δ)'] = display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
                     cols.append('Shift (Δ)')
                     configs['Shift (Δ)'] = "Shift (Δ)"
-                cols.append('Self-Audited?')
-                configs['Self-Audited?'] = "Audited?"
+                cols.append('Audited?')
+                configs['Audited?'] = "Audited?"
                 
                 if 'Leganto Missing' in display_df.columns:
                     display_df['Leganto'] = display_df['Leganto Missing'].apply(lambda x: "❌ No List" if x is True else "✅ OK")
@@ -286,7 +286,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 
                 lens = st.radio(
                     "Choose inspection criteria:",
-                    ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Self-Audits", "📚 Missing Reading Lists"],
+                    ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
                     horizontal=True,
                     label_visibility="collapsed",
                     key="school_priority_lens_selector"
@@ -356,7 +356,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             render_status = "All modules meet healthy baseline structural thresholds!"
                             render_status_type = "success"
 
-                elif lens == "📋 Missing Self-Audits":
+                elif lens == "📋 Missing Audits":
                     def get_status(code):
                         c_str = str(code).strip()
                         return checklist_sums[c_str].get('Status', "🟡 Partial") if c_str in checklist_sums else "❌ Not Submitted"
@@ -365,7 +365,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     missing_df = source_data[source_data['DisplayValue'] != "✅ Complete"].sort_values('DisplayValue', ascending=False)
                     
                     if not missing_df.empty:
-                        render_status = f"🎯 Found {len(missing_df)} modules either pending self-audit or with partial submissions."
+                        render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
                         render_status_type = "warning"
                         
                         display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
@@ -375,7 +375,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             "Mod. lead": "Lead", "DisplayValue": "Submission Status"
                         }
                     else:
-                        render_status = "All currently listed modules have completed their self-audits! 🌟"
+                        render_status = "All currently listed modules have completed their audits! 🌟"
                         render_status_type = "success"
 
                 elif lens == "📚 Missing Reading Lists":

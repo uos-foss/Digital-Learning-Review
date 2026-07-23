@@ -111,6 +111,22 @@ def table_exists(conn, table_name):
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     return cursor.fetchone() is not None
 
+def map_level_value(val):
+    if pd.isna(val):
+        return ''
+    s = str(val).strip()
+    if s.lower() in ('nan', 'none', ''):
+        return ''
+    level_map = {
+        'F': 'Foundation',
+        '4': 'UG Level 1',
+        '5': 'UG Level 2',
+        '6': 'UG Level 3',
+        '7': 'PGT',
+        '8': 'PGR'
+    }
+    return level_map.get(s.upper(), s)
+
 @st.cache_data(ttl=10)
 def load_audit_data():
     logging.info("📥 Constructing module list from SITS as single source of truth...")
@@ -122,6 +138,9 @@ def load_audit_data():
                 logging.warning("⚠️ sits_assessment_2026_27 table not found in database. Falling back to legacy tables.")
                 df_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn) if table_exists(conn, "main_vle_audit_aut") else pd.DataFrame()
                 df_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn) if table_exists(conn, "main_vle_audit_spr") else pd.DataFrame()
+                for df in [df_aut, df_spr]:
+                    if not df.empty and 'UG/ PG/ Other' in df.columns:
+                        df['UG/ PG/ Other'] = df['UG/ PG/ Other'].map(map_level_value)
                 return df_aut, df_spr
 
             df_sits = pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
@@ -173,7 +192,7 @@ def load_audit_data():
             code = row['CIS unit code']
             name = row.get('Module name', '')
             lead = row.get('Academic contact', '')
-            level = row.get('Module level', '')
+            level = map_level_value(row.get('Module level', ''))
             period = str(row.get('Period', '')).strip().upper()
             
             # Map period to semester
