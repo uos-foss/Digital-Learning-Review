@@ -124,6 +124,18 @@ def init_db():
         )
     """)
 
+    # Create feedback table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            Timestamp TEXT,
+            User TEXT,
+            School TEXT,
+            Category TEXT,
+            Rating INTEGER,
+            Comments TEXT
+        )
+    """)
+
     # Seed default comment bank if empty
     cursor.execute("SELECT COUNT(*) FROM comment_bank")
     if cursor.fetchone()[0] == 0:
@@ -500,4 +512,14 @@ def update_module_lead_sqlite(module_code: str, new_lead: str):
         if cursor.fetchone():
             cursor.execute("UPDATE main_vle_audit_spr SET [Mod. lead] = ? WHERE [New module code] = ?", (new_lead, module_code))
             
+        conn.commit()
+
+def save_feedback_sqlite(timestamp, username, school, category, rating, comments):
+    """Saves a feedback submission in the SQLite database."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO feedback (Timestamp, User, School, Category, Rating, Comments)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (timestamp, username, school, category, rating, comments))
         conn.commit()
