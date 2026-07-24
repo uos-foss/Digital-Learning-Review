@@ -111,7 +111,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         "👤 User Control",
         "📋 Audit Field Manager",
         "📂 Data Import/Export",
-        "⚙️ System Maintenance"
+        "⚙️ System Maintenance",
+        "🗄️ Database Explorer"
     ]
     
     selected_tab = st.segmented_control(
@@ -685,13 +686,16 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.write("Configure the library of quick comments available for auditors to pick as tags.")
                 
                 with get_db_connection() as conn:
-                    df_tags = pd.read_sql_query("SELECT tag FROM comment_bank ORDER BY tag", conn)
+                    df_tags = pd.read_sql_query("SELECT id, category, comment, advice FROM comment_bank ORDER BY category, comment", conn)
                     
                 edited_tags_df = st.data_editor(
                     df_tags,
                     num_rows="dynamic",
                     column_config={
-                        "tag": st.column_config.TextColumn("Standard Comment / Tag", help="A predefined common feedback tag.", required=True)
+                        "id": None, # Hide the ID column
+                        "category": st.column_config.TextColumn("Category", help="Category of the comment"),
+                        "comment": st.column_config.TextColumn("Standard Comment", help="A predefined common feedback comment.", required=True),
+                        "advice": st.column_config.TextColumn("Advice", help="Advice to append to the comment")
                     },
                     use_container_width=True,
                     hide_index=True,
@@ -706,14 +710,23 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 if save_tags:
                     valid_tags = []
                     for idx, row in edited_tags_df.iterrows():
-                        tag_val = str(row.get('tag', '')).strip()
-                        if tag_val:
-                            valid_tags.append((tag_val,))
+                        comment_val = str(row.get('comment', '')).strip()
+                        category_val = str(row.get('category', '')).strip() if pd.notna(row.get('category')) else ''
+                        advice_val = str(row.get('advice', '')).strip() if pd.notna(row.get('advice')) else ''
+                        id_val = row.get('id')
+                        
+                        if pd.isna(id_val) or str(id_val).strip() == "":
+                            id_val = None
+                        else:
+                            id_val = int(id_val)
+                            
+                        if comment_val:
+                            valid_tags.append((id_val, category_val, comment_val, advice_val))
                             
                     with get_db_connection() as conn:
                         cursor = conn.cursor()
                         cursor.execute("DELETE FROM comment_bank")
-                        cursor.executemany("INSERT INTO comment_bank (tag) VALUES (?)", valid_tags)
+                        cursor.executemany("INSERT INTO comment_bank (id, category, comment, advice) VALUES (?, ?, ?, ?)", valid_tags)
                         conn.commit()
                         
                     st.cache_data.clear()
@@ -790,6 +803,24 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             if uploaded_file is not None:
                 try:
                     df_import = pd.read_csv(uploaded_file)
+                    
+                    if target_table == "ally_scores":
+                        # Attempt to parse DD-MM-YY from filename e.g. '15-10-24_Ally Data.csv'
+                        import re
+                        match = re.search(r'(\d{1,2}-\d{1,2}-\d{2,4})', uploaded_file.name)
+                        if match:
+                            parsed_date = pd.to_datetime(match.group(1), format='%d-%m-%y', errors='coerce')
+                            if pd.isna(parsed_date):
+                                parsed_date = pd.to_datetime(match.group(1), format='%d-%m-%Y', errors='coerce')
+                            if not pd.isna(parsed_date):
+                                df_import['snapshot_date'] = parsed_date.strftime('%Y-%m-%d')
+                            else:
+                                st.warning("Could not parse date from filename. Using today's date.")
+                                df_import['snapshot_date'] = datetime.datetime.now().strftime('%Y-%m-%d')
+                        else:
+                            st.warning("No date found in filename. Using today's date.")
+                            df_import['snapshot_date'] = datetime.datetime.now().strftime('%Y-%m-%d')
+
                     st.markdown("**Uploaded Data Preview:**")
                     st.dataframe(df_import.head(3), use_container_width=True)
                     st.metric("Records parsed from CSV", len(df_import))
@@ -819,7 +850,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                             "audit_responses": ["module_code", "field_id"],
                                             "users": "Username",
                                             "roles": "Role",
-                                            "ally_scores": "module_code",
+                                            "ally_scores": ["module_code", "snapshot_date"],
                                             "leganto_nolist": "module_code",
                                             "main_vle_audit_aut": None,
                                             "main_vle_audit_spr": None

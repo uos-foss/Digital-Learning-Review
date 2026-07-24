@@ -108,12 +108,37 @@ def init_db():
     # Create ally_scores table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ally_scores (
-            module_code TEXT PRIMARY KEY,
+            module_code TEXT,
+            snapshot_date TEXT,
             measured REAL,
             weighted REAL,
-            files INTEGER
+            files INTEGER,
+            PRIMARY KEY (module_code, snapshot_date)
         )
     """)
+
+    # Check and migrate ally_scores table if it exists but lacks snapshot_date
+    cursor.execute("PRAGMA table_info(ally_scores)")
+    ally_columns = [row[1] for row in cursor.fetchall()]
+    
+    if ally_columns and 'snapshot_date' not in ally_columns:
+        cursor.execute("ALTER TABLE ally_scores RENAME TO ally_scores_old")
+        cursor.execute("""
+            CREATE TABLE ally_scores (
+                module_code TEXT,
+                snapshot_date TEXT,
+                measured REAL,
+                weighted REAL,
+                files INTEGER,
+                PRIMARY KEY (module_code, snapshot_date)
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO ally_scores (module_code, snapshot_date, measured, weighted, files)
+            SELECT module_code, '2024-09-01', measured, weighted, files
+            FROM ally_scores_old
+        """)
+        cursor.execute("DROP TABLE ally_scores_old")
 
     # Create leganto_nolist table
     cursor.execute("""
@@ -122,12 +147,36 @@ def init_db():
         )
     """)
 
-    # Create comment_bank table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS comment_bank (
-            tag TEXT PRIMARY KEY
-        )
-    """)
+    # Check and migrate comment_bank table
+    cursor.execute("PRAGMA table_info(comment_bank)")
+    columns = [row[1] for row in cursor.fetchall()]
+    
+    if columns and 'category' not in columns:
+        # Migrate old comment_bank to new schema
+        cursor.execute("ALTER TABLE comment_bank RENAME TO comment_bank_old")
+        cursor.execute("""
+            CREATE TABLE comment_bank (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                comment TEXT,
+                advice TEXT
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO comment_bank (comment)
+            SELECT tag FROM comment_bank_old
+        """)
+        cursor.execute("DROP TABLE comment_bank_old")
+    elif not columns:
+        # Create comment_bank table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS comment_bank (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                comment TEXT,
+                advice TEXT
+            )
+        """)
 
     # Create feedback table
     cursor.execute("""
@@ -145,17 +194,18 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM comment_bank")
     if cursor.fetchone()[0] == 0:
         default_tags = [
-            ("Ally report: accessibility issues found (descriptions/contrast/headings)",),
-            ("Ally report: untagged or scanned PDFs require OCR",),
-            ("Upload files directly to VLE (linked Google Drive files bypass Ally checker)",),
-            ("VLE structure: partial learning material structure in place",),
-            ("VLE structure: staff contact details or office hours missing",),
-            ("VLE structure: template has not been populated by module lead",),
-            ("Assessment overview: not completed or inconsistent with SITS",),
-            ("Module not running: no students or content found",),
-            ("Compliant: excellent accessibility and structure",)
+            ("Accessibility", "Ally report indicates PowerPoint files scoring low due to images with missing descriptions", "Check through the Ally report in course tools to identify files to be fixed. Add image descriptions to images and re-upload the PowerPoint file."),
+            ("Accessibility", "Ally report: accessibility issues found (descriptions/contrast/headings)", "Review Ally report and fix issues such as image descriptions, contrast, and headings."),
+            ("Accessibility", "Ally report: untagged or scanned PDFs require OCR", "Run OCR on PDFs to ensure text is readable by screen readers."),
+            ("VLE Structure", "Upload files directly to VLE (linked Google Drive files bypass Ally checker)", "Upload files directly to VLE instead of linking from Google Drive."),
+            ("VLE Structure", "VLE structure: partial learning material structure in place", "Complete the missing structure for learning materials."),
+            ("VLE Structure", "VLE structure: staff contact details or office hours missing", "Add staff contact details and office hours to the VLE."),
+            ("VLE Structure", "VLE structure: template has not been populated by module lead", "Ensure the module lead populates the required VLE template."),
+            ("Assessment", "Assessment overview: not completed or inconsistent with SITS", "Update the assessment overview to match SITS exactly."),
+            ("General", "Module not running: no students or content found", "Confirm if module is running. If not, no further action required."),
+            ("Compliance", "Compliant: excellent accessibility and structure", "No action needed. Great job!")
         ]
-        cursor.executemany("INSERT INTO comment_bank (tag) VALUES (?)", default_tags)
+        cursor.executemany("INSERT INTO comment_bank (category, comment, advice) VALUES (?, ?, ?)", default_tags)
 
     # Seed default fields if empty
     cursor.execute("SELECT COUNT(*) FROM audit_fields")
@@ -165,7 +215,7 @@ def init_db():
             ("contacts_complete", "Key staff contacts complete?", "Verify key contacts are populated.", "boolean", 1, 2),
             ("outline_visible", "Module outline visible?", "Ensure module outline is visible to students.", "boolean", 1, 3),
             ("assessment_overview", "Assessment overview consistent with SITS?", "Cross-reference assessment overview with SITS.", "boolean", 1, 4),
-            ("comments", "Additional Comments", "Provide any extra comments or observations.", "text", 1, 5)
+            ("comments", "Additional Observations", "Provide any extra comments or observations.", "text", 1, 5)
         ]
         cursor.executemany("""
             INSERT INTO audit_fields (id, label, description, field_type, is_active, display_order)
@@ -489,11 +539,12 @@ def delete_role_sqlite(role_name: str):
         conn.commit()
 
 def get_comment_bank():
-    """Fetches all predefined quick comments (tags) from the database."""
+    """Fetches all predefined quick comments from the database as dictionaries."""
     with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT tag FROM comment_bank ORDER BY tag")
-        return [row[0] for row in cursor.fetchall()]
+        cursor.execute("SELECT id, category, comment, advice FROM comment_bank ORDER BY category, comment")
+        return [dict(row) for row in cursor.fetchall()]
 
 def update_module_lead_sqlite(module_code: str, new_lead: str):
     """Updates the module lead name in SITS and main vle audit tables if they exist."""

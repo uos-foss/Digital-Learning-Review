@@ -253,20 +253,26 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             elif lens == "📋 Missing Audits":
                 def get_status(code):
                     c_str = str(code).strip()
-                    return checklist_sums[c_str].get('Status', "🟡 Partial") if c_str in checklist_sums else "❌ Not Submitted"
+                    return checklist_sums[c_str].get('Status', "❌ Not Audited") if c_str in checklist_sums else "❌ Not Audited"
+                def get_actions(code):
+                    c_str = str(code).strip()
+                    return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
                 
                 source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
-                missing_df = source_data[source_data['DisplayValue'] != "✅ Complete"].sort_values('DisplayValue', ascending=False)
+                source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
+                
+                missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
                 
                 if not missing_df.empty:
-                    render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
+                    render_status = f"🎯 Found {len(missing_df)} modules pending audit."
                     render_status_type = "warning"
                     
-                    display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
+                    display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue', 'Actionable Items']
                     render_df = missing_df[display_cols].copy()
                     render_configs = {
                         "New module code": "Code", "Module name": "Module Name",
-                        "Mod. lead": "Lead", "DisplayValue": "Submission Status"
+                        "Mod. lead": "Lead", "DisplayValue": "Audit Status",
+                        "Actionable Items": st.column_config.NumberColumn("Actionable Items")
                     }
                 else:
                     render_status = "All currently listed modules have completed their audits! 🌟"

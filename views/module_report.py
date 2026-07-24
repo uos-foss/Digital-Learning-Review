@@ -232,9 +232,21 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     
                 with col_progress:
                     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-                    st.markdown("**Ally Score Progress:**")
-                    st.progress(score_val)
-                    st.caption(description)
+                    st.markdown("**Ally Score Over Time:**")
+                    
+                    df_ally_local = st.session_state.get("df_ally_local", pd.DataFrame())
+                    if not df_ally_local.empty and 'snapshot_date' in df_ally_local.columns:
+                        module_history = df_ally_local[df_ally_local['module_code'] == code].copy()
+                        if not module_history.empty and len(module_history) > 1:
+                            module_history['snapshot_date'] = pd.to_datetime(module_history['snapshot_date'])
+                            module_history = module_history.sort_values('snapshot_date').set_index('snapshot_date')
+                            st.line_chart(module_history['weighted'], height=100)
+                        else:
+                            st.progress(score_val)
+                            st.caption(description)
+                    else:
+                        st.progress(score_val)
+                        st.caption(description)
                     
                 with col_files:
                     st.metric("Files Scanned", f"{files_val}", help="Total number of uploaded learning materials and files processed by Ally.")
@@ -262,8 +274,20 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             # Elevated Privilege Mode: Editable Form
             prev_responses = get_audit_responses(selected_code) if selected_code else {}
             comment_bank = get_comment_bank()
+            cb_options = [c['id'] for c in comment_bank]
+            cb_format_map = {c['id']: f"{c['category']}: {c['comment']}" for c in comment_bank}
+            def format_cb(cb_id):
+                return cb_format_map.get(cb_id, str(cb_id))
             
-            with st.expander("📝 Edit Module Checklist", expanded=True):
+            if selected_code in checklist_sums:
+                sum_entry = checklist_sums[selected_code]
+                audit_status = sum_entry.get('Status', '❌ Not Audited')
+                actionable = sum_entry.get('Actionable Items', 0)
+                expander_title = f"📝 Edit Module Checklist ({audit_status} | {actionable} Actionable Items)"
+            else:
+                expander_title = "📝 Edit Module Checklist (❌ Not Audited)"
+                
+            with st.expander(expander_title, expanded=True):
                 # Check when it was last updated
                 last_updated = None
                 last_auditor = None
@@ -298,7 +322,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                             
                             if ftype == 'boolean':
                                 def_val = str(prev_val).upper() == 'TRUE' if prev_val is not None else False
-                                responses_input[fid] = st.checkbox(label, value=def_val, help=desc)
+                                responses_input[fid] = st.checkbox(label, value=def_val, help=desc, key=f"rc_chk_{selected_code}_{fid}")
                             elif ftype == 'text':
                                 prev_tags = []
                                 prev_custom = ""
@@ -317,19 +341,44 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                 if desc:
                                     st.caption(desc)
                                     
+                                cb_options = [c['id'] for c in comment_bank]
+                                mapped_prev_tags = []
+                                for pt in prev_tags:
+                                    if isinstance(pt, int) and pt in cb_options:
+                                        mapped_prev_tags.append(pt)
+                                    elif isinstance(pt, str):
+                                        matched = False
+                                        for c in comment_bank:
+                                            if c['comment'] == pt:
+                                                mapped_prev_tags.append(c['id'])
+                                                matched = True
+                                                break
+                                        if not matched:
+                                            prev_custom = (pt + "\n" + prev_custom) if prev_custom else pt
+                                            
                                 sel_tags = st.multiselect(
                                     "Select Standard Comments (Tags):",
-                                    options=comment_bank,
-                                    default=[t for t in prev_tags if t in comment_bank],
-                                    key=f"rc_tags_{fid}"
+                                    options=cb_options,
+                                    default=mapped_prev_tags,
+                                    format_func=format_cb,
+                                    key=f"rc_tags_{selected_code}_{fid}"
                                 )
                                 custom_text = st.text_area(
-                                    "Additional Custom Comments:",
+                                    "Additional Custom Observations:",
                                     value=prev_custom,
-                                    key=f"rc_custom_{fid}"
+                                    key=f"rc_custom_{selected_code}_{fid}"
                                 )
-                                responses_input[fid] = {"type": "text", "tags_key": f"rc_tags_{fid}", "custom_key": f"rc_custom_{fid}"}
+                                responses_input[fid] = {"type": "text", "tags_key": f"rc_tags_{selected_code}_{fid}", "custom_key": f"rc_custom_{selected_code}_{fid}"}
                                 
+                    st.markdown("---")
+                    prev_audited = str(prev_responses.get('system_audit_complete', {}).get('value', 'False')).upper() == 'TRUE'
+                    responses_input['system_audit_complete'] = st.checkbox(
+                        "**Mark this module as officially audited**", 
+                        value=prev_audited, 
+                        help="Tick this box to officially mark the module as audited in the system.",
+                        key=f"sys_audit_{selected_code}"
+                    )
+                    
                     submitted = st.form_submit_button("Save Updates")
                     if submitted:
                         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -362,8 +411,12 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             if selected_code in checklist_sums:
                 sum_entry = checklist_sums[selected_code]
                 responses = sum_entry.get('Responses', {})
+                comment_bank = get_comment_bank()
                 
-                with st.expander(f"Module Checklist Status: {sum_entry.get('Status', 'Yes')}", expanded=True):
+                audit_status = sum_entry.get('Status', '❌ Not Audited')
+                actionable = sum_entry.get('Actionable Items', 0)
+                
+                with st.expander(f"Module Audit Status: {audit_status} | Actionable Items: {actionable}", expanded=True):
                     if not active_fields:
                         st.info("No active checklist fields are defined.")
                     else:
@@ -386,12 +439,41 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                             custom = data.get("custom", "")
                                             
                                             if tags:
-                                                tag_htmls = []
-                                                for tag in tags:
-                                                    tag_htmls.append(f'<span style="background-color:#EEF2F6;color:#1E293B;padding:4px 8px;border-radius:16px;font-size:12px;margin-right:5px;border:1px solid #CBD5E1;display:inline-block;margin-bottom:5px">{tag}</span>')
-                                                st.markdown(''.join(tag_htmls), unsafe_allow_html=True)
+                                                categorized_tags = {}
+                                                uncategorized = []
+                                                for tag_id in tags:
+                                                    if isinstance(tag_id, int):
+                                                        matched = False
+                                                        for c in comment_bank:
+                                                            if c['id'] == tag_id:
+                                                                cat = c.get('category', 'Uncategorized')
+                                                                if cat not in categorized_tags:
+                                                                    categorized_tags[cat] = []
+                                                                categorized_tags[cat].append(c)
+                                                                matched = True
+                                                                break
+                                                        if not matched:
+                                                            uncategorized.append(str(tag_id))
+                                                    else:
+                                                        uncategorized.append(str(tag_id))
                                                 
+                                                for cat, items in categorized_tags.items():
+                                                    st.markdown(f"###### 📌 {cat}")
+                                                    for item in items:
+                                                        obs = item.get('comment', '')
+                                                        adv = item.get('advice', '')
+                                                        if adv:
+                                                            st.info(f"**Observation:** {obs}\n\n**Actionable Advice:** {adv}")
+                                                        else:
+                                                            st.warning(f"**Observation:** {obs}")
+                                                            
+                                                if uncategorized:
+                                                    st.markdown("###### 📌 Uncategorized / Legacy")
+                                                    for u in uncategorized:
+                                                        st.warning(f"**Observation:** {u}")
+                                                        
                                             if custom.strip():
+                                                st.markdown("###### 📝 Auditor Notes")
                                                 st.write(custom)
                                         else:
                                             st.write(val)

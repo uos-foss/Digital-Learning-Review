@@ -151,6 +151,7 @@ def load_audit_data():
             
             # Load local Ally and Leganto tables if they exist
             df_ally_local = pd.read_sql_query("SELECT * FROM ally_scores", conn) if table_exists(conn, "ally_scores") else pd.DataFrame()
+            st.session_state["df_ally_local"] = df_ally_local
             df_leganto_local = pd.read_sql_query("SELECT * FROM leganto_nolist", conn) if table_exists(conn, "leganto_nolist") else pd.DataFrame()
 
         # Combine legacy tables to build reference lookups
@@ -166,7 +167,11 @@ def load_audit_data():
         ally_local_map = {}
         if not df_ally_local.empty and 'module_code' in df_ally_local.columns:
             df_ally_local['module_code'] = df_ally_local['module_code'].astype(str).str.strip().str.upper()
-            for _, row in df_ally_local.iterrows():
+            if 'snapshot_date' in df_ally_local.columns:
+                latest_ally = df_ally_local.sort_values('snapshot_date').groupby('module_code').tail(1)
+            else:
+                latest_ally = df_ally_local
+            for _, row in latest_ally.iterrows():
                 ally_local_map[row['module_code']] = {
                     'measured': row.get('measured', None),
                     'weighted': row.get('weighted', None),
@@ -296,9 +301,11 @@ def load_audit_data():
 def load_checklist_data():
     logging.info("📥 Fetching dynamic audit checklist data from SQLite...")
     try:
-        from database import get_db_connection, get_active_audit_fields
+        from database import get_db_connection, get_active_audit_fields, get_comment_bank
         active_fields = get_active_audit_fields()
         active_field_ids = {f['id'] for f in active_fields}
+        comment_bank = get_comment_bank()
+        compliant_tag_ids = {c['id'] for c in comment_bank if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
         
         with get_db_connection() as conn:
             if not table_exists(conn, "audit_responses"):
@@ -324,16 +331,32 @@ def load_checklist_data():
                 if row['auditor_username']:
                     auditors.append(row['auditor_username'])
                     
-            answered_active = [fid for fid in responses if fid in active_field_ids]
+            import json
+            active_field_types = {f['id']: f['field_type'] for f in active_fields}
             
-            if not active_field_ids:
-                status = "✅ Complete"
-            elif len(answered_active) >= len(active_field_ids):
-                status = "✅ Complete"
-            elif len(answered_active) > 0:
-                status = "🟡 Partial"
+            actionable_items = 0
+            for fid in active_field_ids:
+                ftype = active_field_types.get(fid)
+                val = responses.get(fid)
+                if ftype == 'boolean':
+                    if str(val).upper() != 'TRUE':
+                        actionable_items += 1
+                elif ftype == 'text' and val:
+                    try:
+                        data = json.loads(val)
+                        if isinstance(data, dict):
+                            tags = data.get("tags", [])
+                            actionable_items += len([t for t in tags if t not in compliant_tag_ids])
+                            if data.get("custom", "").strip():
+                                actionable_items += 1
+                    except Exception:
+                        pass
+                        
+            is_audited = responses.get('system_audit_complete')
+            if str(is_audited).upper() == 'TRUE':
+                status = "✅ Audited"
             else:
-                status = "❌ Incomplete"
+                status = "❌ Not Audited"
                 
             latest_ts = max(timestamps) if timestamps else "Unknown"
             latest_auditor = auditors[-1] if auditors else "Unknown"
@@ -341,6 +364,7 @@ def load_checklist_data():
             # Pack fields for the display
             summaries[m_code] = {
                 'Status': status,
+                'Actionable Items': actionable_items,
                 'Timestamp': latest_ts,
                 'Auditor': latest_auditor,
                 'Responses': responses,

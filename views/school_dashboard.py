@@ -54,9 +54,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             def get_audit_status(code):
                 if code in checklist_sums:
                     return checklist_sums[code]['Status']
-                return "❌ No"
+                return "❌ Not Audited"
+                
+            def get_actionable_items(code):
+                if code in checklist_sums:
+                    return checklist_sums[code].get('Actionable Items', 0)
+                return 0
             
             school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
+            school_df['Actionable Items'] = school_df['New module code'].apply(get_actionable_items)
             
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -65,14 +71,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 avg_ally = school_df['Ally 25/26 All'].mean() if 'Ally 25/26 All' in school_df.columns else 0
                 st.metric("Avg Ally Score", f"{avg_ally:.1%}")
             with col3:
-                audited_count = school_df['Audited?'].apply(lambda x: x != "❌ No").sum()
+                audited_count = school_df['Audited?'].apply(lambda x: "✅" in x).sum()
                 st.metric("Audit Participation", f"{(audited_count / len(school_df)):.1%}")
             
+            # Define school codes for filtering data
+            school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
+
             # Prepare SITS assessment data for the school
             matching_assess = pd.DataFrame()
             type_counts = pd.DataFrame()
             if df_assess is not None and not df_assess.empty:
-                school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
                 matching_assess = df_assess[df_assess['CIS unit code'].isin(school_codes)]
                 if not matching_assess.empty:
                     type_counts = matching_assess['Assessment type'].value_counts().reset_index()
@@ -81,7 +89,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -117,6 +125,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     configs['Shift (Δ)'] = "Shift (Δ)"
                 cols.append('Audited?')
                 configs['Audited?'] = "Audited?"
+                cols.append('Actionable Items')
+                configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
                 
                 if 'Leganto Missing' in display_df.columns:
                     display_df['Leganto'] = display_df['Leganto Missing'].apply(lambda x: "❌ No List" if x is True else "✅ OK")
@@ -222,6 +232,22 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         st.warning("No numerical Ally scores found to distribute.")
                 else:
                     st.warning("No data found for this school.")
+
+            elif selected_view == "📈 Trends":
+                st.subheader(f"Accessibility Trends ({school})")
+                df_ally_local = st.session_state.get("df_ally_local", pd.DataFrame())
+                if not df_ally_local.empty and 'snapshot_date' in df_ally_local.columns:
+                    school_history = df_ally_local[df_ally_local['module_code'].isin(school_codes)].copy()
+                    if not school_history.empty:
+                        school_history['snapshot_date'] = pd.to_datetime(school_history['snapshot_date'])
+                        trend_df = school_history.groupby('snapshot_date')['weighted'].mean().reset_index()
+                        trend_df = trend_df.sort_values('snapshot_date').set_index('snapshot_date')
+                        st.markdown("**Average School Ally Score Over Time**")
+                        st.line_chart(trend_df['weighted'], height=300)
+                    else:
+                        st.info("No historical Ally data available for this school.")
+                else:
+                    st.info("Historical Ally data is not yet available.")
 
             elif selected_view == "✅ Compliance Gap":
                 st.subheader(f"Compliance Gap Analysis ({semester})")
@@ -359,10 +385,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 elif lens == "📋 Missing Audits":
                     def get_status(code):
                         c_str = str(code).strip()
-                        return checklist_sums[c_str].get('Status', "🟡 Partial") if c_str in checklist_sums else "❌ Not Submitted"
+                        return checklist_sums[c_str].get('Status', "❌ Not Audited") if c_str in checklist_sums else "❌ Not Audited"
+                    def get_actions(code):
+                        c_str = str(code).strip()
+                        return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
                     
                     source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
-                    missing_df = source_data[source_data['DisplayValue'] != "✅ Complete"].sort_values('DisplayValue', ascending=False)
+                    source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
+                    
+                    missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
                     
                     if not missing_df.empty:
                         render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
