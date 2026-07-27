@@ -462,11 +462,21 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                                     for item in items:
                                                         obs = item.get('comment', '')
                                                         adv = item.get('advice', '')
+                                                        res_url = str(item.get('resource_url', '')).strip()
+                                                        res_text = str(item.get('resource_text', '')).strip()
+                                                        
+                                                        info_text = f"**Observation:** {obs}"
                                                         if adv:
-                                                            st.info(f"**Observation:** {obs}\n\n**Actionable Advice:** {adv}")
-                                                        else:
-                                                            st.warning(f"**Observation:** {obs}")
+                                                            info_text += f"\n\n**Actionable Advice:** {adv}"
+                                                        if res_url:
+                                                            link_label = res_text if res_text else "Useful Link / Signpost"
+                                                            info_text += f"\n\n🔗 **Resource:** [{link_label}]({res_url})"
                                                             
+                                                        if adv or res_url:
+                                                            st.info(info_text)
+                                                        else:
+                                                            st.warning(info_text)
+                                                        
                                                 if uncategorized:
                                                     st.markdown("###### 📌 Uncategorized / Legacy")
                                                     for u in uncategorized:

@@ -1,7 +1,8 @@
 import os
 import sys
 import pandas as pd
-from database import cache_dataframe_to_sqlite, init_db, save_checklist_record
+from database import cache_dataframe_to_sqlite, init_db, save_checklist_record, get_db_connection
+
 
 def sync_main_audit():
     print("🔄 Pulling Main Audit Data...")
@@ -101,6 +102,165 @@ def sync_ai_responses():
         except Exception as e:
             print(f"❌ Error syncing AI Responses: {e}")
 
+def sync_comment_bank():
+    print("🔄 Syncing Comment Bank bidirectionally (Pull & Push)...")
+    import logging
+    from data_manager import get_spreadsheet_data
+    sheet_id = os.getenv("DATA_SHEET_ID")
+    if not sheet_id:
+        msg = "DATA_SHEET_ID is not configured in the environment variables."
+        logging.error(msg)
+        print(f"❌ {msg}")
+        raise ValueError(msg)
+        
+    try:
+        # 1. Fetch remote data from Google Sheets
+        ss, _ = get_spreadsheet_data(sheet_id)
+        try:
+            sheet = ss.worksheet("Comment_Bank")
+        except Exception:
+            # If the sheet doesn't exist, create it with correct headers
+            sheet = ss.add_worksheet(title="Comment_Bank", rows=100, cols=6)
+            sheet.update('A1', [['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']])
+            
+        data = sheet.get_all_values()
+        
+        # 2. Fetch local data from SQLite
+        with get_db_connection() as conn:
+            try:
+                df_local = pd.read_sql_query("SELECT id, category, comment, advice, resource_url, resource_text FROM comment_bank", conn)
+            except Exception:
+                df_local = pd.DataFrame(columns=['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text'])
+                
+        # 3. Parse remote data
+        if len(data) > 1:
+            df_remote = pd.DataFrame(data[1:], columns=data[0])
+            df_remote.columns = [c.strip().lower() for c in df_remote.columns]
+            if 'tag' in df_remote.columns and 'comment' not in df_remote.columns:
+                df_remote = df_remote.rename(columns={'tag': 'comment'})
+            if 'resources' in df_remote.columns and 'resource_url' not in df_remote.columns:
+                df_remote = df_remote.rename(columns={'resources': 'resource_url'})
+                
+            # Add missing fields
+            for col in ['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']:
+                if col not in df_remote.columns:
+                    df_remote[col] = ""
+            df_remote = df_remote[['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']]
+        else:
+            df_remote = pd.DataFrame(columns=['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text'])
+            
+        # 4. Standardize local dataframe
+        if not df_local.empty:
+            df_local.columns = [c.strip().lower() for c in df_local.columns]
+            df_local = df_local[['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']]
+            
+        # 5. Merge remote and local (remote updates win for rows matching by ID)
+        df_remote['id'] = pd.to_numeric(df_remote['id'], errors='coerce')
+        df_remote_with_id = df_remote[df_remote['id'].notna()].copy()
+        df_remote_with_id['id'] = df_remote_with_id['id'].astype(int)
+        
+        df_remote_no_id = df_remote[df_remote['id'].isna()].copy()
+        
+        # Standardize local IDs
+        df_local['id'] = pd.to_numeric(df_local['id'], errors='coerce').fillna(0).astype(int)
+        
+        # Merge rows with matching IDs (remote edits win for the same ID)
+        df_merged_ids = pd.concat([df_local, df_remote_with_id], ignore_index=True)
+        df_merged_ids = df_merged_ids.drop_duplicates(subset=['id'], keep='last')
+        
+        # Now handle new remote rows without IDs (assign new auto-incremented IDs)
+        if not df_remote_no_id.empty:
+            max_id = df_merged_ids['id'].max()
+            if pd.isna(max_id) or max_id < 0:
+                max_id = 0
+            next_id = int(max_id) + 1
+            
+            new_rows = []
+            for _, row in df_remote_no_id.iterrows():
+                # Avoid duplicate comment text
+                comment_str = str(row['comment']).strip()
+                if comment_str and comment_str not in df_merged_ids['comment'].astype(str).str.strip().values:
+                    new_rows.append({
+                        'id': next_id,
+                        'category': str(row['category']).strip(),
+                        'comment': comment_str,
+                        'advice': str(row['advice']).strip(),
+                        'resource_url': str(row['resource_url']).strip(),
+                        'resource_text': str(row['resource_text']).strip()
+                    })
+                    next_id += 1
+            if new_rows:
+                df_new = pd.DataFrame(new_rows)
+                df_merged = pd.concat([df_merged_ids, df_new], ignore_index=True)
+            else:
+                df_merged = df_merged_ids
+        else:
+            df_merged = df_merged_ids
+            
+        # Ensure we drop any rows where comment is empty
+        df_merged['comment'] = df_merged['comment'].astype(str).str.strip()
+        df_merged = df_merged[df_merged['comment'] != ""]
+        
+        # Sort by category and comment to keep it clean
+        df_merged = df_merged.sort_values(by=['category', 'comment']).reset_index(drop=True)
+        df_merged = df_merged[['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']]
+        
+        # 7. Save merged data back to SQLite
+        cache_dataframe_to_sqlite(df_merged, "comment_bank")
+        init_db()
+        
+        # 8. Push merged data back to Google Sheets (making them perfectly in sync)
+        sheet.clear()
+        df_push = df_merged.fillna("")
+        headers = df_push.columns.tolist()
+        rows_to_push = [headers] + df_push.values.tolist()
+        
+        try:
+            sheet.update(range_name='A1', values=rows_to_push)
+        except TypeError:
+            sheet.update('A1', rows_to_push)
+            
+        print("✅ Comment Bank synced bidirectionally (SQLite & Google Sheets updated).")
+    except Exception as e:
+        logging.error(f"Error syncing Comment Bank: {e}")
+        print(f"❌ Error syncing Comment Bank: {e}")
+        raise e
+
+
+def push_comment_bank_to_sheets():
+    """Pushes the local comment_bank table from SQLite to Google Sheets (overwriting it)."""
+    import logging
+    from data_manager import get_spreadsheet_data
+    sheet_id = os.getenv("DATA_SHEET_ID")
+    if not sheet_id:
+        return
+        
+    try:
+        ss, _ = get_spreadsheet_data(sheet_id)
+        try:
+            sheet = ss.worksheet("Comment_Bank")
+        except Exception:
+            sheet = ss.add_worksheet(title="Comment_Bank", rows=100, cols=6)
+            
+        with get_db_connection() as conn:
+            df_local = pd.read_sql_query("SELECT id, category, comment, advice, resource_url, resource_text FROM comment_bank", conn)
+            
+        if not df_local.empty:
+            sheet.clear()
+            df_push = df_local.fillna("")
+            headers = df_push.columns.tolist()
+            rows_to_push = [headers] + df_push.values.tolist()
+            try:
+                sheet.update(range_name='A1', values=rows_to_push)
+            except TypeError:
+                sheet.update('A1', rows_to_push)
+            print("✅ Comment Bank successfully pushed to Google Sheets.")
+    except Exception as e:
+        logging.error(f"Error pushing Comment Bank to Google Sheets: {e}")
+        print(f"❌ Error pushing Comment Bank to Google Sheets: {e}")
+
+
+
 def run_synchronization():
     """ETL pipeline extracting Google Sheets data and writing to SQLite."""
     print("🔄 Starting Data Synchronization...")
@@ -111,6 +271,10 @@ def run_synchronization():
         sync_users_and_roles()
         sync_checklists()
         sync_ai_responses()
+        try:
+            sync_comment_bank()
+        except Exception as e:
+            print(f"⚠️ Skipping Comment Bank sync due to error: {e}")
         print("✅ Full Sync Process Completed.")
     except Exception as e:
         print(f"❌ Synchronisation failed: {str(e)}", file=sys.stderr)
@@ -119,3 +283,4 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     run_synchronization()
+
