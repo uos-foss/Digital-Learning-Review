@@ -312,11 +312,18 @@ def load_checklist_data():
                 return {}
             df_resp = pd.read_sql_query("SELECT * FROM audit_responses", conn)
             
+            # Fetch Leganto missing status from leganto_nolist table
+            df_leganto = pd.read_sql_query("SELECT * FROM leganto_nolist", conn) if table_exists(conn, "leganto_nolist") else pd.DataFrame()
+            leganto_missing_set = set()
+            if not df_leganto.empty and 'module_code' in df_leganto.columns:
+                leganto_missing_set = {str(code).strip().upper() for code in df_leganto['module_code']}
+            
         if df_resp.empty:
-            return {}
+            df_resp = pd.DataFrame(columns=['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'])
             
         summaries = {}
-        for m_code, group in df_resp.groupby('module_code'):
+        grouped = df_resp.groupby('module_code') if not df_resp.empty else []
+        for m_code, group in grouped:
             m_code = str(m_code).strip().upper()
             responses = {}
             timestamps = []
@@ -352,6 +359,10 @@ def load_checklist_data():
                     except Exception:
                         pass
                         
+            # Incorporate Leganto missing status
+            if m_code in leganto_missing_set:
+                actionable_items += 1
+                        
             is_audited = responses.get('system_audit_complete')
             if str(is_audited).upper() == 'TRUE':
                 status = "✅ Audited"
@@ -371,6 +382,18 @@ def load_checklist_data():
                 'Comments': responses.get('comments', '')
             }
             
+        # Ensure modules with missing Leganto but no checklist responses are included
+        for m_code in leganto_missing_set:
+            if m_code not in summaries:
+                summaries[m_code] = {
+                    'Status': "❌ Not Audited",
+                    'Actionable Items': 1,
+                    'Timestamp': "Never",
+                    'Auditor': "System",
+                    'Responses': {},
+                    'Comments': ''
+                }
+                
         return summaries
     except Exception as e:
         logging.error(f"Error loading checklist summaries from SQLite: {e}")

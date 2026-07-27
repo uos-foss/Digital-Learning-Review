@@ -3,8 +3,6 @@ import pandas as pd
 from processing import calculate_compliance_gap, is_compliant_val
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
-    st.title("🏫 School Dashboard")
-    
     schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
     
     user_caps = st.session_state.get("capabilities", [])
@@ -12,8 +10,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     
     if only_own_school:
         school = st.session_state.saved_school
-        st.info(f"Locked to school context: **{school}**")
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {school}</span>"
+        st.markdown(f"<h1>School Dashboard{school_context_badge}</h1>", unsafe_allow_html=True)
     else:
+        st.title("School Dashboard")
         # If saved_school is not "All", show the focus checkbox. If unchecked, let them select another school context.
         if st.session_state.saved_school != "All":
             filter_by_school = st.checkbox(

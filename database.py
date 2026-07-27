@@ -86,6 +86,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS audit_fields (
             id TEXT PRIMARY KEY,
             label TEXT,
+            action_label TEXT,
             description TEXT,
             field_type TEXT,
             is_active INTEGER DEFAULT 1,
@@ -265,16 +266,30 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM audit_fields")
     if cursor.fetchone()[0] == 0:
         default_fields = [
-            ("welcome_message", "Welcome message present?", "Check if welcome message is present on VLE.", "boolean", 1, 1),
-            ("contacts_complete", "Key staff contacts complete?", "Verify key contacts are populated.", "boolean", 1, 2),
-            ("outline_visible", "Module outline visible?", "Ensure module outline is visible to students.", "boolean", 1, 3),
-            ("assessment_overview", "Assessment overview consistent with SITS?", "Cross-reference assessment overview with SITS.", "boolean", 1, 4),
-            ("comments", "Additional Observations", "Provide any extra comments or observations.", "text", 1, 5)
+            ("welcome_message", "Welcome message present?", "Welcome Message Missing", "Check if welcome message is present on VLE.", "boolean", 1, 1),
+            ("contacts_complete", "Key staff contacts complete?", "Staff Contact Details Incomplete", "Verify key contacts are populated.", "boolean", 1, 2),
+            ("outline_visible", "Module outline visible?", "Module Outline Missing", "Ensure module outline is visible to students.", "boolean", 1, 3),
+            ("assessment_overview", "Assessment overview consistent with SITS?", "Assessment Overview Mismatch", "Cross-reference assessment overview with SITS.", "boolean", 1, 4),
+            ("comments", "Additional Observations", "Additional Observations", "Provide any extra comments or observations.", "text", 1, 5)
         ]
         cursor.executemany("""
-            INSERT INTO audit_fields (id, label, description, field_type, is_active, display_order)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, default_fields)
+        
+    # Migrate audit_fields to include action_label if missing
+    cursor.execute("PRAGMA table_info(audit_fields)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'action_label' not in columns:
+        cursor.execute("ALTER TABLE audit_fields ADD COLUMN action_label TEXT")
+        logging.info("Migrated audit_fields table: added action_label column.")
+        
+    # Populate/Update defaults for standard fields to be rephrased action items
+    cursor.execute("UPDATE audit_fields SET action_label = 'Welcome Message Missing' WHERE id = 'welcome_message' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Staff Contact Details Incomplete' WHERE id = 'contacts_complete' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Module Outline Missing' WHERE id = 'outline_visible' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Assessment Overview Mismatch' WHERE id = 'assessment_overview' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Additional Observations' WHERE id = 'comments' AND (action_label IS NULL OR action_label = '')")
         
     # Recreate users table with primary key if it lacks one
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -465,30 +480,31 @@ def get_audit_fields():
     """Returns all active and inactive audit fields ordered by display_order."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, label, description, field_type, is_active, display_order FROM audit_fields ORDER BY display_order")
+        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields ORDER BY display_order")
         return [dict(row) for row in cursor.fetchall()]
 
 def get_active_audit_fields():
     """Returns only active audit fields ordered by display_order."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, label, description, field_type, is_active, display_order FROM audit_fields WHERE is_active = 1 ORDER BY display_order")
+        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields WHERE is_active = 1 ORDER BY display_order")
         return [dict(row) for row in cursor.fetchall()]
 
-def save_audit_field(field_id: str, label: str, description: str, field_type: str, is_active: int, display_order: int):
+def save_audit_field(field_id: str, label: str, action_label: str, description: str, field_type: str, is_active: int, display_order: int):
     """Saves or updates an audit field definition."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO audit_fields (id, label, description, field_type, is_active, display_order)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label=excluded.label,
+                action_label=excluded.action_label,
                 description=excluded.description,
                 field_type=excluded.field_type,
                 is_active=excluded.is_active,
                 display_order=excluded.display_order
-        """, (field_id.strip().lower(), label, description, field_type, is_active, display_order))
+        """, (field_id.strip().lower(), label, action_label, description, field_type, is_active, display_order))
         conn.commit()
 
 def delete_audit_field(field_id: str):

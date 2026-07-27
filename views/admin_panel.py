@@ -590,7 +590,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 df_fields = pd.DataFrame(fields)
                 
                 if df_fields.empty:
-                    df_fields = pd.DataFrame(columns=["id", "label", "description", "field_type", "is_active", "display_order"])
+                    df_fields = pd.DataFrame(columns=["id", "label", "action_label", "description", "field_type", "is_active", "display_order"])
                 else:
                     # Ensure types align correctly for Streamlit's editor
                     df_fields['is_active'] = df_fields['is_active'].apply(lambda x: bool(x))
@@ -605,21 +605,35 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     column_config={
                         "id": st.column_config.TextColumn("Field ID (Slug)", help="Unique ID: lowercase letters and underscores only. E.g. welcome_message", required=True),
                         "label": st.column_config.TextColumn("Question / Label", help="Text shown to auditors in checklist.", required=True),
+                        "action_label": st.column_config.TextColumn("Action Item Label", help="Rephrased action item header shown for pending/incomplete tasks.", required=False),
                         "description": st.column_config.TextColumn("Tooltip Description", help="Instructional details/tips."),
                         "field_type": st.column_config.SelectboxColumn("Field Type", options=["boolean", "text"], required=True),
                         "is_active": st.column_config.CheckboxColumn("Active?", default=True),
                         "display_order": st.column_config.NumberColumn("Display Order", min_value=1, max_value=100, default=10, format="%d")
-                    },
+                     },
                     use_container_width=True,
                     hide_index=True,
                     key="audit_fields_data_editor"
                 )
                 
                 st.divider()
-                c1, c2 = st.columns([1, 4])
+                c1, c2, c3 = st.columns([1.5, 2.0, 4.5])
                 with c1:
                     save_changes = st.button("💾 Save Table Changes", type="primary", use_container_width=True, key="save_fields_btn")
+                with c2:
+                    sync_fields = st.button("🔄 Sync from Google Sheets", type="secondary", use_container_width=True, key="sync_fields_btn")
                     
+                if sync_fields:
+                    try:
+                        from sync_data import sync_checklist_fields
+                        with st.spinner("Connecting to Google Sheets and syncing Checklist Fields..."):
+                            sync_checklist_fields()
+                        st.success("Checklist Fields synchronized successfully from Google Sheets!")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Sync failed: {e}")
+                        
                 if save_changes:
                     # Validate inputs
                     errors = []
@@ -629,6 +643,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     for idx, row in edited_df.iterrows():
                         fid = str(row.get('id', '')).strip().lower()
                         label = str(row.get('label', '')).strip()
+                        act_label = str(row.get('action_label', '') or '').strip()
                         desc = str(row.get('description', '') or '').strip()
                         ftype = str(row.get('field_type', '')).strip()
                         is_act = 1 if row.get('is_active') else 0
@@ -637,6 +652,10 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             order = int(row.get('display_order', 10))
                         except Exception:
                             order = 10
+                            
+                        # Fallback for action label if empty
+                        if not act_label:
+                            act_label = label
                             
                         if not fid or not re.match(r"^[a-z0-9_]+$", fid):
                             errors.append(f"Row {idx+1}: Field ID '{fid}' is invalid. Use lowercase letters, numbers, and underscores only.")
@@ -648,7 +667,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             errors.append(f"Row {idx+1}: Field Type must be either 'boolean' or 'text'.")
                         else:
                             seen_ids.add(fid)
-                            valid_rows.append((fid, label, desc, ftype, is_act, order))
+                            valid_rows.append((fid, label, act_label, desc, ftype, is_act, order))
                             
                     if errors:
                         for err in errors:
@@ -664,7 +683,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             # Wipe table and re-insert
                             cursor.execute("DELETE FROM audit_fields")
                             cursor.executemany(
-                                "INSERT INTO audit_fields (id, label, description, field_type, is_active, display_order) VALUES (?, ?, ?, ?, ?, ?)",
+                                "INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
                                 valid_rows
                             )
                             
@@ -676,8 +695,21 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 
                             conn.commit()
                             
+                        # Push local changes to Google Sheets immediately
+                        push_success = True
+                        push_err_msg = ""
+                        try:
+                            from sync_data import push_checklist_fields_to_sheets
+                            push_checklist_fields_to_sheets()
+                        except Exception as e:
+                            push_success = False
+                            push_err_msg = str(e)
+                            
                         st.cache_data.clear()
-                        st.success("Audit fields configuration saved and synchronized successfully!")
+                        if push_success:
+                            st.success("Audit fields configuration saved locally and synchronized to Google Sheets successfully!")
+                        else:
+                            st.warning(f"Audit fields saved locally, but failed to sync to Google Sheets: {push_err_msg}")
                         st.balloons()
                         st.rerun()
 
@@ -857,20 +889,113 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 
                     elif target_table == "ally_scores":
                         # Attempt to parse DD-MM-YY from filename e.g. '15-10-24_Ally Data.csv'
-                        import re
                         match = re.search(r'(\d{1,2}-\d{1,2}-\d{2,4})', uploaded_file.name)
+                        snapshot_date = None
                         if match:
                             parsed_date = pd.to_datetime(match.group(1), format='%d-%m-%y', errors='coerce')
                             if pd.isna(parsed_date):
                                 parsed_date = pd.to_datetime(match.group(1), format='%d-%m-%Y', errors='coerce')
                             if not pd.isna(parsed_date):
-                                df_import['snapshot_date'] = parsed_date.strftime('%Y-%m-%d')
+                                snapshot_date = parsed_date.strftime('%Y-%m-%d')
                             else:
                                 st.warning("Could not parse date from filename. Using today's date.")
-                                df_import['snapshot_date'] = datetime.datetime.now().strftime('%Y-%m-%d')
+                                snapshot_date = datetime.datetime.now().strftime('%Y-%m-%d')
                         else:
                             st.warning("No date found in filename. Using today's date.")
-                            df_import['snapshot_date'] = datetime.datetime.now().strftime('%Y-%m-%d')
+                            snapshot_date = datetime.datetime.now().strftime('%Y-%m-%d')
+
+                        # Column normalization and mapping
+                        # 1. Module Code
+                        module_col = None
+                        for col in df_import.columns:
+                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
+                            if col_clean in ["module code", "course code", "course id", "module_code", "course_code"]:
+                                module_col = col
+                                break
+                        if module_col is not None:
+                            # Extract clean module code (e.g. GPL439.A.279588 -> GPL439)
+                            df_import['module_code'] = df_import[module_col].astype(str).apply(
+                                lambda x: x.split('.')[0].strip().upper() if pd.notna(x) and x.strip() != "" else ""
+                            )
+                        else:
+                            raise ValueError("CSV must contain a 'Course code', 'Course ID', or 'module_code' column.")
+                        
+                        # Filter out empty module codes
+                        df_import = df_import[df_import['module_code'] != ""]
+                        if len(df_import) == 0:
+                            raise ValueError("No valid module codes found in the CSV.")
+
+                        # 2. Files
+                        files_col = None
+                        for col in df_import.columns:
+                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
+                            if col_clean in ["files", "total files", "file count", "files count", "total file count"]:
+                                files_col = col
+                                break
+                        if files_col is not None:
+                            df_import['files'] = pd.to_numeric(df_import[files_col], errors='coerce').fillna(0).astype(int)
+                        else:
+                            df_import['files'] = 0
+
+                        # Helper to clean score percentage or fraction
+                        def clean_score_column(series):
+                            cleaned = series.astype(str).str.strip().str.replace("%", "", regex=False)
+                            num = pd.to_numeric(cleaned, errors='coerce')
+                            # If any max value is > 1.0 (indicating 0-100 scale), convert to 0-1 fraction
+                            if not num.isna().all() and num.max() > 1.0:
+                                num = num / 100.0
+                            return num
+
+                        # 3. Measured
+                        measured_col = None
+                        for col in df_import.columns:
+                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
+                            if col_clean in ["measured", "files score", "file score", "measured score"]:
+                                measured_col = col
+                                break
+                        if measured_col is not None:
+                            df_import['measured'] = clean_score_column(df_import[measured_col])
+                        else:
+                            # Fallback to look for score
+                            for col in df_import.columns:
+                                if "score" in str(col).lower() and col not in ["files", "total files", "file count", "files count", "total file count"]:
+                                    measured_col = col
+                                    break
+                            if measured_col is not None:
+                                df_import['measured'] = clean_score_column(df_import[measured_col])
+                            else:
+                                df_import['measured'] = 0.0
+
+                        # 4. Weighted
+                        weighted_col = None
+                        for col in df_import.columns:
+                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
+                            if col_clean in ["weighted", "overall score", "weighted score"]:
+                                weighted_col = col
+                                break
+                        if weighted_col is not None:
+                            df_import['weighted'] = clean_score_column(df_import[weighted_col])
+                        else:
+                            df_import['weighted'] = pd.Series([None] * len(df_import))
+
+                        # Apply credibility model to populate missing weighted scores
+                        import numpy as np
+                        def get_row_weighted(row):
+                            m = row['measured']
+                            f = row['files']
+                            w = row['weighted']
+                            if pd.notna(w) and not pd.isna(w):
+                                return float(w)
+                            if pd.isna(m) or m is None:
+                                return 0.50
+                            credibility = 1.0 - np.exp(-0.15 * f)
+                            return float(credibility * m + (1.0 - credibility) * 0.50)
+
+                        df_import['weighted'] = df_import.apply(get_row_weighted, axis=1)
+                        df_import['snapshot_date'] = snapshot_date
+
+                        # Keep ONLY standard columns to match SQLite schema
+                        df_import = df_import[['module_code', 'snapshot_date', 'measured', 'weighted', 'files']]
 
                     st.markdown("**Uploaded Data Preview:**")
                     st.dataframe(df_import.head(3), use_container_width=True)
@@ -887,6 +1012,17 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     if st.button("🚀 Execute Import", type="primary", disabled=not confirm_import, key=f"exec_btn_{target_table}"):
                         with st.spinner("Writing records to SQLite..."):
                             with get_db_connection() as conn:
+                                predefined_tables = ["comment_bank", "audit_fields", "audit_responses", "users", "roles", "ally_scores", "leganto_nolist"]
+                                expected_cols = {
+                                    "comment_bank": ['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text'],
+                                    "audit_fields": ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'],
+                                    "audit_responses": ['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'],
+                                    "users": ['Username', 'PasswordHash', 'Role', 'School', 'Capabilities', 'Status'],
+                                    "roles": ['Role', 'Capabilities'],
+                                    "ally_scores": ['module_code', 'snapshot_date', 'measured', 'weighted', 'files'],
+                                    "leganto_nolist": ['module_code']
+                                }
+
                                 if import_mode.startswith("Replace"):
                                     if target_table == "comment_bank":
                                         if 'id' not in df_import.columns:
@@ -900,12 +1036,20 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                                     max_id = 0
                                                 df_import.loc[null_mask, 'id'] = range(int(max_id) + 1, int(max_id) + 1 + null_mask.sum())
                                             df_import['id'] = df_import['id'].astype(int)
-                                        # Keep only standard fields in correct order
-                                        df_import = df_import[['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']]
                                         
-                                    # Write directly using replace mode
-                                    df_import.to_sql(target_table, conn, if_exists='replace', index=False)
-                                    init_db()
+                                    if target_table in expected_cols:
+                                        cols = expected_cols[target_table]
+                                        for c in cols:
+                                            if c not in df_import.columns:
+                                                df_import[c] = None
+                                        df_import = df_import[cols]
+
+                                    if target_table in predefined_tables:
+                                        conn.execute(f"DROP TABLE IF EXISTS {target_table}")
+                                        init_db()
+                                        df_import.to_sql(target_table, conn, if_exists='append', index=False)
+                                    else:
+                                        df_import.to_sql(target_table, conn, if_exists='replace', index=False)
                                 else:
                                     if table_exists:
                                         df_existing = pd.read_sql_query(f"SELECT * FROM {target_table}", conn)
@@ -962,8 +1106,12 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                             else:
                                                 df_merged = df_existing
                                                 
-                                            df_merged.to_sql(target_table, conn, if_exists='replace', index=False)
-                                            init_db()
+                                            if target_table in predefined_tables:
+                                                conn.execute(f"DROP TABLE IF EXISTS {target_table}")
+                                                init_db()
+                                                df_merged.to_sql(target_table, conn, if_exists='append', index=False)
+                                            else:
+                                                df_merged.to_sql(target_table, conn, if_exists='replace', index=False)
                                         else:
                                             if pk is None:
                                                 df_import.to_sql(target_table, conn, if_exists='append', index=False)
@@ -978,10 +1126,28 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                                         df_import.loc[null_mask, 'id'] = range(int(max_existing_id) + 1, int(max_existing_id) + 1 + null_mask.sum())
                                                     df_import['id'] = df_import['id'].astype(int)
                                                     
+                                                # Ensure column alignment before concat for predefined tables
+                                                if target_table in expected_cols:
+                                                    cols = expected_cols[target_table]
+                                                    for c in cols:
+                                                        if c not in df_import.columns:
+                                                            df_import[c] = None
+                                                    df_import = df_import[cols]
+                                                    
+                                                    for c in cols:
+                                                        if c not in df_existing.columns:
+                                                            df_existing[c] = None
+                                                    df_existing = df_existing[cols]
+                                                    
                                                 df_merged = pd.concat([df_existing, df_import], ignore_index=True)
                                                 df_merged = df_merged.drop_duplicates(subset=pk, keep='last')
-                                                df_merged.to_sql(target_table, conn, if_exists='replace', index=False)
-                                                init_db()
+                                                
+                                                if target_table in predefined_tables:
+                                                    conn.execute(f"DROP TABLE IF EXISTS {target_table}")
+                                                    init_db()
+                                                    df_merged.to_sql(target_table, conn, if_exists='append', index=False)
+                                                else:
+                                                    df_merged.to_sql(target_table, conn, if_exists='replace', index=False)
                                     else:
                                         if target_table == "comment_bank":
                                             if 'id' not in df_import.columns:
@@ -990,8 +1156,19 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                                 df_import['id'] = pd.to_numeric(df_import['id'], errors='coerce').fillna(0).astype(int)
                                             df_import = df_import[['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']]
                                             
-                                        df_import.to_sql(target_table, conn, if_exists='replace', index=False)
-                                        init_db()
+                                        if target_table in expected_cols:
+                                            cols = expected_cols[target_table]
+                                            for c in cols:
+                                                if c not in df_import.columns:
+                                                    df_import[c] = None
+                                            df_import = df_import[cols]
+
+                                        if target_table in predefined_tables:
+                                            conn.execute(f"DROP TABLE IF EXISTS {target_table}")
+                                            init_db()
+                                            df_import.to_sql(target_table, conn, if_exists='append', index=False)
+                                        else:
+                                            df_import.to_sql(target_table, conn, if_exists='replace', index=False)
 
 
                                         

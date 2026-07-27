@@ -261,6 +261,139 @@ def push_comment_bank_to_sheets():
 
 
 
+def sync_checklist_fields():
+    print("🔄 Syncing Checklist Fields bidirectionally (Pull & Push)...")
+    import logging
+    from data_manager import get_spreadsheet_data
+    sheet_id = os.getenv("DATA_SHEET_ID")
+    if not sheet_id:
+        msg = "DATA_SHEET_ID is not configured in the environment variables."
+        logging.error(msg)
+        print(f"❌ {msg}")
+        raise ValueError(msg)
+        
+    try:
+        # 1. Fetch remote data from Google Sheets
+        ss, _ = get_spreadsheet_data(sheet_id)
+        try:
+            sheet = ss.worksheet("Checklist_Fields")
+        except Exception:
+            # If the sheet doesn't exist, create it with correct headers
+            sheet = ss.add_worksheet(title="Checklist_Fields", rows=100, cols=7)
+            sheet.update('A1', [['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']])
+            
+        data = sheet.get_all_values()
+        
+        # 2. Fetch local data from SQLite
+        with get_db_connection() as conn:
+            try:
+                df_local = pd.read_sql_query("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields", conn)
+            except Exception:
+                df_local = pd.DataFrame(columns=['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'])
+                
+        # 3. Parse remote data
+        if len(data) > 1:
+            df_remote = pd.DataFrame(data[1:], columns=data[0])
+            df_remote.columns = [c.strip() for c in df_remote.columns]
+            
+            # Map column names case-insensitively
+            rename_map = {}
+            for col in df_remote.columns:
+                for target_col in ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']:
+                    if col.lower().strip() == target_col.lower():
+                        rename_map[col] = target_col
+            df_remote = df_remote.rename(columns=rename_map)
+            
+            # Add missing fields
+            for col in ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']:
+                if col not in df_remote.columns:
+                    df_remote[col] = ""
+            df_remote = df_remote[['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']]
+        else:
+            df_remote = pd.DataFrame(columns=['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'])
+            
+        # 4. Standardize local dataframe
+        if not df_local.empty:
+            df_local.columns = [c.strip() for c in df_local.columns]
+            df_local = df_local[['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']]
+            
+        # 5. Merge remote and local (remote wins for matching ID)
+        df_remote['id'] = df_remote['id'].astype(str).str.strip().str.lower()
+        df_local['id'] = df_local['id'].astype(str).str.strip().str.lower()
+        
+        df_merged = pd.concat([df_local, df_remote], ignore_index=True)
+        df_merged = df_merged.drop_duplicates(subset=['id'], keep='last')
+        df_merged = df_merged[df_merged['id'] != ""]
+        
+        # Ensure correct datatypes
+        df_merged['is_active'] = df_merged['is_active'].apply(lambda x: 1 if str(x).upper() in ['TRUE', '1', 'YES'] or x is True else 0)
+        df_merged['display_order'] = pd.to_numeric(df_merged['display_order'], errors='coerce').fillna(10).astype(int)
+        df_merged['label'] = df_merged['label'].astype(str).str.strip()
+        df_merged['action_label'] = df_merged['action_label'].astype(str).str.strip()
+        df_merged['description'] = df_merged['description'].astype(str).str.strip()
+        df_merged['field_type'] = df_merged['field_type'].astype(str).str.strip().str.lower()
+        
+        # Fallback action_label
+        df_merged['action_label'] = df_merged.apply(lambda r: r['action_label'] if r['action_label'] else r['label'], axis=1)
+        
+        # Sort by display order
+        df_merged = df_merged.sort_values(by=['display_order']).reset_index(drop=True)
+        
+        # 7. Save merged data back to SQLite
+        cache_dataframe_to_sqlite(df_merged, "audit_fields")
+        init_db()
+        
+        # 8. Push merged data back to Google Sheets
+        sheet.clear()
+        df_push = df_merged.fillna("")
+        headers = df_push.columns.tolist()
+        rows_to_push = [headers] + df_push.values.tolist()
+        
+        try:
+            sheet.update(range_name='A1', values=rows_to_push)
+        except TypeError:
+            sheet.update('A1', rows_to_push)
+            
+        print("✅ Checklist Fields synced bidirectionally (SQLite & Google Sheets updated).")
+    except Exception as e:
+        logging.error(f"Error syncing Checklist Fields: {e}")
+        print(f"❌ Error syncing Checklist Fields: {e}")
+        raise e
+
+
+def push_checklist_fields_to_sheets():
+    """Pushes the local audit_fields table from SQLite to Google Sheets (overwriting it)."""
+    import logging
+    from data_manager import get_spreadsheet_data
+    sheet_id = os.getenv("DATA_SHEET_ID")
+    if not sheet_id:
+        return
+        
+    try:
+        ss, _ = get_spreadsheet_data(sheet_id)
+        try:
+            sheet = ss.worksheet("Checklist_Fields")
+        except Exception:
+            sheet = ss.add_worksheet(title="Checklist_Fields", rows=100, cols=7)
+            
+        with get_db_connection() as conn:
+            df_local = pd.read_sql_query("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields", conn)
+            
+        if not df_local.empty:
+            sheet.clear()
+            df_push = df_local.fillna("")
+            headers = df_push.columns.tolist()
+            rows_to_push = [headers] + df_push.values.tolist()
+            try:
+                sheet.update(range_name='A1', values=rows_to_push)
+            except TypeError:
+                sheet.update('A1', rows_to_push)
+            print("✅ Checklist Fields successfully pushed to Google Sheets.")
+    except Exception as e:
+        logging.error(f"Error pushing Checklist Fields to Google Sheets: {e}")
+        print(f"❌ Error pushing Checklist Fields to Google Sheets: {e}")
+
+
 def run_synchronization():
     """ETL pipeline extracting Google Sheets data and writing to SQLite."""
     print("🔄 Starting Data Synchronization...")
@@ -275,6 +408,10 @@ def run_synchronization():
             sync_comment_bank()
         except Exception as e:
             print(f"⚠️ Skipping Comment Bank sync due to error: {e}")
+        try:
+            sync_checklist_fields()
+        except Exception as e:
+            print(f"⚠️ Skipping Checklist Fields sync due to error: {e}")
         print("✅ Full Sync Process Completed.")
     except Exception as e:
         print(f"❌ Synchronisation failed: {str(e)}", file=sys.stderr)
