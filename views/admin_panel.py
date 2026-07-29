@@ -93,8 +93,9 @@ def get_dataframe_size_kb(df):
         return 0.0
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
-    # Strict lockdown verification
-    if st.session_state.get("username") != "ADMIN":
+    # Strict lockdown verification using RBAC capabilities
+    user_caps = st.session_state.get("capabilities", [])
+    if "access_admin_panel" not in [c.lower() for c in user_caps]:
         st.error("🚫 Access Denied: This console is strictly reserved for administrative users.")
         st.stop()
         
@@ -357,7 +358,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 roles_list = sorted(df_roles["Role"].unique().tolist())
                 schools_list = ["All", "ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
-                available_caps = ["View Faculty Overview", "View only own school", "view module checklist", "complete module checklist"]
+                available_caps = ["view_all", "view_school", "edit_checklist", "access_admin_panel"]
                 
                 sub_tabs = st.tabs(["👤 User Accounts", "🛡️ Role Capabilities"])
                 
@@ -501,15 +502,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             role_caps_str = ""
                             
                         role_caps_list = [c.strip() for c in role_caps_str.split(",") if c.strip()]
-                        resolved_role_caps = []
-                        for c in role_caps_list:
-                            if c == "view_all":
-                                resolved_role_caps.extend(["View Faculty Overview", "complete module checklist"])
-                            elif c == "view_school":
-                                resolved_role_caps.extend(["View only own school", "complete module checklist"])
-                            else:
-                                resolved_role_caps.append(c)
-                        resolved_role_caps = list(set(resolved_role_caps))
+                        resolved_role_caps = [c.lower() for c in role_caps_list]
                         
                         st.markdown("**Assigned Capabilities:**")
                         role_caps_edit = []
@@ -1206,6 +1199,20 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.success("Database schemas checked and verified! All structures are intact.")
                 except Exception as e:
                     st.error(f"Schema verification failed: {e}")
+                    
+        st.markdown("##### **Google Sheets Synchronization**")
+        with st.container(border=True):
+            st.write("Fetch the latest data (including Users, Roles, Checklist Fields, Comment Bank, and Audits) directly from Google Sheets into the local database cache.")
+            if st.button("🔄 Trigger Full Sync from Google Sheets", use_container_width=True):
+                with st.spinner("Synchronizing data from Google Sheets... Please wait..."):
+                    try:
+                        from sync_data import run_synchronization
+                        run_synchronization()
+                        st.cache_data.clear()
+                        st.success("Google Sheets synchronization completed successfully!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Synchronization failed: {e}")
                     
         st.markdown("##### **Diagnostics Logs Control**")
         with st.container(border=True):

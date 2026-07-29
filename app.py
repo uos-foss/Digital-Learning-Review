@@ -92,10 +92,10 @@ if not check_password():
 user_caps = st.session_state.get("capabilities", [])
 role = st.session_state.get("username", "USER")
 
-# Determine accessible pages
-can_view_faculty = any(c.lower() == "view faculty overview" for c in user_caps)
-is_admin = role == "ADMIN"
-is_dla_or_admin = role in ["DLA", "ADMIN"]
+# Determine accessible pages based on capabilities
+can_view_faculty = any(c.lower() == "view_all" for c in user_caps)
+is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
+is_dla_or_admin = any(c.lower() in ["edit_checklist", "access_admin_panel"] for c in user_caps)
 
 # Initialize session state variables
 if "semester" not in st.session_state:

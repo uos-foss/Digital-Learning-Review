@@ -7,7 +7,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from processing import sanitize_row_data
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 def get_gspread_client():
     """
@@ -169,24 +169,31 @@ def initialize_users_sheet(spreadsheet_id):
         seed_rows = []
         
         env_users = {
-            "ALA": (os.getenv("USER_ALA"), "School Module Lead", "ALA"),
-            "ECN": (os.getenv("USER_ECN"), "School Module Lead", "ECN"),
-            "EDC": (os.getenv("USER_EDC"), "School Module Lead", "EDC"),
-            "GPL": (os.getenv("USER_GPL"), "School Module Lead", "GPL"),
-            "IJC": (os.getenv("USER_IJC"), "School Module Lead", "IJC"),
-            "MGT": (os.getenv("USER_MGT"), "School Module Lead", "MGT"),
-            "SPR": (os.getenv("USER_SPR"), "School Module Lead", "SPR"),
-            "FACULTY": (os.getenv("USER_FACULTY"), "Faculty Reviewer", "All"),
-            "DLA": (os.getenv("USER_DLA"), "Digital Learning Advisor", "All"),
-            "ADMIN": (os.getenv("USER_ADMIN"), "System Administrator", "All"),
+            "ALA": (os.getenv("USER_ALA"), "ML", "ALA"),
+            "ECN": (os.getenv("USER_ECN"), "ML", "ECN"),
+            "EDC": (os.getenv("USER_EDC"), "ML", "EDC"),
+            "GPL": (os.getenv("USER_GPL"), "ML", "GPL"),
+            "IJC": (os.getenv("USER_IJC"), "ML", "IJC"),
+            "MGT": (os.getenv("USER_MGT"), "ML", "MGT"),
+            "SPR": (os.getenv("USER_SPR"), "ML", "SPR"),
+            "FACULTY": (os.getenv("USER_FACULTY"), "FOSS", "All"),
+            "DLA": (os.getenv("USER_DLA"), "DLA", "All"),
+            "ADMIN": (os.getenv("USER_ADMIN"), "admin", "All"),
         }
         
         for username, (password, role, school) in env_users.items():
             if password:
                 # Hash password with SHA-256
                 pass_hash = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
-                # Capabilities string
-                caps = "view_all" if role in ["System Administrator", "Digital Learning Advisor", "Faculty Reviewer"] else "view_school"
+                # Simplified Capabilities string
+                if role == "admin":
+                    caps = "view_all, edit_checklist, access_admin_panel"
+                elif role == "DLA":
+                    caps = "view_all, edit_checklist"
+                elif role == "FOSS":
+                    caps = "view_all"
+                else:
+                    caps = "view_school, edit_checklist"
                 seed_rows.append([username, pass_hash, role, school, caps, "Active"])
                 
         if seed_rows:
@@ -224,12 +231,12 @@ def initialize_roles_sheet(spreadsheet_id):
     # If there are no data rows, perform auto-seeding
     if len(data) <= 1:
         seed_roles = [
-            ["System Administrator", "View Faculty Overview, complete module checklist"],
-            ["Digital Learning Advisor", "View Faculty Overview, complete module checklist"],
-            ["Faculty Reviewer", "View Faculty Overview, complete module checklist"],
-            ["School Module Lead", "View only own school, complete module checklist"],
-            ["School Auditor", "View only own school, view module checklist"],
-            ["School Leadership", "View Faculty Overview, View only own school, view module checklist"]
+            ["admin", "view_all, edit_checklist, access_admin_panel"],
+            ["DLA", "view_all, edit_checklist"],
+            ["FOSS", "view_all"],
+            ["ML", "view_school, edit_checklist"],
+            ["SA", "view_school"],
+            ["SL", "view_all, view_school"]
         ]
         worksheet.append_rows(seed_roles)
         logging.info(f"🌱 Seeded {len(seed_roles)} default roles into Google Sheets database.")

@@ -83,7 +83,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         """, unsafe_allow_html=True)
 
     user_caps = st.session_state.get("capabilities", [])
-    only_own_school = any(c.lower() == "view only own school" for c in user_caps)
+    only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
     
     if only_own_school:
         if not minified_mode:
@@ -347,9 +347,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # 3. Integration: Add Dynamic Checklist editing/summary
         active_fields = get_active_audit_fields()
         
-        # Determine if current user has elevated privileges (DLA or ADMIN)
+        # Determine if current user has edit checklist capabilities
         username_upper = str(st.session_state.get("username", "")).strip().upper()
-        is_dla_or_admin = username_upper in ["DLA", "ADMIN"]
+        is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)
         
         preview_mode = False
         if is_dla_or_admin:

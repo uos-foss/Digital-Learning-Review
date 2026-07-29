@@ -6,7 +6,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
     
     user_caps = st.session_state.get("capabilities", [])
-    only_own_school = any(c.lower() == "view only own school" for c in user_caps)
+    only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
     
     if only_own_school:
         school = st.session_state.saved_school
