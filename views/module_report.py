@@ -9,7 +9,8 @@ from database import (
     get_audit_responses,
     save_audit_response,
     get_comment_bank,
-    update_module_lead_sqlite
+    update_module_lead_sqlite,
+    parse_custom_observations
 )
 
 def title_case_name(name: str) -> str:
@@ -425,19 +426,38 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                             if ftype == 'boolean':
                                 def_val = str(prev_val).upper() == 'TRUE' if prev_val is not None else False
                                 responses_input[fid] = st.checkbox(label, value=def_val, help=desc, key=f"rc_chk_{selected_code}_{fid}")
+                            elif ftype == 'yes/no':
+                                options = ["—", "Yes", "No"]
+                                if prev_val is not None:
+                                    p_val_upper = str(prev_val).strip().upper()
+                                    if p_val_upper == 'YES':
+                                        def_idx = 1
+                                    elif p_val_upper == 'NO':
+                                        def_idx = 2
+                                    else:
+                                        def_idx = 0
+                                else:
+                                    def_idx = 0
+                                responses_input[fid] = st.selectbox(
+                                    label,
+                                    options=options,
+                                    index=def_idx,
+                                    help=desc,
+                                    key=f"rc_sel_{selected_code}_{fid}"
+                                )
                             elif ftype == 'text':
                                 prev_tags = []
-                                prev_custom = ""
+                                prev_custom_obs = []
                                 if prev_val:
                                     try:
                                         data = json.loads(prev_val)
                                         if isinstance(data, dict) and ("tags" in data or "custom" in data):
                                             prev_tags = data.get("tags", [])
-                                            prev_custom = data.get("custom", "")
+                                            prev_custom_obs = parse_custom_observations(data.get("custom", ""))
                                         else:
-                                            prev_custom = prev_val
+                                            prev_custom_obs = parse_custom_observations(prev_val)
                                     except Exception:
-                                        prev_custom = prev_val
+                                        prev_custom_obs = parse_custom_observations(prev_val)
                                         
                                 st.markdown(f"**{label}**")
                                 if desc:
@@ -456,7 +476,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                                 matched = True
                                                 break
                                         if not matched:
-                                            prev_custom = (pt + "\n" + prev_custom) if prev_custom else pt
+                                            prev_custom_obs.append({"observation": pt, "action": ""})
                                             
                                 sel_tags = st.multiselect(
                                     "Select Standard Comments (Tags):",
@@ -465,14 +485,35 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                     format_func=format_cb,
                                     key=f"rc_tags_{selected_code}_{fid}"
                                 )
-                                default_template = "**Observation:** \n\n**Action:** "
-                                custom_val = prev_custom if prev_custom.strip() else default_template
-                                custom_text = st.text_area(
-                                    "Additional Custom Observations:",
-                                    value=custom_val,
-                                    key=f"rc_custom_{selected_code}_{fid}"
-                                )
-                                responses_input[fid] = {"type": "text", "tags_key": f"rc_tags_{selected_code}_{fid}", "custom_key": f"rc_custom_{selected_code}_{fid}"}
+                                
+                                st.markdown("##### Additional Custom Observations")
+                                num_obs = len(prev_custom_obs) + 1
+                                for i in range(num_obs):
+                                    obs_val = prev_custom_obs[i]['observation'] if i < len(prev_custom_obs) else ""
+                                    act_val = prev_custom_obs[i]['action'] if i < len(prev_custom_obs) else ""
+                                    
+                                    col_obs, col_act = st.columns(2)
+                                    with col_obs:
+                                        st.text_area(
+                                            f"Observation #{i+1}" if i < len(prev_custom_obs) else "Add New Observation",
+                                            value=obs_val,
+                                            height=85,
+                                            key=f"rc_custom_obs_{selected_code}_{fid}_{i}"
+                                        )
+                                    with col_act:
+                                        st.text_area(
+                                            f"Action #{i+1}" if i < len(prev_custom_obs) else "Add New Action / Recommendation",
+                                            value=act_val,
+                                            height=85,
+                                            key=f"rc_custom_act_{selected_code}_{fid}_{i}"
+                                        )
+                                        
+                                responses_input[fid] = {
+                                    "type": "text",
+                                    "tags_key": f"rc_tags_{selected_code}_{fid}",
+                                    "num_obs": num_obs,
+                                    "fid": fid
+                                }
                                 
                     st.markdown("---")
                     prev_audited = str(prev_responses.get('system_audit_complete', {}).get('value', 'False')).upper() == 'TRUE'
@@ -494,13 +535,29 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                             for fid, input_info in responses_input.items():
                                 if isinstance(input_info, dict) and input_info.get("type") == "text":
                                     t_val = st.session_state.get(input_info["tags_key"], [])
-                                    c_val = st.session_state.get(input_info["custom_key"], "").strip()
-                                    if c_val == "**Observation:** \n\n**Action:**" or c_val == "**Observation:**\n\n**Action:**":
-                                        c_val = ""
-                                    combined_val = json.dumps({"tags": t_val, "custom": c_val})
+                                    
+                                    # Collect custom observations
+                                    custom_obs_list = []
+                                    c_fid = input_info["fid"]
+                                    for i in range(input_info["num_obs"]):
+                                        obs_key = f"rc_custom_obs_{selected_code}_{c_fid}_{i}"
+                                        act_key = f"rc_custom_act_{selected_code}_{c_fid}_{i}"
+                                        obs_val = st.session_state.get(obs_key, "").strip()
+                                        act_val = st.session_state.get(act_key, "").strip()
+                                        
+                                        if obs_val or act_val:
+                                            custom_obs_list.append({
+                                                "observation": obs_val,
+                                                "action": act_val
+                                            })
+                                            
+                                    combined_val = json.dumps({"tags": t_val, "custom": custom_obs_list})
                                     save_audit_response(selected_code, fid, combined_val, username_upper, timestamp)
                                 else:
-                                    save_audit_response(selected_code, fid, str(input_info), username_upper, timestamp)
+                                    val_str = str(input_info)
+                                    if val_str == "—":
+                                        val_str = ""
+                                    save_audit_response(selected_code, fid, val_str, username_upper, timestamp)
                                     
                             # Invalidate all st.cache_data to refresh sit list & checklist immediately
                             st.cache_data.clear()
@@ -552,8 +609,12 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                         ftype = field['field_type']
                         val = responses.get(fid, None)
                         
-                        if ftype == 'boolean':
-                            is_compliant = (str(val).upper() == 'TRUE')
+                        if ftype == 'boolean' or ftype == 'yes/no':
+                            if ftype == 'boolean':
+                                is_compliant = (str(val).upper() == 'TRUE')
+                            else:
+                                is_compliant = (str(val).upper() == 'YES')
+                                
                             if is_compliant:
                                 completed_items.append({
                                     'type': 'boolean',
@@ -571,7 +632,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                 data = json.loads(val)
                                 if isinstance(data, dict):
                                     tags = data.get("tags", [])
-                                    custom = data.get("custom", "").strip()
+                                    custom = data.get("custom", "")
                                     
                                     for tag_id in tags:
                                         tag_info = cb_lookup.get(tag_id)
@@ -600,17 +661,25 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                                 'type': 'legacy_tag',
                                                 'comment': str(tag_id)
                                             })
-                                    if custom and custom.strip() not in ("", "**Observation:**", "**Observation:** \n\n**Action:**", "**Observation:**\n\n**Action:**"):
+                                            
+                                    custom_obs_list = parse_custom_observations(custom)
+                                    for obs in custom_obs_list:
                                         pending_items.append({
                                             'type': 'custom',
-                                            'comment': custom
+                                            'category': label,
+                                            'label': obs.get('observation', ''),
+                                            'description': obs.get('action', '')
                                         })
                             except Exception:
                                 if str(val).strip():
-                                    pending_items.append({
-                                        'type': 'custom',
-                                        'comment': str(val)
-                                    })
+                                    custom_obs_list = parse_custom_observations(val)
+                                    for obs in custom_obs_list:
+                                        pending_items.append({
+                                            'type': 'custom',
+                                            'category': label,
+                                            'label': obs.get('observation', ''),
+                                            'description': obs.get('action', '')
+                                        })
             
             # Display Actions & Recommendations Expander
             expander_title = f"Actions & Recommendations ({len(pending_items)})"
@@ -636,10 +705,10 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 else:
                     for item in pending_items:
                         if item['type'] == 'boolean':
-                            title = f"❌ {item['label']}"
+                            title = f"📌 {item['label']}"
                             body = f"{item['description']}"
                             st.markdown(f"""
-                            <div style="border-left: 4px solid #EF4444; background-color: rgba(239, 68, 68, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(239, 68, 68, 0.05); border-right: 1px solid rgba(239, 68, 68, 0.05); border-bottom: 1px solid rgba(239, 68, 68, 0.05);">
+                            <div style="border-left: 4px solid #F59E0B; background-color: rgba(245, 158, 11, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(245, 158, 11, 0.05); border-right: 1px solid rgba(245, 158, 11, 0.05); border-bottom: 1px solid rgba(245, 158, 11, 0.05);">
                                 <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
                                 <p style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">{body}</p>
                             </div>
@@ -669,13 +738,17 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                             </div>
                             """, unsafe_allow_html=True)
                         elif item['type'] == 'custom':
-                            title = "📝 Auditor Note"
-                            body = f"{item['comment']}"
+                            title_text = item.get('label', '').strip()
+                            if not title_text:
+                                title_text = item.get('category', 'Custom Observation')
+                            title = f"📌 {title_text}"
+                            body = item.get('description', '')
+                            
                             import re
                             body_html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', body)
                             body_html = body_html.replace('\n', '<br/>')
                             st.markdown(f"""
-                            <div style="border-left: 4px solid #6B7280; background-color: rgba(107, 114, 128, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(107, 114, 128, 0.05); border-right: 1px solid rgba(107, 114, 128, 0.05); border-bottom: 1px solid rgba(107, 114, 128, 0.05);">
+                            <div style="border-left: 4px solid #F59E0B; background-color: rgba(245, 158, 11, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(245, 158, 11, 0.05); border-right: 1px solid rgba(245, 158, 11, 0.05); border-bottom: 1px solid rgba(245, 158, 11, 0.05);">
                                 <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
                                 <p style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">{body_html}</p>
                             </div>

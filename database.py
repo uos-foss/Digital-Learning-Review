@@ -640,6 +640,66 @@ def update_module_lead_sqlite(module_code: str, new_lead: str):
             
         conn.commit()
 
+def parse_custom_observations(custom):
+    """
+    Parses additional custom observations field which can be:
+    1. A JSON list of dicts: [{"observation": "...", "action": "..."}]
+    2. A legacy template string: "**Observation:** ... \n\n**Action:** ..."
+    3. A legacy plain text string.
+    Returns a list of dicts: [{"observation": "...", "action": "..."}]
+    """
+    import json
+    import re
+    
+    if not custom:
+        return []
+    
+    # If already a list of dicts
+    if isinstance(custom, list):
+        parsed = []
+        for item in custom:
+            if isinstance(item, dict):
+                obs = str(item.get("observation", "")).strip()
+                act = str(item.get("action", "")).strip()
+                if obs or act:
+                    parsed.append({"observation": obs, "action": act})
+        return parsed
+        
+    if isinstance(custom, str):
+        custom_str = custom.strip()
+        
+        # Check if it's JSON encoded
+        if (custom_str.startswith("[") and custom_str.endswith("]")) or (custom_str.startswith("{") and custom_str.endswith("}")):
+            try:
+                data = json.loads(custom_str)
+                if isinstance(data, list):
+                    return parse_custom_observations(data)
+                if isinstance(data, dict):
+                    if "observation" in data or "action" in data:
+                        obs = str(data.get("observation", "")).strip()
+                        act = str(data.get("action", "")).strip()
+                        if obs or act:
+                            return [{"observation": obs, "action": act}]
+            except Exception:
+                pass
+                
+        # If it's empty or matches standard placeholders
+        if not custom_str or custom_str in ("**Observation:**", "**Observation:** \n\n**Action:**", "**Observation:**\n\n**Action:**"):
+            return []
+            
+        # Try to parse string in format "**Observation:** ... **Action:** ..."
+        obs_match = re.search(r'\*\*Observation:\*\*\s*(.*?)(?=\*\*Action:\*\*|$)', custom_str, re.DOTALL | re.IGNORECASE)
+        action_match = re.search(r'\*\*Action:\*\*\s*(.*)', custom_str, re.DOTALL | re.IGNORECASE)
+        
+        obs = obs_match.group(1).strip() if obs_match else ""
+        act = action_match.group(1).strip() if action_match else ""
+        
+        if not obs and not act:
+            return [{"observation": custom_str, "action": ""}]
+        return [{"observation": obs, "action": act}]
+        
+    return []
+
 def save_feedback_sqlite(timestamp, username, school, category, rating, comments):
     """Saves a feedback submission in the SQLite database."""
     with get_db_connection() as conn:

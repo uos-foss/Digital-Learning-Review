@@ -339,8 +339,8 @@ def calculate_dynamic_compliance_gap(school_code=None):
     if not active_fields:
         return {}
         
-    # We compute compliance only for boolean audit fields
-    boolean_fields = [f for f in active_fields if f['field_type'] == 'boolean']
+    # We compute compliance only for boolean and yes/no audit fields
+    boolean_fields = [f for f in active_fields if f['field_type'] in ['boolean', 'yes/no']]
     if not boolean_fields:
         return {}
         

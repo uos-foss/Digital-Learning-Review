@@ -607,7 +607,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         "label": st.column_config.TextColumn("Question / Label", help="Text shown to auditors in checklist.", required=True),
                         "action_label": st.column_config.TextColumn("Action Item Label", help="Rephrased action item header shown for pending/incomplete tasks.", required=False),
                         "description": st.column_config.TextColumn("Tooltip Description", help="Instructional details/tips."),
-                        "field_type": st.column_config.SelectboxColumn("Field Type", options=["boolean", "text"], required=True),
+                        "field_type": st.column_config.SelectboxColumn("Field Type", options=["boolean", "text", "yes/no"], required=True),
                         "is_active": st.column_config.CheckboxColumn("Active?", default=True),
                         "display_order": st.column_config.NumberColumn("Display Order", min_value=1, max_value=100, default=10, format="%d")
                      },
@@ -663,8 +663,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             errors.append(f"Row {idx+1}: Duplicate Field ID '{fid}' found.")
                         elif not label:
                             errors.append(f"Row {idx+1}: Question Label cannot be empty.")
-                        elif ftype not in ["boolean", "text"]:
-                            errors.append(f"Row {idx+1}: Field Type must be either 'boolean' or 'text'.")
+                        elif ftype not in ["boolean", "text", "yes/no"]:
+                            errors.append(f"Row {idx+1}: Field Type must be either 'boolean', 'text', or 'yes/no'.")
                         else:
                             seen_ids.add(fid)
                             valid_rows.append((fid, label, act_label, desc, ftype, is_act, order))
@@ -712,6 +712,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             st.warning(f"Audit fields saved locally, but failed to sync to Google Sheets: {push_err_msg}")
                         st.balloons()
                         st.rerun()
+
 
             with field_tabs[1]:
                 st.markdown("##### **Audit Comments Bank (Predefined Tags)**")

@@ -301,7 +301,7 @@ def load_audit_data():
 def load_checklist_data():
     logging.info("📥 Fetching dynamic audit checklist data from SQLite...")
     try:
-        from database import get_db_connection, get_active_audit_fields, get_comment_bank
+        from database import get_db_connection, get_active_audit_fields, get_comment_bank, parse_custom_observations
         active_fields = get_active_audit_fields()
         active_field_ids = {f['id'] for f in active_fields}
         comment_bank = get_comment_bank()
@@ -348,14 +348,17 @@ def load_checklist_data():
                 if ftype == 'boolean':
                     if str(val).upper() != 'TRUE':
                         actionable_items += 1
+                elif ftype == 'yes/no':
+                    if str(val).upper() != 'YES':
+                        actionable_items += 1
                 elif ftype == 'text' and val:
                     try:
                         data = json.loads(val)
                         if isinstance(data, dict):
                             tags = data.get("tags", [])
                             actionable_items += len([t for t in tags if t not in compliant_tag_ids])
-                            if data.get("custom", "").strip():
-                                actionable_items += 1
+                            custom_list = parse_custom_observations(data.get("custom", ""))
+                            actionable_items += len(custom_list)
                     except Exception:
                         pass
                         
