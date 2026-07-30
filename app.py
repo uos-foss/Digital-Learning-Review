@@ -368,11 +368,13 @@ def load_checklist_data():
             if m_code in leganto_missing_set:
                 actionable_items += 1
                         
-            is_audited = responses.get('system_audit_complete')
-            if str(is_audited).upper() == 'TRUE':
-                status = "✅ Audited"
+            audit_status = responses.get('audit_status', '')
+            if audit_status == 'submitted':
+                status = "✅ Submitted"
+            elif audit_status == 'draft':
+                status = "📝 Draft"
             else:
-                status = "❌ Not Audited"
+                status = "❌ Not Started"
                 
             latest_ts = max(timestamps) if timestamps else "Unknown"
             latest_auditor = auditors[-1] if auditors else "Unknown"
@@ -391,7 +393,7 @@ def load_checklist_data():
         for m_code in leganto_missing_set:
             if m_code not in summaries:
                 summaries[m_code] = {
-                    'Status': "❌ Not Audited",
+                    'Status': "❌ Not Started",
                     'Actionable Items': 1,
                     'Timestamp': "Never",
                     'Auditor': "System",
