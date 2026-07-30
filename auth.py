@@ -370,12 +370,8 @@ def check_password():
             pass
         cookie_manager.set(COOKIE_NAME, "")
         st.session_state["logout_pending"] = False
+        st.query_params.clear()
         logging.info("🚪 User logged out. Browser session and cookies securely cleared.")
-        
-        # Force a client-side redirect to clean URL query parameters completely
-        redirect_uri = os.getenv("OAUTH_REDIRECT_URI", os.getenv("REDIRECT_URI", "http://localhost:8500/digital-learning-review/")).strip()
-        st.markdown(f'<meta http-equiv="refresh" content="0; url={redirect_uri}">', unsafe_allow_html=True)
-        st.stop()
 
     # Restore session from browser cookie on page reload
     if not st.session_state.logged_in:

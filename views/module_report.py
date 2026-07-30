@@ -348,338 +348,123 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         active_fields = get_active_audit_fields()
         
         # Determine if current user has edit checklist capabilities
-        username_upper = str(st.session_state.get("username", "")).strip().upper()
         is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)
         
-        preview_mode = False
         if is_dla_or_admin:
-            preview_mode = st.toggle("Preview as Standard User", value=False, key=f"preview_mode_{selected_code}")
-            
-        if is_dla_or_admin and not preview_mode:
-            # Elevated Privilege Mode: Editable Form
-            prev_responses = get_audit_responses(selected_code) if selected_code else {}
-            comment_bank = get_comment_bank()
-            cb_options = [c['id'] for c in comment_bank]
-            cb_format_map = {c['id']: f"{c['category']}: {c['comment']}" for c in comment_bank}
-            def format_cb(cb_id):
-                return cb_format_map.get(cb_id, str(cb_id))
-            
-            if selected_code in checklist_sums:
-                sum_entry = checklist_sums[selected_code]
-                audit_status = sum_entry.get('Status', '❌ Not Audited')
-                actionable = sum_entry.get('Actionable Items', 0)
-            else:
-                audit_status = '❌ Not Audited'
-                actionable = 0
-                
-            if leganto_missing:
-                actionable += 1
-                
-            expander_title = f"📝 Edit Module Checklist ({audit_status} | {actionable} Actionable Items)"
-            parent_container = st.container() if minified_mode else st.expander(expander_title, expanded=True)
-            with parent_container:
-                if minified_mode:
-                    st.markdown(f"#### 📝 Checklist ({audit_status} | {actionable} Actionable)")
-                # Check when it was last updated
-                last_updated = None
-                last_auditor = None
-                if prev_responses:
-                    ts_vals = [r['timestamp'] for r in prev_responses.values() if r['timestamp']]
-                    auditor_vals = [r['auditor'] for r in prev_responses.values() if r['auditor']]
-                    if ts_vals:
-                        last_updated = max(ts_vals)
-                    if auditor_vals:
-                        last_auditor = auditor_vals[-1]
-                
-                if last_updated:
-                    st.info(f"Last updated: {last_updated} by {last_auditor}. Showing current answers below.")
-                else:
-                    st.info("No checklist details submitted yet for this module.")
-                
-                with st.form("module_checklist_edit_form"):
-                    new_mod_lead = st.text_input("Module Lead Name:", value=mod_lead)
-                    st.markdown("---")
-                    
-                    # Automated Leganto Reading List check
-                    leganto_label = "Leganto Reading List: OK / Connected" if not leganto_missing else "Leganto Reading List: Missing List"
-                    st.checkbox(
-                        f"**{leganto_label}**",
-                        value=not leganto_missing,
-                        disabled=True,
-                        help="Automatically determined from system records. To fix this, set up the module's reading list in Leganto.",
-                        key=f"rc_chk_{selected_code}_leganto_auto"
-                    )
-                    st.markdown("---")
-                    
-                    responses_input = {}
-                    if not active_fields:
-                        st.warning("No active audit fields are defined. Contact an administrator to add fields.")
-                    else:
-                        for field in active_fields:
-                            fid = field['id']
-                            label = field['label']
-                            desc = field['description']
-                            ftype = field['field_type']
-                            
-                            prev_val = prev_responses.get(fid, {}).get('value', None)
-                            
-                            if ftype == 'boolean':
-                                def_val = str(prev_val).upper() == 'TRUE' if prev_val is not None else False
-                                responses_input[fid] = st.checkbox(label, value=def_val, help=desc, key=f"rc_chk_{selected_code}_{fid}")
-                            elif ftype == 'yes/no':
-                                options = ["—", "Yes", "No"]
-                                if prev_val is not None:
-                                    p_val_upper = str(prev_val).strip().upper()
-                                    if p_val_upper == 'YES':
-                                        def_idx = 1
-                                    elif p_val_upper == 'NO':
-                                        def_idx = 2
-                                    else:
-                                        def_idx = 0
-                                else:
-                                    def_idx = 0
-                                responses_input[fid] = st.selectbox(
-                                    label,
-                                    options=options,
-                                    index=def_idx,
-                                    help=desc,
-                                    key=f"rc_sel_{selected_code}_{fid}"
-                                )
-                            elif ftype == 'text':
-                                prev_tags = []
-                                prev_custom_obs = []
-                                if prev_val:
-                                    try:
-                                        data = json.loads(prev_val)
-                                        if isinstance(data, dict) and ("tags" in data or "custom" in data):
-                                            prev_tags = data.get("tags", [])
-                                            prev_custom_obs = parse_custom_observations(data.get("custom", ""))
-                                        else:
-                                            prev_custom_obs = parse_custom_observations(prev_val)
-                                    except Exception:
-                                        prev_custom_obs = parse_custom_observations(prev_val)
-                                        
-                                st.markdown(f"**{label}**")
-                                if desc:
-                                    st.caption(desc)
-                                    
-                                cb_options = [c['id'] for c in comment_bank]
-                                mapped_prev_tags = []
-                                for pt in prev_tags:
-                                    if isinstance(pt, int) and pt in cb_options:
-                                        mapped_prev_tags.append(pt)
-                                    elif isinstance(pt, str):
-                                        matched = False
-                                        for c in comment_bank:
-                                            if c['comment'] == pt:
-                                                mapped_prev_tags.append(c['id'])
-                                                matched = True
-                                                break
-                                        if not matched:
-                                            prev_custom_obs.append({"observation": pt, "action": ""})
-                                            
-                                sel_tags = st.multiselect(
-                                    "Select Standard Comments (Tags):",
-                                    options=cb_options,
-                                    default=mapped_prev_tags,
-                                    format_func=format_cb,
-                                    key=f"rc_tags_{selected_code}_{fid}"
-                                )
-                                
-                                st.markdown("##### Additional Custom Observations")
-                                num_obs = len(prev_custom_obs) + 1
-                                for i in range(num_obs):
-                                    obs_val = prev_custom_obs[i]['observation'] if i < len(prev_custom_obs) else ""
-                                    act_val = prev_custom_obs[i]['action'] if i < len(prev_custom_obs) else ""
-                                    
-                                    col_obs, col_act = st.columns(2)
-                                    with col_obs:
-                                        st.text_area(
-                                            f"Observation #{i+1}" if i < len(prev_custom_obs) else "Add New Observation",
-                                            value=obs_val,
-                                            height=85,
-                                            key=f"rc_custom_obs_{selected_code}_{fid}_{i}"
-                                        )
-                                    with col_act:
-                                        st.text_area(
-                                            f"Action #{i+1}" if i < len(prev_custom_obs) else "Add New Action / Recommendation",
-                                            value=act_val,
-                                            height=85,
-                                            key=f"rc_custom_act_{selected_code}_{fid}_{i}"
-                                        )
-                                        
-                                responses_input[fid] = {
-                                    "type": "text",
-                                    "tags_key": f"rc_tags_{selected_code}_{fid}",
-                                    "num_obs": num_obs,
-                                    "fid": fid
-                                }
-                                
-                    st.markdown("---")
-                    prev_audited = str(prev_responses.get('system_audit_complete', {}).get('value', 'False')).upper() == 'TRUE'
-                    responses_input['system_audit_complete'] = st.checkbox(
-                        "**Mark this module as officially audited**", 
-                        value=prev_audited, 
-                        help="Tick this box to officially mark the module as audited in the system.",
-                        key=f"sys_audit_{selected_code}"
-                    )
-                    
-                    submitted = st.form_submit_button("Save Updates")
-                    if submitted:
-                        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        try:
-                            # Save module lead update if changed
-                            if new_mod_lead.strip() != mod_lead:
-                                update_module_lead_sqlite(selected_code, new_mod_lead)
-                                
-                            for fid, input_info in responses_input.items():
-                                if isinstance(input_info, dict) and input_info.get("type") == "text":
-                                    t_val = st.session_state.get(input_info["tags_key"], [])
-                                    
-                                    # Collect custom observations
-                                    custom_obs_list = []
-                                    c_fid = input_info["fid"]
-                                    for i in range(input_info["num_obs"]):
-                                        obs_key = f"rc_custom_obs_{selected_code}_{c_fid}_{i}"
-                                        act_key = f"rc_custom_act_{selected_code}_{c_fid}_{i}"
-                                        obs_val = st.session_state.get(obs_key, "").strip()
-                                        act_val = st.session_state.get(act_key, "").strip()
-                                        
-                                        if obs_val or act_val:
-                                            custom_obs_list.append({
-                                                "observation": obs_val,
-                                                "action": act_val
-                                            })
-                                            
-                                    combined_val = json.dumps({"tags": t_val, "custom": custom_obs_list})
-                                    save_audit_response(selected_code, fid, combined_val, username_upper, timestamp)
-                                else:
-                                    val_str = str(input_info)
-                                    if val_str == "—":
-                                        val_str = ""
-                                    save_audit_response(selected_code, fid, val_str, username_upper, timestamp)
-                                    
-                            # Invalidate all st.cache_data to refresh sit list & checklist immediately
-                            st.cache_data.clear()
-                            
-                            logging.info(f"✅ Checklist and metadata updated successfully for module '{selected_code}' by '{username_upper}'.")
-                            st.success("Updates saved successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            logging.error(f"❌ Error updating module data for '{selected_code}': {e}")
-                            st.error(f"Error saving updates: {e}")
-                            
+            st.info("ℹ️ **Auditor Mode**: You have permissions to audit this module. To make changes or record observations, please open the dedicated Audit Portal.")
+            if st.button("✏️ Open Audit Portal to Edit Checklist", use_container_width=True, key=f"ap_redir_{selected_code}"):
+                st.switch_page(st.session_state.pg_audit)
+        
+        # Read-Only Summary Mode for all users
+        pending_items = []
+        completed_items = []
+        
+        # Leganto Reading List status
+        if leganto_missing:
+            pending_items.append({
+                'type': 'boolean',
+                'label': 'Leganto Reading List Missing',
+                'description': 'This module is currently flagged as missing a reading list in Leganto. Ensure the module\'s reading list is set up and linked in Leganto.'
+            })
         else:
-            # Read-Only Summary Mode for non-elevated users
-            pending_items = []
-            completed_items = []
+            completed_items.append({
+                'type': 'boolean',
+                'label': 'Leganto Reading List: OK / Connected',
+                'description': 'The module has a reading list connected in Leganto.'
+            })
             
-            # Leganto Reading List status
-            if leganto_missing:
-                pending_items.append({
-                    'type': 'boolean',
-                    'label': 'Leganto Reading List Missing',
-                    'description': 'This module is currently flagged as missing a reading list in Leganto. Ensure the module\'s reading list is set up and linked in Leganto.'
-                })
-            else:
-                completed_items.append({
-                    'type': 'boolean',
-                    'label': 'Leganto Reading List: OK / Connected',
-                    'description': 'The module has a reading list connected in Leganto.'
-                })
-                
-            has_audit = selected_code in checklist_sums
-            last_updated_str = "Never"
+        has_audit = selected_code in checklist_sums
+        last_updated_str = "Never"
+        
+        if has_audit:
+            sum_entry = checklist_sums[selected_code]
+            responses = sum_entry.get('Responses', {})
+            comment_bank = get_comment_bank()
+            last_updated_str = f"{sum_entry.get('Timestamp', 'Never')} by {sum_entry.get('Auditor', 'Unknown')}"
             
-            if has_audit:
-                sum_entry = checklist_sums[selected_code]
-                responses = sum_entry.get('Responses', {})
-                comment_bank = get_comment_bank()
-                last_updated_str = f"{sum_entry.get('Timestamp', 'Never')} by {sum_entry.get('Auditor', 'Unknown')}"
+            if active_fields:
+                compliant_tag_ids = {c['id'] for c in comment_bank if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
+                cb_lookup = {c['id']: c for c in comment_bank}
                 
-                if active_fields:
-                    compliant_tag_ids = {c['id'] for c in comment_bank if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
-                    cb_lookup = {c['id']: c for c in comment_bank}
+                for field in active_fields:
+                    fid = field['id']
+                    label = field['label']
+                    action_label = field.get('action_label') or label
+                    desc = field['description']
+                    ftype = field['field_type']
+                    val = responses.get(fid, None)
                     
-                    for field in active_fields:
-                        fid = field['id']
-                        label = field['label']
-                        action_label = field.get('action_label') or label
-                        desc = field['description']
-                        ftype = field['field_type']
-                        val = responses.get(fid, None)
-                        
-                        if ftype == 'boolean' or ftype == 'yes/no':
-                            if ftype == 'boolean':
-                                is_compliant = (str(val).upper() == 'TRUE')
-                            else:
-                                is_compliant = (str(val).upper() == 'YES')
+                    if ftype == 'boolean' or ftype == 'yes/no':
+                        if ftype == 'boolean':
+                            is_compliant = (str(val).upper() == 'TRUE')
+                        else:
+                            is_compliant = (str(val).upper() == 'YES')
+                            
+                        if is_compliant:
+                            completed_items.append({
+                                'type': 'boolean',
+                                'label': label,
+                                'description': desc
+                            })
+                        else:
+                            pending_items.append({
+                                'type': 'boolean',
+                                'label': action_label,
+                                'description': desc
+                            })
+                    elif ftype == 'text' and val:
+                        try:
+                            data = json.loads(val)
+                            if isinstance(data, dict):
+                                tags = data.get("tags", [])
+                                custom = data.get("custom", "")
                                 
-                            if is_compliant:
-                                completed_items.append({
-                                    'type': 'boolean',
-                                    'label': label,
-                                    'description': desc
-                                })
-                            else:
-                                pending_items.append({
-                                    'type': 'boolean',
-                                    'label': action_label,
-                                    'description': desc
-                                })
-                        elif ftype == 'text' and val:
-                            try:
-                                data = json.loads(val)
-                                if isinstance(data, dict):
-                                    tags = data.get("tags", [])
-                                    custom = data.get("custom", "")
-                                    
-                                    for tag_id in tags:
-                                        tag_info = cb_lookup.get(tag_id)
-                                        if tag_info:
-                                            is_compliant = tag_id in compliant_tag_ids
-                                            if is_compliant:
-                                                completed_items.append({
-                                                    'type': 'tag',
-                                                    'category': tag_info.get('category', 'General'),
-                                                    'comment': tag_info.get('comment', ''),
-                                                    'advice': tag_info.get('advice', ''),
-                                                    'resource_url': tag_info.get('resource_url', ''),
-                                                    'resource_text': tag_info.get('resource_text', '')
-                                                })
-                                            else:
-                                                pending_items.append({
-                                                    'type': 'tag',
-                                                    'category': tag_info.get('category', 'General'),
-                                                    'comment': tag_info.get('comment', ''),
-                                                    'advice': tag_info.get('advice', ''),
-                                                    'resource_url': tag_info.get('resource_url', ''),
-                                                    'resource_text': tag_info.get('resource_text', '')
-                                                })
+                                for tag_id in tags:
+                                    tag_info = cb_lookup.get(tag_id)
+                                    if tag_info:
+                                        is_compliant = tag_id in compliant_tag_ids
+                                        if is_compliant:
+                                            completed_items.append({
+                                                'type': 'tag',
+                                                'category': tag_info.get('category', 'General'),
+                                                'comment': tag_info.get('comment', ''),
+                                                'advice': tag_info.get('advice', ''),
+                                                'resource_url': tag_info.get('resource_url', ''),
+                                                'resource_text': tag_info.get('resource_text', '')
+                                            })
                                         else:
                                             pending_items.append({
-                                                'type': 'legacy_tag',
-                                                'comment': str(tag_id)
+                                                'type': 'tag',
+                                                'category': tag_info.get('category', 'General'),
+                                                'comment': tag_info.get('comment', ''),
+                                                'advice': tag_info.get('advice', ''),
+                                                'resource_url': tag_info.get('resource_url', ''),
+                                                'resource_text': tag_info.get('resource_text', '')
                                             })
-                                            
-                                    custom_obs_list = parse_custom_observations(custom)
-                                    for obs in custom_obs_list:
+                                    else:
                                         pending_items.append({
-                                            'type': 'custom',
-                                            'category': label,
-                                            'label': obs.get('observation', ''),
-                                            'description': obs.get('action', '')
+                                            'type': 'legacy_tag',
+                                            'comment': str(tag_id)
                                         })
-                            except Exception:
-                                if str(val).strip():
-                                    custom_obs_list = parse_custom_observations(val)
-                                    for obs in custom_obs_list:
-                                        pending_items.append({
-                                            'type': 'custom',
-                                            'category': label,
-                                            'label': obs.get('observation', ''),
-                                            'description': obs.get('action', '')
-                                        })
+                                        
+                                custom_obs_list = parse_custom_observations(custom)
+                                for obs in custom_obs_list:
+                                    pending_items.append({
+                                        'type': 'custom',
+                                        'category': label,
+                                        'label': obs.get('observation', ''),
+                                        'description': obs.get('action', '')
+                                    })
+                        except Exception:
+                            if str(val).strip():
+                                custom_obs_list = parse_custom_observations(val)
+                                for obs in custom_obs_list:
+                                    pending_items.append({
+                                        'type': 'custom',
+                                        'category': label,
+                                        'label': obs.get('observation', ''),
+                                        'description': obs.get('action', '')
+                                    })
             
             # Display Actions & Recommendations Expander
             expander_title = f"Actions & Recommendations ({len(pending_items)})"
@@ -773,6 +558,12 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                             </div>
                             """, unsafe_allow_html=True)
                             
+            # Render confidential internal notes if user is an auditor
+            if is_dla_or_admin and has_audit:
+                auditor_notes = responses.get('auditor_notes', {}).get('value', '').strip()
+                if auditor_notes:
+                    st.info(f"🔒 **Auditor Notes (Internal/Auditors Only):**\n\n{auditor_notes}")
+                    
             st.caption(f"Last updated: {last_updated_str}")
         
         # SITS Assessment Strategy removed as per request

@@ -22,6 +22,7 @@ from views.module_report import view_module_report
 from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
+from views.audit_portal import view_audit_portal
 # background sync daemon is disabled as we moved to SQLite primary database
 # from background_tasks import start_scheduler
 # start_scheduler()
@@ -96,6 +97,7 @@ role = st.session_state.get("username", "USER")
 can_view_faculty = any(c.lower() == "view_all" for c in user_caps)
 is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
 is_dla_or_admin = any(c.lower() in ["edit_checklist", "access_admin_panel"] for c in user_caps)
+can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
 
 # Initialize session state variables
 if "semester" not in st.session_state:
@@ -463,13 +465,19 @@ def page_resources_and_support():
 def page_admin():
     view_admin_panel(df_aut, df_spr, checklist_sums, df_assess)
 
+def page_audit_portal():
+    view_audit_portal(df_aut, df_spr, checklist_sums, df_assess)
+
 # Define st.Page objects
 pg_faculty = st.Page(page_faculty_overview, title="Faculty Overview", icon=":material/account_balance:")
 pg_school = st.Page(page_school_dashboard, title="School Dashboard", icon=":material/dashboard:")
 pg_module = st.Page(page_module_report, title="Module report", icon=":material/receipt_long:")
+pg_audit = st.Page(page_audit_portal, title="Audit Portal", icon=":material/fact_check:")
 pg_resources = st.Page(page_resources_and_support, title="Resources & Support", icon=":material/info:")
 pg_admin = st.Page(page_admin, title="Admin Panel", icon=":material/settings:")
 
+# Store page objects in session state for cross-page navigation
+st.session_state.pg_audit = pg_audit
 
 # Build Navigation array for routing
 pages_list = []
@@ -477,6 +485,8 @@ if can_view_faculty:
     pages_list.append(pg_faculty)
 pages_list.append(pg_school)
 pages_list.append(pg_module)
+if can_audit:
+    pages_list.append(pg_audit)
 pages_list.append(pg_resources)
 
 if is_admin:
@@ -505,6 +515,8 @@ with st.sidebar:
         st.page_link(pg_faculty)
     st.page_link(pg_school)
     st.page_link(pg_module)
+    if can_audit:
+        st.page_link(pg_audit)
     st.page_link(pg_resources)
 
     if is_admin:
