@@ -106,12 +106,13 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     
     # Sub-navigation using Segmented Control
     admin_options = [
-        "📊 System Dashboard", 
-        "💬 Feedback Explorer", 
-        "📋 Log Viewer", 
+        "📊 System Dashboard",
+        "💬 Feedback Explorer",
+        "📋 Log Viewer",
         "👤 User Control",
         "📋 Audit Field Manager",
         "📂 Data Import/Export",
+        "🚫 Inactive Modules",
         "⚙️ System Maintenance",
         "🗄️ Database Explorer"
     ]
@@ -814,7 +815,45 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             "Legacy Audit Baseline (Spring 25/26)": "main_vle_audit_spr"
         }
 
-        
+        # Separate handling for Blackboard Links (CSV upload)
+        st.markdown("---")
+        st.subheader("📂 Blackboard Links Import")
+        st.write("Import Blackboard module links from CSV (module_code, URL).")
+
+        bb_file = st.file_uploader("Choose CSV file for Blackboard Links", type="csv", key="uploader_blackboard_links")
+
+        if bb_file is not None:
+            try:
+                df_bb = pd.read_csv(bb_file)
+
+                st.markdown("**Uploaded Data Preview:**")
+                st.dataframe(df_bb.head(3), use_container_width=True)
+                st.metric("Records parsed from CSV", len(df_bb))
+
+                bb_year = st.text_input("Academic Year (e.g., 2026-27):", value="2026-27", key="bb_academic_year")
+                confirm_bb = st.checkbox("Confirm: I want to import these Blackboard links for the year.", key="confirm_bb_import")
+
+                if st.button("🚀 Import Blackboard Links", type="primary", disabled=not confirm_bb, key="btn_import_bb"):
+                    try:
+                        from sync_data import sync_blackboard_links_from_csv
+
+                        with st.spinner("Processing Blackboard links..."):
+                            count, sample = sync_blackboard_links_from_csv(df_bb, bb_year)
+
+                        st.success(f"✅ Blackboard links imported successfully! ({count} links for {bb_year})")
+                        if sample is not None:
+                            st.info(f"📌 Sample: {sample['module_code']} → {sample['blackboard_link']}")
+                        st.balloons()
+                        logging.info(f"📂 Blackboard links imported: {count} links for {bb_year}")
+                    except Exception as e:
+                        st.error(f"❌ Failed to import Blackboard links: {e}")
+                        logging.error(f"Blackboard links import error: {e}")
+            except Exception as e:
+                st.error(f"❌ Failed to parse CSV: {e}")
+
+        st.markdown("---")
+        st.subheader("📂 Other Data Import / Export")
+
         selected_label = st.selectbox("Select Target Dataset / Table:", list(tables_map.keys()))
         target_table = tables_map[selected_label]
         
@@ -1176,11 +1215,132 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
 
     # ----------------------------------------------------
+    # TAB 7: INACTIVE MODULES MANAGER
+    # ----------------------------------------------------
+    elif selected_tab == "🚫 Inactive Modules":
+        st.subheader("🚫 Inactive Modules Manager")
+        st.write("Mark modules as inactive (skeleton modules, not used, etc.) to exclude them from audits and analytics.")
+
+        try:
+            from database import get_inactive_modules, mark_module_inactive, mark_module_active
+
+            # Load all modules from the dataframes
+            all_modules_set = set()
+            if not df_aut.empty:
+                all_modules_set.update(df_aut['New module code'].dropna().astype(str).str.strip().str.upper())
+            if not df_spr.empty:
+                all_modules_set.update(df_spr['New module code'].dropna().astype(str).str.strip().str.upper())
+
+            all_modules = sorted(list(all_modules_set))
+            inactive_modules = get_inactive_modules()
+            inactive_codes = {m['module_code'] for m in inactive_modules}
+
+            st.divider()
+            st.markdown("##### **Currently Inactive Modules**")
+
+            if inactive_modules:
+                inactive_df = pd.DataFrame(inactive_modules)
+                st.dataframe(
+                    inactive_df,
+                    column_config={
+                        "module_code": "Module Code",
+                        "reason": "Reason",
+                        "marked_date": "Marked Date",
+                        "marked_by": "Marked By"
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.divider()
+                st.markdown("##### **Restore Active Modules**")
+                selected_restore = st.selectbox(
+                    "Select an inactive module to restore:",
+                    options=sorted([m['module_code'] for m in inactive_modules]),
+                    key="restore_module_select"
+                )
+
+                if st.button("✅ Restore to Active", type="secondary", use_container_width=True):
+                    try:
+                        mark_module_active(selected_restore)
+                        logging.info(f"Module {selected_restore} restored to active status.")
+                        st.success(f"Module **{selected_restore}** has been restored to active status!")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error restoring module: {e}")
+            else:
+                st.info("No inactive modules currently marked.")
+
+            st.divider()
+            st.markdown("##### **Mark Module as Inactive**")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                selected_module = st.selectbox(
+                    "Select a module to mark as inactive:",
+                    options=[m for m in all_modules if m not in inactive_codes],
+                    key="mark_inactive_select"
+                )
+
+            with col2:
+                reason = st.selectbox(
+                    "Reason for marking as inactive:",
+                    options=[
+                        "Skeleton module",
+                        "Not used this year",
+                        "Merged with another module",
+                        "Archived",
+                        "Other"
+                    ],
+                    key="mark_inactive_reason"
+                )
+
+            if st.button("🚫 Mark as Inactive", type="primary", use_container_width=True):
+                try:
+                    username = st.session_state.get("username", "Unknown")
+                    mark_module_inactive(selected_module, reason, username)
+                    logging.info(f"Module {selected_module} marked as inactive. Reason: {reason}")
+                    st.success(f"Module **{selected_module}** has been marked as inactive!")
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error marking module as inactive: {e}")
+
+        except Exception as e:
+            st.error(f"Error managing inactive modules: {e}")
+
+    # ----------------------------------------------------
     # TAB 7: SYSTEM MAINTENANCE
     # ----------------------------------------------------
     elif selected_tab == "⚙️ System Maintenance":
         st.subheader("System Maintenance & Diagnostics")
-        
+
+        st.markdown("##### **Data Cleanup Operations**")
+        with st.container(border=True):
+            st.write("Remove legacy VLE audit tables (main_vle_audit_aut and main_vle_audit_spr) — these are historical 25/26 data no longer needed.")
+            col_del1, col_del2 = st.columns(2)
+            with col_del1:
+                confirm_del = st.checkbox("Confirm: I want to delete the legacy VLE audit tables.", key="confirm_delete_legacy_vle")
+            with col_del2:
+                if st.button("🗑️ Delete Legacy VLE Audit Tables", type="secondary", disabled=not confirm_del, use_container_width=True):
+                    try:
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='main_vle_audit_aut'")
+                            if cursor.fetchone():
+                                cursor.execute("DROP TABLE main_vle_audit_aut")
+                            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='main_vle_audit_spr'")
+                            if cursor.fetchone():
+                                cursor.execute("DROP TABLE main_vle_audit_spr")
+                            conn.commit()
+                        st.cache_data.clear()
+                        logging.info("🗑️ Legacy VLE audit tables deleted.")
+                        st.success("Legacy VLE audit tables deleted successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error deleting tables: {e}")
+
         st.markdown("##### **Cache & Diagnostics Operations**")
         with st.container(border=True):
             st.write("Force-clearing Streamlit caches will force the application to fetch fresh data records from local SQLite on the next page interaction.")

@@ -151,17 +151,22 @@ def load_audit_data():
             legacy_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn) if table_exists(conn, "main_vle_audit_aut") else pd.DataFrame()
             legacy_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn) if table_exists(conn, "main_vle_audit_spr") else pd.DataFrame()
             
-            # Load local Ally and Leganto tables if they exist
+            # Load local Ally, Leganto, and Blackboard links tables if they exist
             df_ally_local = pd.read_sql_query("SELECT * FROM ally_scores", conn) if table_exists(conn, "ally_scores") else pd.DataFrame()
             st.session_state["df_ally_local"] = df_ally_local
             df_leganto_local = pd.read_sql_query("SELECT * FROM leganto_nolist", conn) if table_exists(conn, "leganto_nolist") else pd.DataFrame()
+            df_blackboard_links = pd.read_sql_query("SELECT * FROM blackboard_links WHERE academic_year = '2026-27'", conn) if table_exists(conn, "blackboard_links") else pd.DataFrame()
 
         # Combine legacy tables to build reference lookups
-        legacy_combined = pd.concat([df for df in [legacy_aut, legacy_spr] if not df.empty], ignore_index=True)
-        if not legacy_combined.empty and 'New module code' in legacy_combined.columns:
-            legacy_combined['New module code'] = legacy_combined['New module code'].astype(str).str.strip().str.upper()
-            legacy_combined = legacy_combined.drop_duplicates(subset=['New module code'])
-            ref_lookup = legacy_combined.set_index('New module code').to_dict(orient='index')
+        legacy_dfs = [df for df in [legacy_aut, legacy_spr] if not df.empty]
+        if legacy_dfs:
+            legacy_combined = pd.concat(legacy_dfs, ignore_index=True)
+            if 'New module code' in legacy_combined.columns:
+                legacy_combined['New module code'] = legacy_combined['New module code'].astype(str).str.strip().str.upper()
+                legacy_combined = legacy_combined.drop_duplicates(subset=['New module code'])
+                ref_lookup = legacy_combined.set_index('New module code').to_dict(orient='index')
+            else:
+                ref_lookup = {}
         else:
             ref_lookup = {}
 
@@ -185,6 +190,13 @@ def load_audit_data():
         if not df_leganto_local.empty and 'module_code' in df_leganto_local.columns:
             leganto_local_set = set(df_leganto_local['module_code'].astype(str).str.strip().str.upper())
 
+        # Local Blackboard links lookup
+        blackboard_links_map = {}
+        if not df_blackboard_links.empty and 'module_code' in df_blackboard_links.columns:
+            df_blackboard_links['module_code'] = df_blackboard_links['module_code'].astype(str).str.strip().str.upper()
+            for _, row in df_blackboard_links.iterrows():
+                blackboard_links_map[row['module_code']] = row['blackboard_link']
+
         # Extract unique modules from SITS
         if df_sits.empty or 'CIS unit code' not in df_sits.columns:
             logging.warning("⚠️ sits_assessment_2026_27 is empty or missing 'CIS unit code' column.")
@@ -192,7 +204,7 @@ def load_audit_data():
             
         df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
         unique_modules = df_sits.drop_duplicates(subset=['CIS unit code']).copy()
-        
+
         # Build the final records
         records = []
         for _, row in unique_modules.iterrows():
@@ -203,12 +215,15 @@ def load_audit_data():
             period = str(row.get('Period', '')).strip().upper()
             
             # Map period to semester
-            if period == 'S1':
+            if period in ['S1', 'ED1', 'N19', 'N21', 'ISS1']:
                 semester = 'Autumn'
-            elif period == 'S2':
+            elif period in ['S2', 'ED2', 'N27', 'N28', 'MDE2']:
                 semester = 'Spring'
-            else:
+            elif period in ['AY', 'FY', 'TRI', 'X4']:
                 semester = 'All year'
+            else:
+                # Default to Spring for unmapped periods
+                semester = 'Spring'
                 
             # Retrieve legacy reference fields if they exist
             ref_fields = ref_lookup.get(code, {})
@@ -247,13 +262,16 @@ def load_audit_data():
             else:
                 leganto_missing = code in leganto_local_set
 
+            # Get Blackboard URL (prefer blackboard_links table, fallback to legacy)
+            blackboard_url = blackboard_links_map.get(code, ref_fields.get('URL', ''))
+
             record = {
                 'New module code': code,
                 'Module name': name,
                 'Mod. lead': lead,
                 'Prog. lead': ref_fields.get('Prog. lead', ''),
                 'UG/ PG/ Other': level,
-                'URL': ref_fields.get('URL', ''),
+                'URL': blackboard_url,
                 'Semester': semester,
                 'Ally Measured': measured_score,
                 'Ally Weighted': weighted_score,
@@ -281,18 +299,37 @@ def load_audit_data():
                 'Comments': ref_fields.get('Comments', '')
             }
             records.append(record)
-            
+
         df_all = pd.DataFrame(records)
         
         # Partition
         df_aut = df_all[df_all['Semester'] == 'Autumn'].copy()
         df_spr = df_all[df_all['Semester'] == 'Spring'].copy()
         df_all_year = df_all[df_all['Semester'] == 'All year'].copy()
-        
+
         # All year modules run in both semesters, so include them in both lists
-        df_aut = pd.concat([df_aut, df_all_year], ignore_index=True)
-        df_spr = pd.concat([df_spr, df_all_year], ignore_index=True)
-        
+        aut_dfs = [df_aut, df_all_year] if not df_all_year.empty else [df_aut]
+        spr_dfs = [df_spr, df_all_year] if not df_all_year.empty else [df_spr]
+
+        # Only concat if we have dataframes to concat
+        aut_dfs = [d for d in aut_dfs if not d.empty]
+        spr_dfs = [d for d in spr_dfs if not d.empty]
+
+        df_aut = pd.concat(aut_dfs, ignore_index=True) if aut_dfs else pd.DataFrame()
+        df_spr = pd.concat(spr_dfs, ignore_index=True) if spr_dfs else pd.DataFrame()
+
+        # Filter out inactive modules
+        try:
+            with get_db_connection() as conn:
+                inactive_df = pd.read_sql_query("SELECT module_code FROM inactive_modules", conn) if table_exists(conn, "inactive_modules") else pd.DataFrame()
+            if not inactive_df.empty:
+                inactive_codes = set(inactive_df['module_code'].str.strip().str.upper())
+                df_aut = df_aut[~df_aut['New module code'].isin(inactive_codes)].copy()
+                df_spr = df_spr[~df_spr['New module code'].isin(inactive_codes)].copy()
+                logging.info(f"Filtered out {len(inactive_codes)} inactive modules.")
+        except Exception as e:
+            logging.warning(f"Could not filter inactive modules: {e}")
+
         logging.info(f"✅ Successfully compiled SITS module list (Autumn: {len(df_aut)}, Spring: {len(df_spr)}).")
         return df_aut, df_spr
     except Exception as e:
@@ -479,6 +516,7 @@ pg_resources = st.Page(page_resources_and_support, title="Resources & Support", 
 pg_admin = st.Page(page_admin, title="Admin Panel", icon=":material/settings:")
 
 # Store page objects in session state for cross-page navigation
+st.session_state.pg_module = pg_module
 st.session_state.pg_audit = pg_audit
 
 # Build Navigation array for routing

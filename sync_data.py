@@ -394,6 +394,76 @@ def push_checklist_fields_to_sheets():
         print(f"❌ Error pushing Checklist Fields to Google Sheets: {e}")
 
 
+def sync_blackboard_links_from_csv(df: pd.DataFrame, academic_year: str = "2026-27"):
+    """Process Blackboard links from a dataframe (used by admin panel CSV import)."""
+    try:
+        # Normalize column names
+        df.columns = [c.strip().lower() for c in df.columns]
+
+        # Map column variations
+        module_col = None
+        url_col = None
+
+        for col in df.columns:
+            if col in ['module_code', 'module code', 'course_code', 'course code', 'course_id', 'course id']:
+                module_col = col
+            elif col in ['url', 'link', 'blackboard_url', 'blackboard_link', 'blackboard url', 'blackboard link']:
+                url_col = col
+
+        if module_col is None:
+            module_col = df.columns[0]
+        if url_col is None:
+            url_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+
+        # Extract and clean data
+        df_clean = df[[module_col, url_col]].copy()
+        df_clean.columns = ['module_code', 'blackboard_link']
+
+        # Clean module codes and URLs
+        df_clean['module_code'] = df_clean['module_code'].astype(str).str.strip().str.upper()
+        df_clean['blackboard_link'] = df_clean['blackboard_link'].astype(str).str.strip()
+
+        # Remove empty rows
+        df_clean = df_clean[(df_clean['module_code'] != '') & (df_clean['blackboard_link'] != '')]
+
+        # Validate that links contain 'http' (basic URL check)
+        df_clean = df_clean[df_clean['blackboard_link'].str.contains('http', case=False, na=False)]
+
+        if len(df_clean) == 0:
+            raise ValueError("No valid URLs found. Ensure the URL column contains full Blackboard URLs (starting with http/https).")
+
+        # Add metadata columns
+        import datetime
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        df_clean['academic_year'] = academic_year
+        df_clean['import_date'] = now
+        df_clean['last_updated'] = now
+
+        # Keep only required columns
+        df_clean = df_clean[['module_code', 'blackboard_link', 'academic_year', 'import_date', 'last_updated']]
+
+        # Write to SQLite (replace old year's data)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Clear existing links for this academic year
+            cursor.execute("DELETE FROM blackboard_links WHERE academic_year = ?", (academic_year,))
+
+            # Insert new links
+            for _, row in df_clean.iterrows():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO blackboard_links
+                    (module_code, blackboard_link, academic_year, import_date, last_updated)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (row['module_code'], row['blackboard_link'], academic_year, now, now))
+
+            conn.commit()
+
+        return len(df_clean), df_clean.iloc[0] if len(df_clean) > 0 else None
+
+    except Exception as e:
+        raise e
+
+
 def run_synchronization():
     """ETL pipeline extracting Google Sheets data and writing to SQLite."""
     print("🔄 Starting Data Synchronization...")
@@ -412,6 +482,10 @@ def run_synchronization():
             sync_checklist_fields()
         except Exception as e:
             print(f"⚠️ Skipping Checklist Fields sync due to error: {e}")
+        try:
+            sync_blackboard_links()
+        except Exception as e:
+            print(f"⚠️ Skipping Blackboard Links sync due to error: {e}")
         print("✅ Full Sync Process Completed.")
     except Exception as e:
         print(f"❌ Synchronisation failed: {str(e)}", file=sys.stderr)

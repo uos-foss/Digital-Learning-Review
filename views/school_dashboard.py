@@ -2,6 +2,15 @@ import streamlit as st
 import pandas as pd
 from processing import calculate_compliance_gap, is_compliant_val
 
+def to_sentence_case(name: str) -> str:
+    """Convert name to sentence case (capitalize first letter only)."""
+    if not name or pd.isna(name):
+        return ""
+    name_str = str(name).strip()
+    if not name_str:
+        return ""
+    return name_str[0].upper() + name_str[1:].lower() if len(name_str) > 0 else name_str
+
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
     
@@ -102,27 +111,19 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             if selected_view == "📋 All Modules":
                 st.subheader("Module Audit Status")
                 display_df = school_df.copy()
+                # Apply sentence case to Module Lead names
+                display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_sentence_case)
                 cols = ['New module code', 'Module name', 'Mod. lead']
                 configs = {
                     "New module code": "Module Code",
                     "Module name": "Module Name",
-                    "Mod. lead": "Lead"
+                    "Mod. lead": "Module Lead"
                 }
-                if 'Total Files' in display_df.columns:
-                    cols.append('Total Files')
-                    configs['Total Files'] = st.column_config.NumberColumn("Files", format="%d")
-                if 'Ally Measured' in display_df.columns:
-                    display_df['Measured'] = display_df['Ally Measured'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                    cols.append('Measured')
-                    configs['Measured'] = "Measured"
+                # Add single Ally score column
                 if 'Ally 25/26 All' in display_df.columns:
-                    display_df['Weighted'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                    cols.append('Weighted')
-                    configs['Weighted'] = "Weighted"
-                if 'Ally Shift' in display_df.columns:
-                    display_df['Shift (Δ)'] = display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
-                    cols.append('Shift (Δ)')
-                    configs['Shift (Δ)'] = "Shift (Δ)"
+                    display_df['Ally Score'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                    cols.append('Ally Score')
+                    configs['Ally Score'] = "Ally Score"
                 cols.append('Audited?')
                 configs['Audited?'] = "Audited?"
                 cols.append('Actionable Items')
@@ -156,16 +157,59 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     with c1:
                         if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
                             st.session_state.selected_module_code = clicked_code
-                            st.session_state.view_selection = "📋 Module Report Card"
-                            st.rerun()
+                            st.switch_page(st.session_state.pg_module)
                     with c2:
                         if st.button(f"✅ Open Lead Checklist", width="stretch", key="btn_school_cl"):
                             st.session_state.selected_module_code = clicked_code
-                            st.session_state.view_selection = "✅ Module Lead Checklist"
-                            st.rerun()
+                            st.switch_page(st.session_state.pg_audit)
                     st.divider()
 
             elif selected_view == "📊 Ally Analytics":
+                st.subheader(f"Ally Accessibility Scores ({semester})")
+
+                # Ally data table
+                if not school_df.empty and 'Ally 25/26 All' in school_df.columns:
+                    ally_display_df = school_df.copy()
+                    ally_display_df['Mod. lead'] = ally_display_df['Mod. lead'].apply(to_sentence_case)
+
+                    ally_cols = ['New module code', 'Module name', 'Mod. lead']
+                    ally_configs = {
+                        "New module code": "Module Code",
+                        "Module name": "Module Name",
+                        "Mod. lead": "Module Lead"
+                    }
+
+                    # Add Ally score columns
+                    if 'Ally Measured' in ally_display_df.columns:
+                        ally_display_df['Measured'] = ally_display_df['Ally Measured'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                        ally_cols.append('Measured')
+                        ally_configs['Measured'] = "Measured"
+
+                    if 'Ally 25/26 All' in ally_display_df.columns:
+                        ally_display_df['Weighted'] = ally_display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                        ally_cols.append('Weighted')
+                        ally_configs['Weighted'] = "Weighted Score"
+
+                    if 'Ally Shift' in ally_display_df.columns:
+                        ally_display_df['Shift (Δ)'] = ally_display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
+                        ally_cols.append('Shift (Δ)')
+                        ally_configs['Shift (Δ)'] = "Score Change"
+
+                    if 'Total Files' in ally_display_df.columns:
+                        ally_cols.append('Total Files')
+                        ally_configs['Total Files'] = st.column_config.NumberColumn("Files", format="%d")
+
+                    ally_table_df = ally_display_df[ally_cols].reset_index(drop=True)
+
+                    st.markdown("##### **Detailed Ally Scores by Module**")
+                    st.dataframe(
+                        ally_table_df,
+                        column_config=ally_configs,
+                        width="stretch",
+                        hide_index=True
+                    )
+                    st.divider()
+
                 st.subheader(f"Ally Score Distribution ({semester})")
                 if not school_df.empty and 'Ally 25/26 All' in school_df.columns:
                     scores_series = school_df['Ally 25/26 All'].dropna()
@@ -455,18 +499,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         
                         st.divider()
                         st.info(f"🚀 Launch Control: **{clicked_code}**")
-                        
+
                         c1, c2 = st.columns(2)
                         with c1:
                             if st.button(f"📊 Jump to Module Report Card", width="stretch", type="primary", key="school_priority_btn_rc"):
                                 st.session_state.selected_module_code = clicked_code
-                                st.session_state.view_selection = "📋 Module Report Card"
-                                st.rerun()
+                                st.switch_page(st.session_state.pg_module)
                         with c2:
-                             if st.button(f"✅ Jump to Lead Checklist", width="stretch", key="school_priority_btn_cl"):
+                            if st.button(f"✅ Jump to Lead Checklist", width="stretch", key="school_priority_btn_cl"):
                                 st.session_state.selected_module_code = clicked_code
-                                st.session_state.view_selection = "✅ Module Lead Checklist"
-                                st.rerun()
+                                st.switch_page(st.session_state.pg_audit)
                         st.divider()
 
             elif selected_view == "📝 Assessment Types":

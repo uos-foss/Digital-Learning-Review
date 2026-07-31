@@ -148,6 +148,28 @@ def init_db():
         )
     """)
 
+    # Create blackboard_links table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS blackboard_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_code TEXT UNIQUE NOT NULL,
+            blackboard_link TEXT NOT NULL,
+            academic_year TEXT NOT NULL,
+            import_date TEXT,
+            last_updated TEXT
+        )
+    """)
+
+    # Create inactive_modules table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inactive_modules (
+            module_code TEXT PRIMARY KEY,
+            reason TEXT,
+            marked_date TEXT,
+            marked_by TEXT
+        )
+    """)
+
     # Check and migrate comment_bank table
     cursor.execute("PRAGMA table_info(comment_bank)")
     columns = [row[1] for row in cursor.fetchall()]
@@ -709,6 +731,40 @@ def save_feedback_sqlite(timestamp, username, school, category, rating, comments
             VALUES (?, ?, ?, ?, ?, ?)
         """, (timestamp, username, school, category, rating, comments))
         conn.commit()
+
+def get_inactive_modules():
+    """Returns list of module codes marked as inactive."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT module_code, reason, marked_date, marked_by FROM inactive_modules ORDER BY marked_date DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+def mark_module_inactive(module_code: str, reason: str, marked_by: str):
+    """Mark a module as inactive."""
+    import datetime
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("""
+            INSERT OR REPLACE INTO inactive_modules (module_code, reason, marked_date, marked_by)
+            VALUES (?, ?, ?, ?)
+        """, (module_code.strip().upper(), reason, now, marked_by))
+        conn.commit()
+
+def mark_module_active(module_code: str):
+    """Unmark a module as inactive (restore to active)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM inactive_modules WHERE module_code = ?", (module_code.strip().upper(),))
+        conn.commit()
+
+def is_module_inactive(module_code: str) -> bool:
+    """Check if a module is marked as inactive."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM inactive_modules WHERE module_code = ?", (module_code.strip().upper(),))
+        return cursor.fetchone() is not None
+
 
 # Automatically initialize/migrate database when imported
 init_db()
