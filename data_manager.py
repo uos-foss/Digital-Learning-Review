@@ -148,8 +148,8 @@ def initialize_users_sheet(spreadsheet_id):
     Ensures the users worksheet exists and has the correct headers.
     If it is newly created or empty, seeds it with default users from .env.
     """
-    import hashlib
     import logging
+    from security import hash_password
     headers = ["Username", "PasswordHash", "Role", "School", "Capabilities", "Status"]
     client = get_gspread_client()
     spreadsheet = client.open_by_key(spreadsheet_id)
@@ -187,8 +187,8 @@ def initialize_users_sheet(spreadsheet_id):
         
         for username, (password, role, school) in env_users.items():
             if password:
-                # Hash password with SHA-256
-                pass_hash = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
+                # Salted, work-factored hash - see security.py
+                pass_hash = hash_password(password)
                 # Simplified Capabilities string
                 if role == "admin":
                     caps = "view_all, edit_checklist, access_admin_panel"

@@ -155,13 +155,50 @@ class SQLiteAuthProvider(BaseAuthProvider):
     usernames, roles, password hashes, and user capabilities.
     """
     def authenticate(self, username: str, password: str) -> bool:
-        import hashlib
+        from security import hash_password, verify_password, needs_rehash
+
         users = load_sqlite_users()
         uname = str(username).strip().upper()
-        if uname in users and users[uname]["Status"] == "ACTIVE":
-            entered_hash = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
-            return users[uname]["PasswordHash"] == entered_hash
-        return False
+        if uname not in users or users[uname]["Status"] != "ACTIVE":
+            return False
+
+        stored = users[uname]["PasswordHash"]
+        is_valid, _scheme = verify_password(password, stored)
+        if not is_valid:
+            return False
+
+        # Transparent upgrade: a correct password stored under the old unsalted
+        # SHA-256 scheme is re-hashed with scrypt here, so accounts migrate as
+        # people sign in rather than needing a forced reset.
+        if needs_rehash(stored):
+            try:
+                from database import get_db_connection
+                new_hash = hash_password(password)
+                # Matched case-insensitively rather than via
+                # update_user_field_sqlite, which uppercases the username and so
+                # would silently match nothing for email-style accounts.
+                with get_db_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE users SET PasswordHash = ? WHERE UPPER(Username) = ?",
+                        (new_hash, uname),
+                    )
+                    conn.commit()
+                    updated = cur.rowcount
+                if updated:
+                    # load_sqlite_users is cached for 60s; drop it so the next
+                    # read sees the upgraded hash rather than the superseded one.
+                    load_sqlite_users.clear()
+                    logging.info(f"🔐 Upgraded password hash to scrypt for user '{uname}'.")
+                else:
+                    logging.error(f"❌ Password hash upgrade for '{uname}' matched no rows.")
+            except Exception as e:
+                # The login itself already succeeded - never fail it because the
+                # upgrade could not be written. Log and move on; the next login
+                # will try again.
+                logging.error(f"❌ Could not upgrade password hash for '{uname}': {e}")
+
+        return True
 
     def is_valid_user(self, username: str) -> bool:
         users = load_sqlite_users()

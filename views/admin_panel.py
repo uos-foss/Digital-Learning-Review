@@ -448,9 +448,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                     update_user_field_sqlite(selected_user, "Status", new_status)
                                     
                                     if new_pwd.strip():
-                                        import hashlib
-                                        pass_hash = hashlib.sha256(new_pwd.strip().encode("utf-8")).hexdigest()
-                                        update_user_field_sqlite(selected_user, "PasswordHash", pass_hash)
+                                        from security import hash_password
+                                        update_user_field_sqlite(selected_user, "PasswordHash", hash_password(new_pwd))
                                         
                                     logging.info(f"👤 User profile updated for '{selected_user}' directly in SQLite.")
                                     st.success(f"User '{selected_user}' updated successfully in local database!")
@@ -485,8 +484,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 st.error(f"Username '{add_username}' already exists in SQLite registry.")
                             else:
                                 try:
-                                    import hashlib
-                                    pass_hash = hashlib.sha256(add_pwd.strip().encode("utf-8")).hexdigest()
+                                    from security import hash_password
+                                    pass_hash = hash_password(add_pwd)
                                     save_user_sqlite(add_username.upper(), pass_hash, add_role, add_school, "", "Active")
                                     logging.info(f"👤 Created new user account '{add_username.upper()}' directly in SQLite.")
                                     st.success(f"User account '{add_username.upper()}' created successfully in SQLite database!")

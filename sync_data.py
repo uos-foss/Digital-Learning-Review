@@ -40,6 +40,62 @@ def sync_assessment_data():
         except Exception as e:
             print(f"❌ Error syncing Assessment Data: {e}")
 
+def sync_new_users_only(df_users):
+    """
+    Adds accounts present in the Users sheet but missing from SQLite, and
+    leaves existing accounts completely untouched.
+
+    SQLite is the source of truth for users: the Admin Panel writes there and
+    never back to Sheets, so the sheet is already stale. The previous
+    behaviour (cache_dataframe_to_sqlite, which uses if_exists='replace')
+    dropped and rebuilt the table, which would revert Admin Panel edits to
+    roles and status - and would overwrite migrated scrypt password hashes
+    with the old SHA-256 values from the sheet.
+
+    Roles are still synced wholesale; those are genuinely sheet-managed.
+    """
+    from database import get_db_connection
+
+    if df_users is None or df_users.empty or 'Username' not in df_users.columns:
+        print("⚠️ Users sheet empty or missing a Username column; skipping user sync.")
+        return
+
+    added = skipped = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        existing = {
+            str(r[0]).strip().upper()
+            for r in cursor.execute("SELECT Username FROM users").fetchall()
+        }
+
+        for _, row in df_users.iterrows():
+            uname = str(row.get('Username', '')).strip()
+            if not uname:
+                continue
+            if uname.upper() in existing:
+                skipped += 1
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO users (Username, PasswordHash, Role, School, Capabilities, Status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(Username) DO NOTHING
+                """,
+                (
+                    uname,
+                    str(row.get('PasswordHash', '')).strip(),
+                    str(row.get('Role', '')).strip(),
+                    str(row.get('School', '')).strip(),
+                    str(row.get('Capabilities', '')).strip(),
+                    str(row.get('Status', 'Active')).strip() or 'Active',
+                ),
+            )
+            added += 1
+        conn.commit()
+
+    print(f"✅ Users: {added} added, {skipped} existing left untouched.")
+
 def sync_users_and_roles():
     print("🔄 Pulling Users and Roles...")
     from data_manager import get_spreadsheet_data
@@ -52,7 +108,7 @@ def sync_users_and_roles():
             users_data = users_sheet.get_all_values()
             if len(users_data) > 1:
                 df_users = pd.DataFrame(users_data[1:], columns=users_data[0])
-                cache_dataframe_to_sqlite(df_users, "users")
+                sync_new_users_only(df_users)
             # Roles
             roles_sheet = ss.worksheet("Roles")
             roles_data = roles_sheet.get_all_values()
