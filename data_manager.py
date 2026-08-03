@@ -73,7 +73,9 @@ def initialize_checklist_headers(spreadsheet_id, worksheet_name):
     spreadsheet = client.open_by_key(spreadsheet_id)
     try:
         worksheet = spreadsheet.worksheet(worksheet_name)
-    except:
+    except gspread.exceptions.WorksheetNotFound:
+        # Only create on a genuine "not found" - a transient API error must not
+        # silently spawn a duplicate worksheet.
         worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=len(headers))
     
     data = worksheet.get_all_values()
@@ -91,7 +93,9 @@ def initialize_feedback_headers(spreadsheet_id, worksheet_name):
     spreadsheet = client.open_by_key(spreadsheet_id)
     try:
         worksheet = spreadsheet.worksheet(worksheet_name)
-    except:
+    except gspread.exceptions.WorksheetNotFound:
+        # Only create on a genuine "not found" - a transient API error must not
+        # silently spawn a duplicate worksheet.
         worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=len(headers))
     
     data = worksheet.get_all_values()

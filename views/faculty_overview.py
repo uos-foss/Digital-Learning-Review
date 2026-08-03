@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from processing import aggregate_faculty_stats, calculate_compliance_gap, is_compliant_val
+from processing import (aggregate_faculty_stats, calculate_compliance_gap, is_compliant_val,
+                        get_school_comparison, resolve_semester_df, FACULTY_SCHOOLS)
 
 def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("🏛️ Faculty Overview")
     
     # Determine active data based on chosen semester
     semester = st.session_state.get('semester', 'Autumn')
-    active_df = df_spr if semester == "Spring" else df_aut
+    active_df = resolve_semester_df(df_aut, df_spr, semester)
     
     stats = aggregate_faculty_stats(df_aut, df_spr)
     
@@ -28,7 +29,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     
     # ABSOLUTE LOCKDOWN ROUTER: Uses robust native widget for 100% reliable state linkage across reloads.
     # Also enables true lazy-loading, increasing app speed by not calculating inactive views!
-    view_options = ["📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
+    view_options = ["🏫 School Comparison", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
     
     selected_view = st.segmented_control(
         "Navigate View:", 
@@ -39,7 +40,90 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     )
     st.divider()
     
-    if selected_view == "📊 Ally Analytics":
+    if selected_view == "🏫 School Comparison":
+        st.subheader(f"School Comparison ({semester})")
+        st.caption(
+            "VLE Compliance is measured across **submitted audits only** - read it "
+            "alongside the Audited column, since a high score on a small sample is "
+            "not the same as a school in good shape."
+        )
+
+        comparison_df, faculty_totals = get_school_comparison(active_df, checklist_sums)
+
+        if comparison_df.empty:
+            st.warning(f"No school data available for {semester}.")
+        else:
+            display_df = comparison_df.copy()
+            display_df['Audited'] = display_df.apply(
+                lambda r: f"{int(r['Audited'])} ({r['Audited %']:.0f}%)", axis=1
+            )
+            for col in ['Avg Ally', 'VLE Compliance']:
+                display_df[col] = display_df[col].apply(
+                    lambda x: f"{x:.1f}%" if pd.notna(x) else "—"
+                )
+            display_df = display_df.drop(columns=['Audited %'])
+
+            # [STABILITY FIX]: Streamlit's selection engine requires monotonic indices.
+            display_df = display_df.reset_index(drop=True)
+
+            selection_schools = st.dataframe(
+                display_df,
+                column_config={
+                    "School": "School",
+                    "Modules": st.column_config.NumberColumn("Modules"),
+                    "Audited": "Audited",
+                    "Avg Ally": "Avg Ally",
+                    "VLE Compliance": "VLE Compliance",
+                    "Status": "Status",
+                },
+                width="stretch",
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="faculty_school_comparison_dataframe"
+            )
+
+            # Faculty-wide figures sit outside the table so the table stays
+            # purely schools - sortable and exportable without a totals row
+            # masquerading as an eighth school.
+            def _fmt_pct(value):
+                return f"{value:.1f}%" if value is not None and pd.notna(value) else "—"
+
+            st.markdown("##### **Faculty Totals**")
+            t1, t2, t3, t4 = st.columns(4)
+            with t1:
+                st.metric("Modules", faculty_totals['Modules'])
+            with t2:
+                st.metric("Audited", f"{faculty_totals['Audited']} ({faculty_totals['Audited %']:.0f}%)")
+            with t3:
+                st.metric("Avg Ally", _fmt_pct(faculty_totals['Avg Ally']))
+            with t4:
+                st.metric("VLE Compliance", _fmt_pct(faculty_totals['VLE Compliance']))
+
+            # Drill-down: hand the chosen school to the School Dashboard for one render.
+            if selection_schools.selection.rows:
+                row_idx = selection_schools.selection.rows[0]
+                clicked_school = display_df.iloc[row_idx]['School']
+
+                st.divider()
+                st.info(f"🚀 Launch Control: **{clicked_school}**")
+                if st.button(f"🏫 Open {clicked_school} School Dashboard",
+                             width="stretch", type="primary",
+                             key="faculty_school_comparison_drilldown"):
+                    st.session_state.drilldown_school = clicked_school
+                    st.switch_page(st.session_state.pg_school)
+                st.divider()
+
+            csv_schools = comparison_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "📥 Download School Comparison (CSV)",
+                csv_schools,
+                f"faculty_school_comparison_{semester.lower()}.csv",
+                "text/csv",
+                key="faculty_school_comparison_downloader"
+            )
+
+    elif selected_view == "📊 Ally Analytics":
         st.subheader(f"Ally Score Distribution ({semester})")
         if not active_df.empty and 'Ally 25/26 All' in active_df.columns:
             # Drop empty scores for accurate statistical bucketing
@@ -373,7 +457,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             
             if not matching_assess.empty:
                 # Add School column based on CIS unit code prefix
-                schools_list = {"ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"}
+                schools_list = set(FACULTY_SCHOOLS)
                 matching_assess['School'] = matching_assess['CIS unit code'].astype(str).str[:3].str.upper()
                 matching_assess = matching_assess[matching_assess['School'].isin(schools_list)]
                 

@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 import logging
 import json
-from processing import get_module_mapping
+from processing import get_module_mapping, FACULTY_SCHOOLS
 from database import (
     get_active_audit_fields,
     get_audit_responses,
@@ -43,7 +43,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
     module_mapping = get_module_mapping(df_aut, df_spr)
     combined_options = sorted([f"{code} - {name}" for code, name in module_mapping.items()])
     
-    schools_list = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
+    schools_list = list(FACULTY_SCHOOLS)
     
     # Check layout parameter for default layout
     default_mini = False
@@ -250,7 +250,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                         snapshot_date_str = parsed_dt.strftime('%d-%m-%Y')
                     else:
                         snapshot_date_str = raw_date
-                except:
+                except Exception:
                     snapshot_date_str = raw_date
 
         # 2b. Grouped Ally / Accessibility Profile Card

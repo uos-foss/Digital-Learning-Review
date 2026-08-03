@@ -219,11 +219,27 @@ class GoogleOAuthProvider(BaseAuthProvider):
     """
     OAuth2-based authentication provider using Google.
     Delegates role and capability lookups to SQLite queries using the verified email as the Username.
+
+    NOTE ON EMPTY PasswordHash VALUES:
+    Under this provider the identity is proven by Google, so a `users` row acts
+    purely as a whitelist entry and legitimately carries an empty PasswordHash.
+    Such rows are NOT broken and must not be deleted as cleanup - deleting one
+    revokes that person's access entirely.
+
+    They are also not a bypass: SQLiteAuthProvider.authenticate compares against
+    a SHA-256 hex digest, which is never the empty string, so the password form
+    rejects every input for these accounts.
+
+    The trade-off is that an empty-hash account cannot log in if AUTH_PROVIDER is
+    switched away from GOOGLE/GOOGLE_OAUTH. Give the account a password via the
+    Admin Panel if you need it to survive that switch.
     """
     def __init__(self):
         self.db_provider = SQLiteAuthProvider()
 
     def authenticate(self, email: str, id_token_or_code: str) -> bool:
+        # Identity is established by the OAuth token exchange in check_password;
+        # membership of the users table is the only remaining gate.
         return self.is_valid_user(email)
 
     def is_valid_user(self, email: str) -> bool:
@@ -339,7 +355,12 @@ def check_password():
                             st.query_params.clear()
                     else:
                         st.error("😕 Authentication failed: could not retrieve access token from Google.")
-                        logging.error(f"❌ OAuth exchange failed: {tokens}")
+                        # Log only the error fields - never the full response, which
+                        # would put a live token in app.log if Google ever returns one.
+                        logging.error(
+                            f"❌ OAuth exchange failed: {tokens.get('error', 'unknown')} - "
+                            f"{tokens.get('error_description', 'no description')}"
+                        )
                         st.query_params.clear()
                 except Exception as e:
                     st.error(f"😕 Authentication failed: {e}")

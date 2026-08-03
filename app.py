@@ -518,6 +518,7 @@ pg_admin = st.Page(page_admin, title="Admin Panel", icon=":material/settings:")
 # Store page objects in session state for cross-page navigation
 st.session_state.pg_module = pg_module
 st.session_state.pg_audit = pg_audit
+st.session_state.pg_school = pg_school
 
 # Build Navigation array for routing
 pages_list = []

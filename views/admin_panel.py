@@ -18,6 +18,7 @@ from database import (
     delete_role_sqlite,
     init_db
 )
+from processing import FACULTY_SCHOOLS
 
 def parse_log_line(line):
     """
@@ -358,7 +359,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.info("The SQLite Roles table is empty. Create role definitions to assign them.")
             else:
                 roles_list = sorted(df_roles["Role"].unique().tolist())
-                schools_list = ["All", "ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
+                schools_list = ["All"] + list(FACULTY_SCHOOLS)
                 available_caps = ["view_all", "view_school", "edit_checklist", "access_admin_panel"]
                 
                 sub_tabs = st.tabs(["👤 User Accounts", "🛡️ Role Capabilities"])
@@ -429,6 +430,16 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             new_status = st.segmented_control("Access Status:", ["Active", "Disabled"], default=status_default, key=f"edit_status_{selected_user}")
                             
                             new_pwd = st.text_input("Reset Password (leave empty to keep current):", type="password", key=f"reset_pwd_{selected_user}")
+
+                            # Accounts with no hash sign in via Google OAuth, where identity is
+                            # proven by the token exchange. Flag it so this is not mistaken for
+                            # a broken account and "tidied up" by deleting the row.
+                            if not str(u_row.get("PasswordHash", "")).strip():
+                                st.info(
+                                    "🔑 This account has no password set and signs in via Google OAuth. "
+                                    "That is expected - do not delete it. Set a password only if you need "
+                                    "the account to work when AUTH_PROVIDER is not Google."
+                                )
                             
                             if st.button("Update User Profile", type="primary", use_container_width=True, key=f"btn_update_{selected_user}"):
                                 try:
@@ -1043,6 +1054,23 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     confirm_import = st.checkbox("Confirm: I want to write this CSV to the database table.")
                     
                     if st.button("🚀 Execute Import", type="primary", disabled=not confirm_import, key=f"exec_btn_{target_table}"):
+                        # audit_fields.id is used to build SQL elsewhere, so hold the CSV
+                        # path to the same rule as the table editor above (line ~654).
+                        bad_field_ids = []
+                        if target_table == "audit_fields" and 'id' in df_import.columns:
+                            for raw_id in df_import['id']:
+                                fid = str(raw_id).strip()
+                                if not fid or not re.match(r"^[a-z0-9_]+$", fid):
+                                    bad_field_ids.append(raw_id)
+
+                        if bad_field_ids:
+                            st.error(
+                                "🚫 Import aborted. Field IDs must use lowercase letters, "
+                                f"numbers and underscores only. Invalid: {bad_field_ids[:5]}"
+                            )
+                            logging.warning(f"Rejected audit_fields CSV import with invalid IDs: {bad_field_ids[:5]}")
+                            st.stop()
+
                         with st.spinner("Writing records to SQLite..."):
                             with get_db_connection() as conn:
                                 predefined_tables = ["comment_bank", "audit_fields", "audit_responses", "users", "roles", "ally_scores", "leganto_nolist"]

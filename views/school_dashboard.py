@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from processing import calculate_compliance_gap, is_compliant_val
+from processing import calculate_compliance_gap, is_compliant_val, resolve_semester_df, FACULTY_SCHOOLS
 
 def to_sentence_case(name: str) -> str:
     """Convert name to sentence case (capitalize first letter only)."""
@@ -12,11 +12,21 @@ def to_sentence_case(name: str) -> str:
     return name_str[0].upper() + name_str[1:].lower() if len(name_str) > 0 else name_str
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
-    schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
+    schools = list(FACULTY_SCHOOLS)
     
     user_caps = st.session_state.get("capabilities", [])
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
-    
+
+    # A school handed over from the Faculty School Comparison table. Consumed
+    # once, then cleared, so the user's saved_school preference is untouched.
+    # Seeds the selector widgets before they are built so the controls agree
+    # with the data being shown.
+    drilldown_school = st.session_state.pop("drilldown_school", None)
+    if drilldown_school in schools and not only_own_school:
+        st.session_state.sd_focus_school = False
+        st.session_state.sd_school_select = drilldown_school
+        st.session_state.sd_school_select_all = drilldown_school
+
     if only_own_school:
         school = st.session_state.saved_school
         school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {school}</span>"
@@ -53,7 +63,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     semester = st.session_state.semester
     st.header(f"{school} - {semester} Semester")
     
-    target_df = df_aut if semester == "Autumn" else df_spr
+    target_df = resolve_semester_df(df_aut, df_spr, semester)
     
     if not target_df.empty:
         school_df = target_df[target_df['New module code'].str.startswith(school, na=False)].copy()
