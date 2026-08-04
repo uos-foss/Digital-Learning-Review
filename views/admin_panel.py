@@ -1345,10 +1345,19 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
         st.markdown("##### **Data Cleanup Operations**")
         with st.container(border=True):
-            st.write("Remove legacy VLE audit tables (main_vle_audit_aut and main_vle_audit_spr) — these are historical 25/26 data no longer needed.")
+            st.write(
+                "Remove the legacy VLE audit tables (main_vle_audit_aut and main_vle_audit_spr) — "
+                "the historical 25/26 baseline."
+            )
+            st.warning(
+                "⚠️ **This cannot be undone.** The upstream spreadsheet was retired in v1.15.0, so a "
+                "sync will no longer rebuild these tables. They still supply programme leads, module "
+                "URLs and the Ally/Leganto fallbacks for modules the live audit has not reached yet — "
+                "dropping them blanks those fields. Recovery needs a database backup or a CSV re-import."
+            )
             col_del1, col_del2 = st.columns(2)
             with col_del1:
-                confirm_del = st.checkbox("Confirm: I want to delete the legacy VLE audit tables.", key="confirm_delete_legacy_vle")
+                confirm_del = st.checkbox("Confirm: I want to permanently delete the legacy VLE audit tables.", key="confirm_delete_legacy_vle")
             with col_del2:
                 if st.button("🗑️ Delete Legacy VLE Audit Tables", type="secondary", disabled=not confirm_del, use_container_width=True):
                     try:

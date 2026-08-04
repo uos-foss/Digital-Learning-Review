@@ -102,5 +102,7 @@ The database is created on first run. In production it lives on the host at
 
 - UI/UX refresh and aesthetic improvements.
 - Integration of additional audit data sources.
-- Retire the legacy `main_vle_audit_*` baseline tables once the 25/26 data is
-  no longer needed.
+- Drop the frozen `main_vle_audit_*` baseline tables once the live audit set
+  covers enough modules to replace the 25/26 reference fields they still
+  supply (Prog. lead, module URLs, and the Ally/Leganto fallbacks). The
+  upstream spreadsheet behind them was retired in v1.15.0.

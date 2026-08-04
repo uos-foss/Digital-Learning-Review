@@ -80,7 +80,7 @@ All configuration comes from `.env`, injected into the container by
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` | Google sign-in. `REDIRECT_URI` is accepted as a fallback. |
 | `GOOGLE_SA_CLIENT_ID` | The service account's own client id — a different credential from the OAuth one. |
 | `GOOGLE_TYPE`, `GOOGLE_PROJECT_ID`, `GOOGLE_PRIVATE_KEY_ID`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_AUTH_URI`, `GOOGLE_TOKEN_URI`, `GOOGLE_AUTH_PROVIDER_X509_CERT_URL`, `GOOGLE_CLIENT_X509_CERT_URL`, `GOOGLE_UNIVERSE_DOMAIN` | Service-account fields reassembled into credentials by `get_gspread_client()`. `GOOGLE_PRIVATE_KEY` keeps its `\n` escapes; they are expanded at load. |
-| `MAIN_SPREADSHEET_ID`, `ASSESSMENT_SPREADSHEET_ID`, `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `AI_RESPONSES_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for the ETL. |
+| `ASSESSMENT_SPREADSHEET_ID`, `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `AI_RESPONSES_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for the ETL. `MAIN_SPREADSHEET_ID` was retired in v1.15.0 — the 25/26 baseline it fed is now a frozen SQLite-only snapshot. |
 | `USER_ADMIN`, `USER_DLA`, `USER_FACULTY`, `USER_<SCHOOL>` | Seed credentials, used only by `EnvAuthProvider` and initial seeding. |
 
 > [!NOTE]

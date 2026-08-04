@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from processing import calculate_compliance_gap, is_compliant_val, resolve_semester_df, FACULTY_SCHOOLS
+from processing import calculate_compliance_gap, calculate_module_compliance, resolve_semester_df, FACULTY_SCHOOLS
+from database import get_all_audit_responses, get_active_audit_fields
 
 def to_sentence_case(name: str) -> str:
     """Convert name to sentence case (capitalize first letter only)."""
@@ -399,43 +400,44 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         render_status_type = "success"
 
                 elif lens == "🔍 Critical Compliance Gaps":
-                    audit_cols = [
-                        'Welcome to your module message?', 'Key staff contacts complete?', 
-                        'Module outline complete?', 'How you will be assessed visible?',
-                        'Skills development (SGAs) visible?', 'Accessibility statement visible?',
-                        'School handbook visible?', 'Assessment overview - present and consistent with SITS',
-                        'Assessment support and guidance visible to students?',
-                        'University help and study support visible to students?'
-                    ]
-                    present_cols = [c for c in audit_cols if c in source_data.columns]
-                    
-                    if not present_cols:
-                        render_status = "Compliance auditing data columns could not be located."
+                    counts, max_items = calculate_module_compliance(
+                        get_all_audit_responses(), get_active_audit_fields()
+                    )
+
+                    if max_items == 0:
+                        render_status = "No scorable audit fields are configured."
                         render_status_type = "error"
+                    elif counts.empty:
+                        render_status = "No audits submitted yet, so there are no compliance gaps to show."
+                        render_status_type = "info"
                     else:
-                        compliance_scores = source_data[present_cols].copy()
-                        for c in present_cols:
-                            compliance_scores[c] = compliance_scores[c].apply(is_compliant_val)
-                        
-                        source_data['Compliant Items'] = compliance_scores.sum(axis=1)
-                        max_items = len(present_cols)
-                        threshold = max_items - 2 
-                        
-                        gap_df = source_data[source_data['Compliant Items'] < threshold].sort_values('Compliant Items')
-                        
+                        source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
+                        scored_df = source_data.merge(
+                            counts, left_on='MatchCode', right_on='module_code', how='inner'
+                        )
+
+                        threshold = max_items - 2
+                        gap_df = scored_df[scored_df['Compliant Items'] < threshold].sort_values('Compliant Items')
+
                         if not gap_df.empty:
-                            render_status = f"🎯 Displaying {len(gap_df)} modules missing multiple key structural requirements."
+                            render_status = (
+                                f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
+                                "missing multiple key structural requirements."
+                            )
                             render_status_type = "warning"
                             gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
-                            
+
                             display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
                             render_df = gap_df[display_cols].copy()
                             render_configs = {
                                 "New module code": "Code", "Module name": "Module Name",
                                 "Mod. lead": "Lead", "DisplayValue": "Compliance Count"
                             }
+                        elif scored_df.empty:
+                            render_status = "No modules in this school have been audited yet."
+                            render_status_type = "info"
                         else:
-                            render_status = "All modules meet healthy baseline structural thresholds!"
+                            render_status = f"All {len(scored_df)} audited modules meet healthy baseline structural thresholds!"
                             render_status_type = "success"
 
                 elif lens == "📋 Missing Audits":

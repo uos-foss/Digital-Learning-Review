@@ -34,44 +34,6 @@ def resolve_semester_df(df_aut, df_spr, semester):
 
     return df_aut if df_aut is not None else pd.DataFrame()
 
-def clean_audit_dataframe(df):
-    """
-    General cleaning for audit dataframes.
-    """
-    # Remove rows that are completely empty or have no module name
-    df = df.dropna(subset=['Module name'], how='all')
-    df = df[df['Module name'] != '']
-    
-    # Convert numerical columns
-    score_cols = [c for c in df.columns if 'Ally' in c and ('All' in c or 'Files' in c or 'Score' in c)]
-    for col in score_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    return df
-
-def get_processed_audit_data(spreadsheet, worksheet_name):
-    """
-    Fetches and processes a specific audit worksheet.
-    """
-    try:
-        sheet = spreadsheet.worksheet(worksheet_name)
-        data = sheet.get_all_values()
-        
-        if not data or len(data) < 2:
-            return pd.DataFrame()
-            
-        # Row 1 is the actual header
-        headers = data[1]
-        rows = data[2:]
-        
-        df = pd.DataFrame(rows, columns=headers)
-        df = clean_audit_dataframe(df)
-        
-        return df
-    except Exception as e:
-        print(f"Error processing {worksheet_name}: {e}")
-        return pd.DataFrame()
-
 def aggregate_faculty_stats(df_aut, df_spr):
     """
     Calculates summary statistics at the faculty level.
@@ -173,8 +135,46 @@ def calculate_compliance_gap(df):
             positive_count = series_numeric.sum()
             total_count = len(df)
             gaps[col] = (positive_count / total_count) if total_count > 0 else 0
-            
+
     return gaps
+
+def calculate_module_compliance(df_responses, active_fields):
+    """
+    Counts compliant items per module from submitted audit responses.
+
+    The per-module counterpart to calculate_dynamic_compliance_gap, which
+    aggregates the same data per field. Kept I/O-free: callers pass in
+    get_all_audit_responses() and get_active_audit_fields().
+
+    Only boolean and yes/no fields are scored - text fields such as Additional
+    Comments have no compliant/non-compliant state. Modules with no responses
+    at all are absent from the result rather than scoring zero: an unaudited
+    module is not a compliance gap, it is a missing audit, and belongs to the
+    Missing Audits lens instead.
+
+    Returns (DataFrame[module_code, Compliant Items], max_items).
+    """
+    scored = [f for f in (active_fields or []) if f.get('field_type') in ['boolean', 'yes/no']]
+    max_items = len(scored)
+    empty = pd.DataFrame(columns=['module_code', 'Compliant Items'])
+
+    if max_items == 0 or df_responses is None or df_responses.empty:
+        return empty, max_items
+
+    field_ids = {f['id'] for f in scored}
+    df = df_responses[df_responses['field_id'].isin(field_ids)].copy()
+    if df.empty:
+        return empty, max_items
+
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    # Audit values are written as the strings 'True'/'False' by the Audit Portal.
+    # is_compliant_val is for the free-text legacy columns and would read
+    # 'False' as compliant, so match the strict set used by the field gap chart.
+    df['compliant'] = df['value'].apply(lambda v: 1 if str(v).strip().upper() in ['TRUE', 'YES', '1'] else 0)
+
+    counts = df.groupby('module_code')['compliant'].sum().reset_index()
+    counts.columns = ['module_code', 'Compliant Items']
+    return counts, max_items
 
 def get_checklist_summaries(spreadsheet_id):
     """
