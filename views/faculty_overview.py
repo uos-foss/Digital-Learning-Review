@@ -6,7 +6,13 @@ from processing import (aggregate_faculty_stats, calculate_compliance_gap, is_co
 
 def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("🏛️ Faculty Overview")
-    
+
+    # pg_audit is only added to the navigation when the user holds edit_checklist,
+    # and st.switch_page raises on a page that is not registered - so the button
+    # that jumps there must be hidden from everyone else, not just fail on click.
+    user_caps = st.session_state.get("capabilities", [])
+    can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
+
     # Determine active data based on chosen semester
     semester = st.session_state.get('semester', 'Autumn')
     active_df = resolve_semester_df(df_aut, df_spr, semester)
@@ -185,8 +191,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                                 st.success(f"🔍 Selected Module: **{clicked_code}**")
                                 if st.button(f"📋 View Report Card for {clicked_code}", width="stretch"):
                                     st.session_state.selected_module_code = clicked_code
-                                    st.session_state.view_selection = "📋 Module Report Card"
-                                    st.rerun()
+                                    st.switch_page(st.session_state.pg_module)
                         else:
                             st.info(f"No modules found in the {selected_bracket} range.")
             else:
@@ -417,13 +422,11 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     with c1:
                         if st.button(f"📊 Jump to Module Report Card", width="stretch", type="primary"):
                             st.session_state.selected_module_code = clicked_code
-                            st.session_state.view_selection = "📋 Module Report Card"
-                            st.rerun()
+                            st.switch_page(st.session_state.pg_module)
                     with c2:
-                         if st.button(f"✅ Jump to Lead Checklist", width="stretch"):
+                        if can_audit and st.button(f"✅ Open Audit Portal", width="stretch"):
                             st.session_state.selected_module_code = clicked_code
-                            st.session_state.view_selection = "✅ Module Lead Checklist"
-                            st.rerun()
+                            st.switch_page(st.session_state.pg_audit)
                     st.divider()
                 
                 # 3. Output singular download statically anchored to key

@@ -16,6 +16,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     
     user_caps = st.session_state.get("capabilities", [])
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
+    # pg_audit is only registered in the navigation for holders of edit_checklist,
+    # and st.switch_page raises on an unregistered page - so hide the jump button
+    # from everyone else rather than letting it fail on click.
+    can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
 
     # A school handed over from the Faculty School Comparison table. Consumed
     # once, then cleared, so the user's saved_school preference is untouched.
@@ -169,7 +173,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             st.session_state.selected_module_code = clicked_code
                             st.switch_page(st.session_state.pg_module)
                     with c2:
-                        if st.button(f"✅ Open Lead Checklist", width="stretch", key="btn_school_cl"):
+                        if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="btn_school_cl"):
                             st.session_state.selected_module_code = clicked_code
                             st.switch_page(st.session_state.pg_audit)
                     st.divider()
@@ -273,13 +277,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                         with c1:
                                             if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="school_btn_drill_rc_jump"):
                                                 st.session_state.selected_module_code = clicked_code
-                                                st.session_state.view_selection = "📋 Module Report Card"
-                                                st.rerun()
+                                                st.switch_page(st.session_state.pg_module)
                                         with c2:
-                                            if st.button(f"✅ Open Lead Checklist", width="stretch", key="school_btn_drill_cl_jump"):
+                                            if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="school_btn_drill_cl_jump"):
                                                 st.session_state.selected_module_code = clicked_code
-                                                st.session_state.view_selection = "✅ Module Lead Checklist"
-                                                st.rerun()
+                                                st.switch_page(st.session_state.pg_audit)
                                 else:
                                     st.info(f"No modules found in the {selected_bracket} range.")
                     else:
@@ -516,7 +518,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                 st.session_state.selected_module_code = clicked_code
                                 st.switch_page(st.session_state.pg_module)
                         with c2:
-                            if st.button(f"✅ Jump to Lead Checklist", width="stretch", key="school_priority_btn_cl"):
+                            if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="school_priority_btn_cl"):
                                 st.session_state.selected_module_code = clicked_code
                                 st.switch_page(st.session_state.pg_audit)
                         st.divider()
