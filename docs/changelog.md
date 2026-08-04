@@ -33,6 +33,11 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Wider Period Code Support**: Modules using teaching period codes beyond
   `S1`/`S2` are now mapped to the correct semester rather than all falling
   through to a default.
+* **Separated Google Credentials**: The OAuth sign-in client and the service
+  account used for spreadsheet access were sharing a single `GOOGLE_CLIENT_ID`
+  setting, so one silently overwrote the other. They now have their own
+  settings, with the old name still honoured so existing deployments keep
+  working.
 * **Google Sign-In Now Survives a Refresh**: Sessions started with Google were
   not being saved to a browser cookie, so refreshing the page or duplicating the
   tab returned users to the sign-in screen. Username and password sign-ins were

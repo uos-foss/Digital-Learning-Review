@@ -77,20 +77,24 @@ All configuration comes from `.env`, injected into the container by
 | `DB_PATH` | SQLite location inside the container. Defaults to `/app/data/audit_cache.db`. |
 | `AM_I_DOCKER` | Set to `true` to force container path resolution. |
 | `AUTH_PROVIDER` | Selects the sign-in provider — see below. |
-| `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` | Google sign-in. `REDIRECT_URI` is accepted as a fallback. |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` | Google sign-in. `REDIRECT_URI` is accepted as a fallback. |
+| `GOOGLE_SA_CLIENT_ID` | The service account's own client id — a different credential from the OAuth one. |
 | `GOOGLE_TYPE`, `GOOGLE_PROJECT_ID`, `GOOGLE_PRIVATE_KEY_ID`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_AUTH_URI`, `GOOGLE_TOKEN_URI`, `GOOGLE_AUTH_PROVIDER_X509_CERT_URL`, `GOOGLE_CLIENT_X509_CERT_URL`, `GOOGLE_UNIVERSE_DOMAIN` | Service-account fields reassembled into credentials by `get_gspread_client()`. `GOOGLE_PRIVATE_KEY` keeps its `\n` escapes; they are expanded at load. |
 | `MAIN_SPREADSHEET_ID`, `ASSESSMENT_SPREADSHEET_ID`, `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `AI_RESPONSES_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for the ETL. |
 | `USER_ADMIN`, `USER_DLA`, `USER_FACULTY`, `USER_<SCHOOL>` | Seed credentials, used only by `EnvAuthProvider` and initial seeding. |
 
-> [!WARNING]
-> **`GOOGLE_CLIENT_ID` is overloaded.** It is read both as the service
-> account's `client_id` (`data_manager.py`) and as the OAuth *web* client id
-> (`auth.py`). Those are different values from different Google credentials, and
-> one variable cannot hold both. In practice the OAuth value is the one that
-> matters — `from_service_account_info` signs with the private key and email, so
-> a wrong `client_id` there is tolerated. Worth splitting into
-> `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_SA_CLIENT_ID`, which requires updating
-> `.env` on the server at the same time as the code.
+> [!NOTE]
+> **`GOOGLE_CLIENT_ID` is deprecated.** It was previously read as *both* the
+> OAuth web client id and the service account's `client_id` — two different
+> credentials sharing one variable. Where `.env` defined it twice, the last
+> definition won and the service account silently received the OAuth id. This
+> was harmless only because `from_service_account_info` signs with the private
+> key and `client_email` and never uses `client_id`.
+>
+> Both call sites now read their own variable and fall back to
+> `GOOGLE_CLIENT_ID`, so an old `.env` keeps working. Set
+> `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_SA_CLIENT_ID` and the legacy name can be
+> removed entirely.
 
 ### 💾 Database Location
 
