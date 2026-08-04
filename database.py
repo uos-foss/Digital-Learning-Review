@@ -62,7 +62,10 @@ def init_db():
     except Exception as e:
         logging.error(f"Migration error from self_audit_checklist to audit_checklist: {e}")
         
-    # Create AI Audit write queue table
+    # Owned by the satellite AI-Audit app, which shares this database. Kept here
+    # only so a cold start from either app produces the same schema - this app
+    # never writes it. The column list must stay identical to that app's
+    # database.py, or whichever runs first wins and the other breaks.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ai_audit_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -454,47 +457,11 @@ def mark_checklists_synced(record_ids: list):
         cursor.execute(f"UPDATE audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()
 
-def save_ai_response(payload: dict):
-    """Saves a new AI Audit response to the local queue."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO ai_audit_queue (
-                timestamp, module_code, module_title, school, user_id,
-                gen_ai_activity, assessment_title, assessment_type,
-                ai_usability, ai_intended_use, status, is_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-        """, (
-            payload.get("Timestamp", ""),
-            payload.get("Module Code", ""),
-            payload.get("Module Title", ""),
-            payload.get("School", ""),
-            payload.get("User ID", ""),
-            payload.get("Gen AI Learning Activity", ""),
-            payload.get("Assessment Title", ""),
-            payload.get("Assessment Type", ""),
-            payload.get("AI Usability", ""),
-            payload.get("AI Intended Use", ""),
-            payload.get("Status", "")
-        ))
-        conn.commit()
-
-def get_unsynced_ai_responses():
-    """Returns a list of AI Audit records that haven't been synced to Google Sheets yet."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM ai_audit_queue WHERE is_synced = 0")
-        return [dict(row) for row in cursor.fetchall()]
-
-def mark_ai_responses_synced(record_ids: list):
-    """Marks a list of AI Audit queue IDs as synced."""
-    if not record_ids:
-        return
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        placeholders = ','.join('?' * len(record_ids))
-        cursor.execute(f"UPDATE ai_audit_queue SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
-        conn.commit()
+# The ai_audit_queue write helpers that used to live here are gone. That queue
+# belongs to the satellite AI-Audit app: it inserts the rows, pushes them to its
+# own sheet and then deletes them. Writing it from here would have double-posted
+# every submission, because that app removes the rows this app only flagged as
+# synced. Read the table if you need it; do not write it.
 
 # --- New Dynamic Fields and Response helper functions ---
 

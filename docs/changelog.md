@@ -18,6 +18,11 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Clearer warning on deleting the legacy tables.** The Admin Panel's cleanup
   action now spells out that it cannot be undone, since no sync will rebuild
   those tables.
+* **AI audit responses are no longer synced twice.** The AI in the Curriculum
+  form is a separate app that shares this portal's database and already keeps
+  its own responses up to date. This portal was fetching the same records a
+  second time, which duplicated work and could overwrite that app's data with a
+  different copy of the sheet. A full sync now leaves those records alone.
 
 ### 🚀 Version 1.14.0 — *School Comparison, Blackboard Links & Security Hardening*
 *31 July – 3 August 2026*

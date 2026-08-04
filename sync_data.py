@@ -125,23 +125,6 @@ def sync_checklists():
         except Exception as e:
             print(f"❌ Error syncing Checklists: {e}")
 
-def sync_ai_responses():
-    print("🔄 Pulling AI Responses...")
-    from data_manager import get_spreadsheet_data
-    sheet_id = os.getenv("AI_RESPONSES_SPREADSHEET_ID")
-    if sheet_id:
-        try:
-            ss, _ = get_spreadsheet_data(sheet_id)
-            # Fetch data from the first worksheet
-            worksheet = ss.get_worksheet(0)
-            data = worksheet.get_all_values()
-            if len(data) > 1:
-                df_responses = pd.DataFrame(data[1:], columns=data[0])
-                cache_dataframe_to_sqlite(df_responses, "ai_audit_responses")
-            print("✅ AI Responses synced.")
-        except Exception as e:
-            print(f"❌ Error syncing AI Responses: {e}")
-
 def sync_comment_bank():
     print("🔄 Syncing Comment Bank bidirectionally (Pull & Push)...")
     import logging
@@ -518,7 +501,12 @@ def run_synchronization():
         sync_assessment_data()
         sync_users_and_roles()
         sync_checklists()
-        sync_ai_responses()
+        # ai_audit_responses is not ours to sync. The satellite AI-Audit app
+        # writes that table itself from its own AI_RESPONSES_SPREADSHEET_ID, into
+        # this same shared database, and nothing in this app reads it. Pulling it
+        # here duplicated that work - and, because the two apps can be pointed at
+        # different copies of the responses sheet, could replace their cache with
+        # rows from another sheet. Read the table if you need it; do not refresh it.
         try:
             sync_comment_bank()
         except Exception as e:
