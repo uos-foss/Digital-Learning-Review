@@ -516,10 +516,81 @@ def get_audit_responses(module_code: str):
             'timestamp': row['timestamp']
         } for row in rows}
 
+def table_exists(conn, table_name):
+    """True if the named table is present. Defined here rather than in app.py
+    so that database.py can use it without importing the entry point."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cursor.fetchone() is not None
+
 def get_all_audit_responses():
     """Returns all audit responses as a DataFrame."""
     with get_db_connection() as conn:
         return pd.read_sql_query("SELECT * FROM audit_responses", conn)
+
+def get_ai_declarations():
+    """
+    Every AI in the Curriculum declaration, as a DataFrame, one row per
+    assessment.
+
+    Owned by the satellite AI-Audit app - see the shared database contract in
+    docs/developer-guide.md. Read only: this portal must never write these
+    tables. ai_audit_queue is that app's durable record; ai_audit_responses is
+    its cache of the responses spreadsheet and holds the same declarations
+    again, so the two are unioned and de-duplicated with the queue winning.
+
+    Returns an empty frame if the satellite has never run against this
+    database, which is the normal state of a fresh local checkout.
+    """
+    columns = ['module_code', 'module_title', 'school', 'user_id', 'timestamp',
+               'gen_ai_activity', 'assessment_title', 'assessment_type',
+               'ai_usability', 'ai_intended_use', 'status']
+    frames = []
+
+    with get_db_connection() as conn:
+        if table_exists(conn, 'ai_audit_queue'):
+            frames.append(pd.read_sql_query(
+                """
+                SELECT module_code, module_title, school, user_id, timestamp,
+                       gen_ai_activity, assessment_title, assessment_type,
+                       ai_usability, ai_intended_use, status
+                FROM ai_audit_queue
+                """, conn))
+
+        if table_exists(conn, 'ai_audit_responses'):
+            # That table is written by df.to_sql from the spreadsheet, so its
+            # columns are the sheet's display headers rather than these names.
+            df_resp = pd.read_sql_query("SELECT * FROM ai_audit_responses", conn)
+            if not df_resp.empty:
+                renames = {
+                    'Module Code': 'module_code', 'Module Title': 'module_title',
+                    'School': 'school', 'User ID': 'user_id', 'Timestamp': 'timestamp',
+                    'Gen AI Learning Activity': 'gen_ai_activity',
+                    'Assessment Title': 'assessment_title',
+                    'Assessment Type': 'assessment_type',
+                    'AI Usability': 'ai_usability',
+                    'AI Intended Use': 'ai_intended_use', 'Status': 'status',
+                }
+                df_resp = df_resp.rename(columns=renames)
+                for col in columns:
+                    if col not in df_resp.columns:
+                        df_resp[col] = ""
+                frames.append(df_resp[columns])
+
+    if not frames:
+        return pd.DataFrame(columns=columns)
+
+    df = pd.concat(frames, ignore_index=True)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+
+    key = pd.DataFrame({
+        c: df[c].astype(str).str.strip().str.upper()
+        for c in ['timestamp', 'module_code', 'assessment_title', 'user_id']
+    })
+    return df[~key.duplicated(keep='first')].reset_index(drop=True)
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
     """Saves or updates a single audit response."""

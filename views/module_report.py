@@ -7,6 +7,7 @@ from processing import get_module_mapping, FACULTY_SCHOOLS
 from database import (
     get_active_audit_fields,
     get_audit_responses,
+    get_ai_declarations,
     save_audit_response,
     get_comment_bank,
     update_module_lead_sqlite,
@@ -565,7 +566,39 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     st.info(f"🔒 **Auditor Notes (Internal/Auditors Only):**\n\n{auditor_notes}")
                     
             st.caption(f"Last updated: {last_updated_str}")
-        
-        # SITS Assessment Strategy removed as per request
-        pass
+
+        # --- AI in the Curriculum ---------------------------------------
+        # Declared by the module lead in the satellite AI-Audit app, not by an
+        # auditor here. One row per assessment.
+        st.divider()
+        st.subheader("🤖 AI in the Curriculum")
+
+        ai_rows = get_ai_declarations()
+        if not ai_rows.empty:
+            ai_rows = ai_rows[ai_rows['module_code'] == str(module_code).strip().upper()]
+
+        if ai_rows.empty:
+            st.caption(
+                "No declaration submitted for this module yet. Module leads complete "
+                "these themselves in the AI in the Curriculum Audit."
+            )
+        else:
+            gen_ai = "Yes" if (
+                ai_rows['gen_ai_activity'].astype(str).str.strip().str.lower() == "yes"
+            ).any() else "No"
+            latest = ai_rows['timestamp'].max()
+
+            st.caption(
+                f"Declared by the module lead · {len(ai_rows)} assessment(s) · "
+                f"Gen AI engaged learning activity: **{gen_ai}** · last updated {latest}"
+            )
+
+            for _, row in ai_rows.iterrows():
+                with st.container(border=True):
+                    st.markdown(
+                        f"**{row.get('assessment_title', 'Assessment')}** "
+                        f"({row.get('assessment_type', 'Unknown type')})"
+                    )
+                    st.write(f"**How usable is generative AI for this assessment?** {row.get('ai_usability', '—')}")
+                    st.write(f"**Intended use of generative AI:** {row.get('ai_intended_use', '—')}")
 

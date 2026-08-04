@@ -175,6 +175,80 @@ def calculate_module_compliance(df_responses, active_fields):
     counts.columns = ['module_code', 'Compliant Items']
     return counts, max_items
 
+def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=None):
+    """
+    Rolls per-assessment AI declarations up to per-module.
+
+    The satellite AI-Audit app records one row per assessment, so a module with
+    three assessments contributes three rows. The Faculty and School views want
+    modules, not assessments: a module counts as declared once any of its
+    assessments has been.
+
+    `module_codes` is the set in scope for the figures - normally the SITS list
+    for the selected semester or school.
+
+    `known_codes` is every module SITS knows about, used only to classify what
+    falls outside that scope. Without it a Spring module viewed in Autumn looks
+    identical to a module SITS has never heard of, and the two need different
+    responses: the first is routine, the second is a declaration that can never
+    be reconciled and exists because the satellite offered a 2025/26 module list
+    until its v1.2.0. Only the second is reported as `unmatched`. Neither is
+    dropped silently.
+
+    Kept I/O-free: callers pass in database.get_ai_declarations().
+
+    Returns {'per_module': DataFrame, 'declared': int, 'in_scope': int,
+    'unmatched': list, 'other_semester': list}.
+    """
+    empty = pd.DataFrame(columns=['module_code', 'Assessments Declared', 'Gen AI Activity'])
+    result = {'per_module': empty, 'declared': 0, 'in_scope': 0,
+              'unmatched': [], 'other_semester': []}
+
+    scope = None
+    if module_codes is not None:
+        scope = {str(c).strip().upper() for c in module_codes if str(c).strip()}
+        result['in_scope'] = len(scope)
+
+    if df_declarations is None or df_declarations.empty:
+        return result
+
+    df = df_declarations.copy()
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    df = df[df['module_code'] != ""]
+    if df.empty:
+        return result
+
+    if scope is not None:
+        outside = set(df['module_code']) - scope
+        if known_codes is not None:
+            known = {str(c).strip().upper() for c in known_codes if str(c).strip()}
+            result['unmatched'] = sorted(outside - known)
+            result['other_semester'] = sorted(outside & known)
+        else:
+            result['unmatched'] = sorted(outside)
+        df = df[df['module_code'].isin(scope)]
+    else:
+        result['in_scope'] = df['module_code'].nunique()
+
+    if df.empty:
+        return result
+
+    # "Yes" if any assessment on the module reported a Gen AI learning activity.
+    gen_ai = df.groupby('module_code')['gen_ai_activity'].apply(
+        lambda s: "Yes" if (s.astype(str).str.strip().str.lower() == "yes").any() else "No"
+    )
+    counts = df.groupby('module_code').size()
+
+    per_module = pd.DataFrame({
+        'module_code': counts.index,
+        'Assessments Declared': counts.values,
+    })
+    per_module['Gen AI Activity'] = per_module['module_code'].map(gen_ai)
+
+    result['per_module'] = per_module.reset_index(drop=True)
+    result['declared'] = len(per_module)
+    return result
+
 def sanitize_row_data(row_data):
     """
     Defensively formats row data before writing back to Google Sheets.

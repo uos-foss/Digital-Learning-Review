@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-from processing import calculate_compliance_gap, calculate_module_compliance, resolve_semester_df, FACULTY_SCHOOLS
-from database import get_all_audit_responses, get_active_audit_fields
+from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
+                        summarise_ai_declarations, FACULTY_SCHOOLS)
+from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
 
 def to_sentence_case(name: str) -> str:
     """Convert name to sentence case (capitalize first letter only)."""
@@ -113,7 +114,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -562,6 +563,69 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             st.write(f"**Most Common Type:** `{most_common}` (`{most_common_count}` times)")
                     else:
                         st.info("No metrics available.")
+
+            elif selected_view == "🤖 AI in the Curriculum":
+                st.subheader(f"AI in the Curriculum — {school}")
+                st.caption(
+                    "Declarations made by module leads themselves, in the separate "
+                    "AI in the Curriculum Audit app."
+                )
+
+                school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
+                known_codes = set()
+                for frame in (df_aut, df_spr):
+                    if frame is not None and not frame.empty:
+                        known_codes |= set(frame['New module code'].dropna().astype(str).str.strip().str.upper())
+                summary = summarise_ai_declarations(get_ai_declarations(), school_codes, known_codes)
+                per_module = summary['per_module']
+                declared = summary['declared']
+                in_scope = summary['in_scope']
+                pct = (declared / in_scope * 100) if in_scope else 0.0
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Modules Declared", f"{declared} / {in_scope}")
+                col2.metric("Coverage", f"{pct:.1f}%")
+                col3.metric(
+                    "Assessments Covered",
+                    int(per_module['Assessments Declared'].sum()) if not per_module.empty else 0,
+                )
+                st.progress(min(pct / 100, 1.0))
+
+                st.divider()
+                declared_codes = set(per_module['module_code']) if not per_module.empty else set()
+
+                tab_missing, tab_declared = st.tabs(["📋 Awaiting Declaration", "✅ Declared"])
+
+                with tab_missing:
+                    missing = school_df[~school_df['New module code'].astype(str).str.strip().str.upper().isin(declared_codes)]
+                    if missing.empty:
+                        st.success("Every module in this school has a declaration.")
+                    else:
+                        st.warning(f"{len(missing)} module(s) have no AI declaration.")
+                        st.dataframe(
+                            missing[['New module code', 'Module name', 'Mod. lead']].rename(
+                                columns={'New module code': 'Code', 'Module name': 'Module Name', 'Mod. lead': 'Lead'}
+                            ),
+                            hide_index=True,
+                            width="stretch",
+                        )
+
+                with tab_declared:
+                    if per_module.empty:
+                        st.info("No declarations for this school yet.")
+                    else:
+                        names = school_df.set_index(
+                            school_df['New module code'].astype(str).str.strip().str.upper()
+                        )['Module name'].to_dict()
+                        shown = per_module.copy()
+                        shown['Module Name'] = shown['module_code'].map(names)
+                        st.dataframe(
+                            shown.rename(columns={'module_code': 'Code'})[
+                                ['Code', 'Module Name', 'Assessments Declared', 'Gen AI Activity']
+                            ],
+                            hide_index=True,
+                            width="stretch",
+                        )
 
             st.divider()
             csv_school = school_df.to_csv(index=False).encode('utf-8')

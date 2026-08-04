@@ -108,10 +108,9 @@ def update_semester():
 
 
 # Data Loading
-def table_exists(conn, table_name):
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    return cursor.fetchone() is not None
+# table_exists now lives in database.py, so database.py can use it too. Kept
+# importable from here because several modules already reference app.table_exists.
+from database import table_exists
 
 def map_level_value(val):
     if pd.isna(val):

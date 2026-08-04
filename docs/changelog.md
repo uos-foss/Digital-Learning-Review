@@ -23,6 +23,14 @@ Recent updates and releases for the Digital Learning Review portal.
   its own responses up to date. This portal was fetching the same records a
   second time, which duplicated work and could overwrite that app's data with a
   different copy of the sheet. A full sync now leaves those records alone.
+* **AI in the Curriculum declarations now appear in the portal.** Module leads
+  complete these themselves in a separate app, and until now the results went
+  nowhere. There is a new view on the Faculty Overview and School Dashboard
+  showing how many modules have declared and which are still outstanding, and
+  the Module Report lists each assessment's declared AI usability and intended
+  use. Coverage counts a module once, however many assessments it has.
+  Declarations against modules that no longer exist in SITS are shown as a
+  warning rather than dropped, so they can be reconciled.
 
 ### 🚀 Version 1.14.0 — *School Comparison, Blackboard Links & Security Hardening*
 *31 July – 3 August 2026*
