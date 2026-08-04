@@ -110,6 +110,38 @@ The database runs in WAL mode with busy timeouts so multiple containers can
 share it concurrently. In production it lives on a host volume, **not** in the
 image — rebuilding the container does not touch the data.
 
+### 🤝 Shared database contract
+
+The **AI in the Curriculum Audit** satellite app (`../AI-Audit`) writes to this
+same database. The two are separate containers with no import path between
+them, so this boundary is a convention that nothing enforces.
+
+| Table | Owner | Other app |
+| :--- | :--- | :--- |
+| `main_vle_audit_aut`, `main_vle_audit_spr` | this portal (frozen snapshot) | — |
+| `sits_assessment_2026_27` | this portal | AI-Audit reads |
+| `users`, `roles`, `audit_*`, `comment_bank`, `blackboard_links`, `ally_scores` | this portal | AI-Audit must not touch |
+| `ai_audit_queue` | **AI-Audit** | this portal reads |
+| `ai_audit_responses` | **AI-Audit** | this portal reads |
+
+Points that have already caused bugs:
+
+- **Never write `ai_audit_*` from here.** `sync_ai_responses()` was removed in
+  v1.15.0 for exactly this reason: it pulled AI-Audit's sheet into
+  `ai_audit_responses`, which that app maintains itself, and the two `.env`
+  files can name different copies of that sheet.
+- Both apps call `init_db()` at start-up and both declare `ai_audit_queue` with
+  `CREATE TABLE IF NOT EXISTS`. Whichever starts first defines the schema, so
+  the column list must stay identical in both `database.py` files.
+- AI-Audit reads `sits_assessment_2026_27` but never populates it — that is
+  `sync_assessment_data()` here. Both must name the same **"All Schools
+  2026/27"** worksheet, or leads declare against a module list this portal does
+  not report on.
+- `get_gspread_client()`, `get_database_path()`, `cache_dataframe_to_sqlite()`
+  and `security.py` exist as deliberate copies in both repos rather than a
+  shared package, which would add a build and release step to two images.
+  Change one, check the other.
+
 ### 🔐 Authentication
 
 `AUTH_PROVIDER` in `.env` selects the provider:
