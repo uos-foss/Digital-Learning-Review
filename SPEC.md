@@ -1,3 +1,23 @@
+> [!NOTE]
+> **Historical document — kept for provenance, not accuracy.**
+>
+> This is the original project brief, written at the start of the project and
+> used to drive Google Gemini / Antigravity agents. It is preserved as written.
+> Sections 1–6 describe the app as it was then and are now wrong in most
+> specifics — the data layer, the caching strategy, the roles, the view list and
+> the file list have all moved on.
+>
+> Section 7 was a forward-looking roadmap. **Phase 1 (the SQLite migration) was
+> delivered** in v1.9.0–v1.10.0, essentially as specified: WAL mode, busy
+> timeouts, and the shared `/opt/shared-audit-data` bind mount.
+>
+> The file is also truncated — it ends part-way through a code block, so any
+> Phase 2 that once followed has been lost.
+>
+> **For the current system, read [CLAUDE.md](CLAUDE.md) and
+> [docs/developer-guide.md](docs/developer-guide.md).** Do not treat anything
+> below as a description of how the app works today.
+
 # Project Specification: Digital Learning Review Dashboard
 
 ## 1. Project Overview
@@ -94,3 +114,6 @@ def get_db_connection():
     # Prevent immediate failures on simultaneous writes by waiting up to 5000ms
     conn.execute("PRAGMA busy_timeout=5000;")
     return conn
+```
+
+*(The original file ends here, mid-section. Whatever followed was not saved.)*
