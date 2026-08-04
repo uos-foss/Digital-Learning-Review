@@ -263,9 +263,9 @@ class GoogleOAuthProvider(BaseAuthProvider):
     Such rows are NOT broken and must not be deleted as cleanup - deleting one
     revokes that person's access entirely.
 
-    They are also not a bypass: SQLiteAuthProvider.authenticate compares against
-    a SHA-256 hex digest, which is never the empty string, so the password form
-    rejects every input for these accounts.
+    They are also not a bypass: verify_password in security.py treats an empty
+    stored hash as an automatic non-match, so the password form rejects every
+    input for these accounts.
 
     The trade-off is that an empty-hash account cannot log in if AUTH_PROVIDER is
     switched away from GOOGLE/GOOGLE_OAUTH. Give the account a password via the
@@ -406,7 +406,17 @@ def check_password():
 
     # [CRITICAL FIX]: If securely logged in and not actively logging out, bypass the cookie component.
     # This silences background async events completely during active usage, preventing UI resetting.
-    if st.session_state.logged_in and not st.session_state.logout_pending:
+    #
+    # A queued cookie write from the Google callback is the one exception. The write needs the
+    # component to actually render, so this run must fall through - taking the fast path here left
+    # the write below unreachable, which is why OAuth sessions never survived a refresh or a
+    # duplicated tab while form logins did. Only the single run straight after sign-in falls
+    # through; every run after that takes the fast path as before.
+    if (
+        st.session_state.logged_in
+        and not st.session_state.logout_pending
+        and not st.session_state.get("needs_cookie_write")
+    ):
         return True
 
     # Instantiate CookieManager only when needed for state transitions (restoring or logging out)
@@ -416,9 +426,11 @@ def check_password():
 
     # Handle queued cookie write from successful Google login
     if st.session_state.logged_in and st.session_state.get("needs_cookie_write"):
+        queued_user = st.session_state.needs_cookie_write
         expires_at = datetime.now() + timedelta(hours=COOKIE_TTL_HOURS)
-        cookie_manager.set(COOKIE_NAME, st.session_state.needs_cookie_write, expires_at=expires_at)
+        cookie_manager.set(COOKIE_NAME, queued_user, expires_at=expires_at)
         st.session_state.needs_cookie_write = None
+        logging.info(f"🍪 Session cookie written for OAuth user '{queued_user}' (expires in {COOKIE_TTL_HOURS}h).")
 
     # Handle pending logout safely
     if st.session_state.get("logout_pending"):
