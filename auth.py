@@ -334,7 +334,9 @@ def check_password():
         if "code" in query_params:
             code = query_params["code"]
             
-            client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+            # Prefer the OAuth-specific name. GOOGLE_CLIENT_ID is the legacy fallback,
+            # shared with the service account in data_manager.py - see the note there.
+            client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
             client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
             redirect_uri = os.getenv("OAUTH_REDIRECT_URI", os.getenv("REDIRECT_URI", "http://localhost:8500/digital-learning-review/")).strip()
             
@@ -499,7 +501,9 @@ def check_password():
         if isinstance(provider, GoogleOAuthProvider):
             st.markdown("<div style='text-align: center; margin: 20px 0;'><strong>OR</strong></div>", unsafe_allow_html=True)
             
-            client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+            # Prefer the OAuth-specific name. GOOGLE_CLIENT_ID is the legacy fallback,
+            # shared with the service account in data_manager.py - see the note there.
+            client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
             redirect_uri = os.getenv("OAUTH_REDIRECT_URI", os.getenv("REDIRECT_URI", "http://localhost:8500/digital-learning-review/")).strip()
             
             auth_url = (

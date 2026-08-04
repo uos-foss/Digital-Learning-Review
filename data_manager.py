@@ -20,7 +20,13 @@ def get_gspread_client():
         "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
         "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
         "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+        # The service account and the OAuth web client are different credentials with
+        # different ids. Both used to read GOOGLE_CLIENT_ID, and .env defined it twice,
+        # so the last definition silently won and this got the OAuth id. It went
+        # unnoticed because from_service_account_info signs with the private key and
+        # client_email and never uses client_id. GOOGLE_CLIENT_ID stays as a fallback
+        # so the code can deploy before .env is updated.
+        "client_id": os.getenv("GOOGLE_SA_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID"),
         "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
         "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
         "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),

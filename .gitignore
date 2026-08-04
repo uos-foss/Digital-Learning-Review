@@ -1,4 +1,7 @@
 .env
+# Backups of .env are still live credentials. Deliberately not `.env*`, so a
+# committed .env.example stays possible.
+.env.bak*
 __pycache__/
 .streamlit/
 app.log
