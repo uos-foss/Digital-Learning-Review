@@ -1,5 +1,38 @@
 import pandas as pd
 import numpy as np
+import logging
+
+# Schools that make up this faculty. Module codes are prefixed with these.
+FACULTY_SCHOOLS = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
+
+# Cut-offs for the School Comparison status badge. Placeholders until we have
+# seen real faculty-wide data - retune here rather than in the view.
+SCHOOL_STATUS_THRESHOLDS = {
+    "ally": {"green": 75, "yellow": 50},
+    "vle_compliance": {"green": 80, "yellow": 65},
+}
+
+def resolve_semester_df(df_aut, df_spr, semester):
+    """
+    Picks the DataFrame a view should render for the selected semester.
+
+    Both semester frames already contain the All-year modules (app.py folds
+    them into each), so "All year" is served by filtering one frame down to
+    rows whose Semester is literally 'All year' - the year-long modules.
+
+    Kept here rather than in the views so Faculty Overview and School
+    Dashboard cannot drift apart on the same selection.
+    """
+    if semester == "Spring":
+        return df_spr if df_spr is not None else pd.DataFrame()
+
+    if semester == "All year":
+        source = df_aut if df_aut is not None and not df_aut.empty else df_spr
+        if source is None or source.empty or 'Semester' not in source.columns:
+            return pd.DataFrame()
+        return source[source['Semester'] == 'All year'].copy()
+
+    return df_aut if df_aut is not None else pd.DataFrame()
 
 def clean_audit_dataframe(df):
     """
@@ -189,7 +222,8 @@ def get_checklist_summaries(spreadsheet_id):
                     'Comments': row[7] if len(row) > 7 else ""
                 }
         return summaries
-    except:
+    except Exception as e:
+        logging.error(f"❌ Error loading checklist summaries from Google Sheets: {e}")
         return {}
 
 def get_updated_ally_scores(spreadsheet_id):
@@ -327,3 +361,219 @@ def sanitize_row_data(row_data):
         sanitized.append(item_str)
         
     return sanitized
+
+def calculate_dynamic_compliance_gap(school_code=None):
+    """
+    Calculates compliance gap metrics dynamically from active SQLite audit fields and responses.
+    """
+    from database import get_db_connection, get_active_audit_fields
+    import pandas as pd
+    
+    active_fields = get_active_audit_fields()
+    if not active_fields:
+        return {}
+        
+    # We compute compliance only for boolean and yes/no audit fields
+    boolean_fields = [f for f in active_fields if f['field_type'] in ['boolean', 'yes/no']]
+    if not boolean_fields:
+        return {}
+        
+    with get_db_connection() as conn:
+        # Check if SITS and response tables exist
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sits_assessment_2026_27'")
+        if not cursor.fetchone():
+            return {}
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_responses'")
+        if not cursor.fetchone():
+            return {}
+            
+        # Get SITS unique modules
+        df_sits = pd.read_sql_query("SELECT DISTINCT [CIS unit code] FROM sits_assessment_2026_27", conn)
+        
+        # Get active responses. Field IDs are passed as bound parameters - they
+        # originate from audit_fields, which is writable via admin CSV import,
+        # so they must never be interpolated into the SQL text.
+        field_ids = [f['id'] for f in boolean_fields]
+        placeholders = ','.join('?' * len(field_ids))
+        df_resp = pd.read_sql_query(
+            f"SELECT module_code, field_id, value FROM audit_responses WHERE field_id IN ({placeholders})",
+            conn,
+            params=field_ids,
+        )
+        
+    if df_sits.empty:
+        return {}
+        
+    df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
+    
+    # Filter modules by school if specified
+    if school_code and school_code != 'All':
+        df_sits = df_sits[df_sits['CIS unit code'].str.startswith(school_code, na=False)]
+        
+    total_modules = len(df_sits)
+    if total_modules == 0:
+        return {}
+        
+    # Calculate compliance gap for each field
+    gaps = {}
+    for field in boolean_fields:
+        fid = field['id']
+        label = field['label']
+        
+        # Filter responses for this field
+        field_resps = df_resp[df_resp['field_id'] == fid].copy()
+        field_resps['module_code'] = field_resps['module_code'].astype(str).str.strip().str.upper()
+        
+        # Keep only responses that correspond to our filtered modules list
+        valid_codes = set(df_sits['CIS unit code'])
+        field_resps = field_resps[field_resps['module_code'].isin(valid_codes)]
+        
+        # Count true/yes values
+        compliant_count = field_resps['value'].apply(lambda x: str(x).upper() in ['TRUE', 'YES', '1']).sum()
+
+        gaps[label] = float(compliant_count / total_modules)
+
+    return gaps
+
+def _status_band(value, thresholds):
+    """Maps a percentage to a status band using the given green/yellow cut-offs."""
+    if value is None or pd.isna(value):
+        return None
+    if value >= thresholds['green']:
+        return 'green'
+    if value >= thresholds['yellow']:
+        return 'yellow'
+    return 'red'
+
+def get_school_comparison(active_df, checklist_sums):
+    """
+    Aggregates the active semester's modules by school for the Faculty
+    School Comparison table.
+
+    Works purely in pandas over data already held in memory - no per-school
+    database queries. Note the deliberate difference from
+    calculate_dynamic_compliance_gap: VLE compliance here is measured only
+    across modules whose audit has been submitted, because an unaudited
+    module tells us nothing about compliance. Audited coverage is returned
+    alongside it so a high score off a tiny sample is visible for what it is.
+
+    Returns (schools_df, totals) where schools_df has exactly one row per
+    school - no totals row, so the table sorts cleanly and exports cleanly -
+    and totals is a dict of the faculty-wide figures for display alongside it.
+    VLE Compliance is None where a school has no submitted audits.
+    """
+    columns = ['School', 'Modules', 'Audited', 'Audited %', 'Avg Ally',
+               'VLE Compliance', 'Status']
+    empty_totals = {'Modules': 0, 'Audited': 0, 'Audited %': 0.0,
+                    'Avg Ally': None, 'VLE Compliance': None}
+
+    if active_df is None or active_df.empty or 'New module code' not in active_df.columns:
+        return pd.DataFrame(columns=columns), empty_totals
+
+    checklist_sums = checklist_sums or {}
+
+    # Load the audit field definitions once, not per school.
+    try:
+        from database import get_active_audit_fields
+        active_fields = get_active_audit_fields()
+    except Exception as e:
+        # Without field definitions every school reports no compliance, which
+        # looks identical to "nobody has submitted yet" - so say so in the log.
+        logging.error(f"❌ Could not load audit fields for school comparison: {e}")
+        active_fields = []
+    scored_field_ids = [f['id'] for f in active_fields
+                        if f.get('field_type') in ('boolean', 'yes/no')]
+
+    df = active_df.copy()
+    df['School'] = df['New module code'].astype(str).str.strip().str.upper().str[:3]
+    df = df[df['School'].isin(FACULTY_SCHOOLS)]
+
+    if df.empty:
+        return pd.DataFrame(columns=columns), empty_totals
+
+    has_ally = 'Ally 25/26 All' in df.columns
+
+    rows = []
+    # Faculty totals are accumulated from the same per-module figures the
+    # school rows use, so the total row can never drift from the rows above it.
+    faculty_passed = faculty_scored = 0
+
+    for school in FACULTY_SCHOOLS:
+        school_df = df[df['School'] == school]
+        module_count = len(school_df)
+        if module_count == 0:
+            continue
+
+        codes = school_df['New module code'].astype(str).str.strip().str.upper()
+
+        audited_count = 0
+        passed = scored = 0
+        for code in codes:
+            summary = checklist_sums.get(code)
+            if not summary or summary.get('Status') != "✅ Submitted":
+                continue
+            audited_count += 1
+
+            responses = summary.get('Responses', {}) or {}
+            for fid in scored_field_ids:
+                scored += 1
+                if str(responses.get(fid)).strip().upper() in ('TRUE', 'YES', '1'):
+                    passed += 1
+
+        faculty_passed += passed
+        faculty_scored += scored
+
+        avg_ally = None
+        if has_ally:
+            ally_mean = school_df['Ally 25/26 All'].mean()
+            if pd.notna(ally_mean):
+                avg_ally = float(ally_mean) * 100
+
+        compliance = (passed / scored * 100) if scored else None
+        audited_pct = (audited_count / module_count * 100) if module_count else 0.0
+
+        bands = [_status_band(avg_ally, SCHOOL_STATUS_THRESHOLDS['ally']),
+                 _status_band(compliance, SCHOOL_STATUS_THRESHOLDS['vle_compliance'])]
+        bands = [b for b in bands if b is not None]
+        if 'red' in bands:
+            status = "❌ At Risk"
+        elif 'yellow' in bands:
+            status = "⚠️ Needs Support"
+        elif bands:
+            status = "✅ On Track"
+        else:
+            status = "— No Data"
+
+        rows.append({
+            'School': school,
+            'Modules': module_count,
+            'Audited': audited_count,
+            'Audited %': audited_pct,
+            'Avg Ally': avg_ally,
+            'VLE Compliance': compliance,
+            'Status': status,
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=columns), empty_totals
+
+    result = pd.DataFrame(rows, columns=columns)
+
+    total_modules = int(result['Modules'].sum())
+    total_audited = int(result['Audited'].sum())
+    faculty_ally = None
+    if has_ally:
+        ally_mean = df['Ally 25/26 All'].mean()
+        if pd.notna(ally_mean):
+            faculty_ally = float(ally_mean) * 100
+
+    totals = {
+        'Modules': total_modules,
+        'Audited': total_audited,
+        'Audited %': (total_audited / total_modules * 100) if total_modules else 0.0,
+        'Avg Ally': faculty_ally,
+        'VLE Compliance': (faculty_passed / faculty_scored * 100) if faculty_scored else None,
+    }
+
+    return result, totals

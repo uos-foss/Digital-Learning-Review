@@ -1,35 +1,104 @@
 # Digital Learning Review Dashboard
 
-## 📌 Project Overview
-The Digital Learning Review Dashboard is a Streamlit-based web application that aggregates and visualizes Virtual Learning Environment (VLE) audit data. It serves as a central hub for faculty to track compliance, accessibility scores, and review self-audit checklists across various modules, schools, and semesters.
+A Streamlit web application for the Faculty of Social Sciences VLE audit. It
+aggregates module data from SITS, Ally, Leganto and Blackboard, and gives
+Digital Learning Advisors a place to record audit findings and report on
+accessibility and VLE compliance across the faculty's seven schools.
 
-**Key KPIs Monitored:**
-- High Ally accessibility scores across modules.
-- Full compliance with module lead self-audit checklists.
+Deployed at
+[fossdigital.shef.ac.uk/digital-learning-review](https://fossdigital.shef.ac.uk/digital-learning-review/).
 
-## 🛠️ Tech Stack & Architecture
-- **Language:** Python 3.13
+**What it is measured against:**
+- Ally accessibility scores across modules.
+- Compliance with the VLE audit checklist.
+
+## 🛠️ Tech Stack
+
+- **Language:** Python 3.11
 - **Framework:** Streamlit
-- **Data:** SQLite, Pandas, Google Sheets API (`gspread`, `google-auth`)
-- **Deployment:** Docker & Docker Compose (Ubuntu VM at [https://fossdigital.shef.ac.uk/digital-learning-review/](https://fossdigital.shef.ac.uk/digital-learning-review/))
+- **Database:** SQLite (WAL mode, on a shared host volume)
+- **Data:** Pandas, Google Sheets API (`gspread`, `google-auth`, `tenacity`)
+- **Deployment:** Docker & Docker Compose on an Ubuntu VM behind Caddy
 
-## 📊 Data Sources
-The dashboard relies on multiple Google Sheets for data:
-- **Main Audit Data**: Manually updated by auditors.
-- **Ally Accessibility Scores**: Updated monthly.
-- **Leganto Lists**: Missing reading lists, updated monthly.
-- **Self-Audit Checklist**: Synchronous input from module leads.
-- **SITS Assessment Data**: Updated annually.
+## 📊 How Data Flows
 
-## 🚀 Core Features
-- **School Dashboard & Faculty Overview:** Filtered views for high-level and granular data.
-- **Module Report Card:** Deep dive into specific module compliance.
-- **Module Checklist:** Interactive self-auditing tool.
-- **Capability-Based Access:** Content visibility is tailored to specific roles (`ADMIN`, `DLA`, and capabilities).
+**SQLite is the source of truth.** Every page reads from it. Google Sheets is
+an upstream source only, drained into SQLite by `sync_data.py` when an
+administrator triggers a full sync — it is not touched during a page load.
+
+| Source | Contents | Updated |
+| :--- | :--- | :--- |
+| SITS | Module list, teaching periods, assessment strategy | Annually |
+| Ally | Accessibility scores and file counts, with history | Monthly |
+| Leganto | Modules missing a reading list | Monthly |
+| Blackboard | Module VLE links | CSV import in the Admin Panel |
+| Audits | Advisor findings per module | Saved in the app |
+
+Audits and feedback are written to SQLite and never pushed back to a
+spreadsheet. Write-back is limited to the comment bank and audit field
+definitions.
+
+## 🚀 Features
+
+- **Faculty Overview** — School Comparison, Ally analytics, compliance gap,
+  priority actions and SITS assessment types across all seven schools.
+- **School Dashboard** — The same analysis scoped to one school, plus a module
+  roster and accessibility trends over time.
+- **Module report** — A single module in full: metadata, Ally profile,
+  reading-list status, audit responses and assessment strategy.
+- **Audit Portal** — Where advisors record findings, notes for the module lead,
+  and internal notes. Audits save as a draft and submit when complete.
+- **Admin Panel** — Users and roles, audit field configuration, data
+  import/export, inactive modules, logs and a database explorer.
+
+## 🔐 Access Control
+
+Sign-in supports a username and password held in SQLite (default) or **Sign in
+with Google**, selected by `AUTH_PROVIDER`. Passwords are hashed with scrypt.
+
+Access is driven by capabilities attached to a role:
+
+| Role | Capabilities |
+| :--- | :--- |
+| `admin` | `view_all`, `edit_checklist`, `access_admin_panel` |
+| `DLA` | `view_all`, `edit_checklist` |
+| `SA` | `view_school`, `edit_checklist` |
+| `FOSS` | `view_all` |
+| `SL` | `view_all` |
+| `ML` | `view_school` |
+
+## ▶️ Running It
+
+Configuration comes from a `.env` file — see `docs/developer-guide.md` for the
+variables involved.
+
+```bash
+# Local
+pip install -r REQUIREMENTS.txt
+streamlit run app.py
+
+# Production
+docker compose up -d --build
+```
+
+The database is created on first run. In production it lives on the host at
+`/opt/shared-audit-data`, mounted into the container, so it survives rebuilds.
+
+## 📚 Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** — conventions and constraints for anyone (or
+  anything) changing the code.
+- **[docs/developer-guide.md](docs/developer-guide.md)** — architecture,
+  database location, auth providers, deployment. Also rendered in-app under
+  Resources & Support.
+- **[docs/changelog.md](docs/changelog.md)** — release history.
+- **[docs/help.md](docs/help.md)** — the in-app user guide.
+- **[SPEC.md](SPEC.md)** — the original project brief. Historical; kept for
+  provenance and no longer accurate.
 
 ## 🗺️ Roadmap
-- UI/UX Refresh and aesthetic improvements.
-- Integration of additional audit data sources.
-- Implementation of alternative authentication methods.
 
-For a comprehensive architectural overview, please refer to the [SPEC.md](SPEC.md) file.
+- UI/UX refresh and aesthetic improvements.
+- Integration of additional audit data sources.
+- Retire the legacy `main_vle_audit_*` baseline tables once the 25/26 data is
+  no longer needed.

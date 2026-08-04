@@ -1,19 +1,42 @@
 import streamlit as st
 import pandas as pd
-from processing import calculate_compliance_gap, is_compliant_val
+from processing import calculate_compliance_gap, is_compliant_val, resolve_semester_df, FACULTY_SCHOOLS
+
+def to_sentence_case(name: str) -> str:
+    """Convert name to sentence case (capitalize first letter only)."""
+    if not name or pd.isna(name):
+        return ""
+    name_str = str(name).strip()
+    if not name_str:
+        return ""
+    return name_str[0].upper() + name_str[1:].lower() if len(name_str) > 0 else name_str
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
-    st.title("🏫 School Dashboard")
-    
-    schools = sorted(list(set([s.split(' ')[0] for s in ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]])))
+    schools = list(FACULTY_SCHOOLS)
     
     user_caps = st.session_state.get("capabilities", [])
-    only_own_school = any(c.lower() == "view only own school" for c in user_caps)
-    
+    only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
+    # pg_audit is only registered in the navigation for holders of edit_checklist,
+    # and st.switch_page raises on an unregistered page - so hide the jump button
+    # from everyone else rather than letting it fail on click.
+    can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
+
+    # A school handed over from the Faculty School Comparison table. Consumed
+    # once, then cleared, so the user's saved_school preference is untouched.
+    # Seeds the selector widgets before they are built so the controls agree
+    # with the data being shown.
+    drilldown_school = st.session_state.pop("drilldown_school", None)
+    if drilldown_school in schools and not only_own_school:
+        st.session_state.sd_focus_school = False
+        st.session_state.sd_school_select = drilldown_school
+        st.session_state.sd_school_select_all = drilldown_school
+
     if only_own_school:
         school = st.session_state.saved_school
-        st.info(f"Locked to school context: **{school}**")
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {school}</span>"
+        st.markdown(f"<h1>School Dashboard{school_context_badge}</h1>", unsafe_allow_html=True)
     else:
+        st.title("School Dashboard")
         # If saved_school is not "All", show the focus checkbox. If unchecked, let them select another school context.
         if st.session_state.saved_school != "All":
             filter_by_school = st.checkbox(
@@ -44,19 +67,25 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     semester = st.session_state.semester
     st.header(f"{school} - {semester} Semester")
     
-    target_df = df_aut if semester == "Autumn" else df_spr
+    target_df = resolve_semester_df(df_aut, df_spr, semester)
     
     if not target_df.empty:
         school_df = target_df[target_df['New module code'].str.startswith(school, na=False)].copy()
         
         if not school_df.empty:
-            # Integration: Add self-audit status
+            # Integration: Add audit status
             def get_audit_status(code):
                 if code in checklist_sums:
                     return checklist_sums[code]['Status']
-                return "❌ No"
+                return "❌ Not Audited"
+                
+            def get_actionable_items(code):
+                if code in checklist_sums:
+                    return checklist_sums[code].get('Actionable Items', 0)
+                return 0
             
-            school_df['Self-Audited?'] = school_df['New module code'].apply(get_audit_status)
+            school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
+            school_df['Actionable Items'] = school_df['New module code'].apply(get_actionable_items)
             
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -65,14 +94,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 avg_ally = school_df['Ally 25/26 All'].mean() if 'Ally 25/26 All' in school_df.columns else 0
                 st.metric("Avg Ally Score", f"{avg_ally:.1%}")
             with col3:
-                audited_count = school_df['Self-Audited?'].apply(lambda x: x != "❌ No").sum()
-                st.metric("Self-Audit Participation", f"{(audited_count / len(school_df)):.1%}")
+                audited_count = school_df['Audited?'].apply(lambda x: "✅" in x).sum()
+                st.metric("Audit Participation", f"{(audited_count / len(school_df)):.1%}")
             
+            # Define school codes for filtering data
+            school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
+
             # Prepare SITS assessment data for the school
             matching_assess = pd.DataFrame()
             type_counts = pd.DataFrame()
             if df_assess is not None and not df_assess.empty:
-                school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
                 matching_assess = df_assess[df_assess['CIS unit code'].isin(school_codes)]
                 if not matching_assess.empty:
                     type_counts = matching_assess['Assessment type'].value_counts().reset_index()
@@ -81,7 +112,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -94,29 +125,23 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             if selected_view == "📋 All Modules":
                 st.subheader("Module Audit Status")
                 display_df = school_df.copy()
+                # Apply sentence case to Module Lead names
+                display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_sentence_case)
                 cols = ['New module code', 'Module name', 'Mod. lead']
                 configs = {
                     "New module code": "Module Code",
                     "Module name": "Module Name",
-                    "Mod. lead": "Lead"
+                    "Mod. lead": "Module Lead"
                 }
-                if 'Total Files' in display_df.columns:
-                    cols.append('Total Files')
-                    configs['Total Files'] = st.column_config.NumberColumn("Files", format="%d")
-                if 'Ally Measured' in display_df.columns:
-                    display_df['Measured'] = display_df['Ally Measured'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                    cols.append('Measured')
-                    configs['Measured'] = "Measured"
+                # Add single Ally score column
                 if 'Ally 25/26 All' in display_df.columns:
-                    display_df['Weighted'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                    cols.append('Weighted')
-                    configs['Weighted'] = "Weighted"
-                if 'Ally Shift' in display_df.columns:
-                    display_df['Shift (Δ)'] = display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
-                    cols.append('Shift (Δ)')
-                    configs['Shift (Δ)'] = "Shift (Δ)"
-                cols.append('Self-Audited?')
-                configs['Self-Audited?'] = "Audited?"
+                    display_df['Ally Score'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                    cols.append('Ally Score')
+                    configs['Ally Score'] = "Ally Score"
+                cols.append('Audited?')
+                configs['Audited?'] = "Audited?"
+                cols.append('Actionable Items')
+                configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
                 
                 if 'Leganto Missing' in display_df.columns:
                     display_df['Leganto'] = display_df['Leganto Missing'].apply(lambda x: "❌ No List" if x is True else "✅ OK")
@@ -146,16 +171,59 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     with c1:
                         if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
                             st.session_state.selected_module_code = clicked_code
-                            st.session_state.view_selection = "📋 Module Report Card"
-                            st.rerun()
+                            st.switch_page(st.session_state.pg_module)
                     with c2:
-                        if st.button(f"✅ Open Lead Checklist", width="stretch", key="btn_school_cl"):
+                        if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="btn_school_cl"):
                             st.session_state.selected_module_code = clicked_code
-                            st.session_state.view_selection = "✅ Module Lead Checklist"
-                            st.rerun()
+                            st.switch_page(st.session_state.pg_audit)
                     st.divider()
 
             elif selected_view == "📊 Ally Analytics":
+                st.subheader(f"Ally Accessibility Scores ({semester})")
+
+                # Ally data table
+                if not school_df.empty and 'Ally 25/26 All' in school_df.columns:
+                    ally_display_df = school_df.copy()
+                    ally_display_df['Mod. lead'] = ally_display_df['Mod. lead'].apply(to_sentence_case)
+
+                    ally_cols = ['New module code', 'Module name', 'Mod. lead']
+                    ally_configs = {
+                        "New module code": "Module Code",
+                        "Module name": "Module Name",
+                        "Mod. lead": "Module Lead"
+                    }
+
+                    # Add Ally score columns
+                    if 'Ally Measured' in ally_display_df.columns:
+                        ally_display_df['Measured'] = ally_display_df['Ally Measured'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                        ally_cols.append('Measured')
+                        ally_configs['Measured'] = "Measured"
+
+                    if 'Ally 25/26 All' in ally_display_df.columns:
+                        ally_display_df['Weighted'] = ally_display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                        ally_cols.append('Weighted')
+                        ally_configs['Weighted'] = "Weighted Score"
+
+                    if 'Ally Shift' in ally_display_df.columns:
+                        ally_display_df['Shift (Δ)'] = ally_display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
+                        ally_cols.append('Shift (Δ)')
+                        ally_configs['Shift (Δ)'] = "Score Change"
+
+                    if 'Total Files' in ally_display_df.columns:
+                        ally_cols.append('Total Files')
+                        ally_configs['Total Files'] = st.column_config.NumberColumn("Files", format="%d")
+
+                    ally_table_df = ally_display_df[ally_cols].reset_index(drop=True)
+
+                    st.markdown("##### **Detailed Ally Scores by Module**")
+                    st.dataframe(
+                        ally_table_df,
+                        column_config=ally_configs,
+                        width="stretch",
+                        hide_index=True
+                    )
+                    st.divider()
+
                 st.subheader(f"Ally Score Distribution ({semester})")
                 if not school_df.empty and 'Ally 25/26 All' in school_df.columns:
                     scores_series = school_df['Ally 25/26 All'].dropna()
@@ -209,13 +277,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                         with c1:
                                             if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="school_btn_drill_rc_jump"):
                                                 st.session_state.selected_module_code = clicked_code
-                                                st.session_state.view_selection = "📋 Module Report Card"
-                                                st.rerun()
+                                                st.switch_page(st.session_state.pg_module)
                                         with c2:
-                                            if st.button(f"✅ Open Lead Checklist", width="stretch", key="school_btn_drill_cl_jump"):
+                                            if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="school_btn_drill_cl_jump"):
                                                 st.session_state.selected_module_code = clicked_code
-                                                st.session_state.view_selection = "✅ Module Lead Checklist"
-                                                st.rerun()
+                                                st.switch_page(st.session_state.pg_audit)
                                 else:
                                     st.info(f"No modules found in the {selected_bracket} range.")
                     else:
@@ -223,10 +289,38 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 else:
                     st.warning("No data found for this school.")
 
+            elif selected_view == "📈 Trends":
+                st.subheader(f"Accessibility Trends ({school})")
+                df_ally_local = st.session_state.get("df_ally_local", pd.DataFrame())
+                if not df_ally_local.empty and 'snapshot_date' in df_ally_local.columns:
+                    school_history = df_ally_local[df_ally_local['module_code'].isin(school_codes)].copy()
+                    if not school_history.empty:
+                        school_history['snapshot_date'] = pd.to_datetime(school_history['snapshot_date'])
+                        trend_df = school_history.groupby('snapshot_date')['weighted'].mean().reset_index()
+                        trend_df = trend_df.sort_values('snapshot_date').set_index('snapshot_date')
+                        st.markdown("**Average School Ally Score Over Time**")
+                        st.line_chart(trend_df['weighted'], height=300)
+                    else:
+                        st.info("No historical Ally data available for this school.")
+                else:
+                    st.info("Historical Ally data is not yet available.")
+
             elif selected_view == "✅ Compliance Gap":
                 st.subheader(f"Compliance Gap Analysis ({semester})")
-                st.caption("Shows the percentage of modules fully meeting audit criteria across key structural areas.")
-                gaps = calculate_compliance_gap(school_df)
+                
+                audit_source = st.radio(
+                    "Select Audit Dataset:",
+                    ["New Audit Checklist (SQLite Primary)", "Legacy VLE Audit (25/26 Reference)"],
+                    horizontal=True,
+                    key="sd_compliance_dataset_selector"
+                )
+                
+                if audit_source == "Legacy VLE Audit (25/26 Reference)":
+                    gaps = calculate_compliance_gap(school_df)
+                else:
+                    from processing import calculate_dynamic_compliance_gap
+                    gaps = calculate_dynamic_compliance_gap(school_code=school)
+                
                 if gaps:
                     gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])
                     gap_df['Compliance %'] = gap_df['Compliance %'] * 100
@@ -274,7 +368,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 
                 lens = st.radio(
                     "Choose inspection criteria:",
-                    ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Self-Audits", "📚 Missing Reading Lists"],
+                    ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
                     horizontal=True,
                     label_visibility="collapsed",
                     key="school_priority_lens_selector"
@@ -344,16 +438,21 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             render_status = "All modules meet healthy baseline structural thresholds!"
                             render_status_type = "success"
 
-                elif lens == "📋 Missing Self-Audits":
+                elif lens == "📋 Missing Audits":
                     def get_status(code):
                         c_str = str(code).strip()
-                        return checklist_sums[c_str].get('Status', "🟡 Partial") if c_str in checklist_sums else "❌ Not Submitted"
+                        return checklist_sums[c_str].get('Status', "❌ Not Audited") if c_str in checklist_sums else "❌ Not Audited"
+                    def get_actions(code):
+                        c_str = str(code).strip()
+                        return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
                     
                     source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
-                    missing_df = source_data[source_data['DisplayValue'] != "✅ Complete"].sort_values('DisplayValue', ascending=False)
+                    source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
+                    
+                    missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
                     
                     if not missing_df.empty:
-                        render_status = f"🎯 Found {len(missing_df)} modules either pending self-audit or with partial submissions."
+                        render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
                         render_status_type = "warning"
                         
                         display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
@@ -363,7 +462,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             "Mod. lead": "Lead", "DisplayValue": "Submission Status"
                         }
                     else:
-                        render_status = "All currently listed modules have completed their self-audits! 🌟"
+                        render_status = "All currently listed modules have completed their audits! 🌟"
                         render_status_type = "success"
 
                 elif lens == "📚 Missing Reading Lists":
@@ -412,18 +511,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         
                         st.divider()
                         st.info(f"🚀 Launch Control: **{clicked_code}**")
-                        
+
                         c1, c2 = st.columns(2)
                         with c1:
                             if st.button(f"📊 Jump to Module Report Card", width="stretch", type="primary", key="school_priority_btn_rc"):
                                 st.session_state.selected_module_code = clicked_code
-                                st.session_state.view_selection = "📋 Module Report Card"
-                                st.rerun()
+                                st.switch_page(st.session_state.pg_module)
                         with c2:
-                             if st.button(f"✅ Jump to Lead Checklist", width="stretch", key="school_priority_btn_cl"):
+                            if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="school_priority_btn_cl"):
                                 st.session_state.selected_module_code = clicked_code
-                                st.session_state.view_selection = "✅ Module Lead Checklist"
-                                st.rerun()
+                                st.switch_page(st.session_state.pg_audit)
                         st.divider()
 
             elif selected_view == "📝 Assessment Types":

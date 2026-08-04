@@ -1,8 +1,7 @@
 import streamlit as st
-import os
 import datetime
 import logging
-from data_manager import initialize_feedback_headers, append_row_to_sheet
+from database import save_feedback_sqlite
 
 def view_feedback():
     st.title("💬 App Feedback & Suggestions")
@@ -11,12 +10,6 @@ def view_feedback():
         "or provide suggestions to help improve the Digital Learning Review portal."
     )
     
-    feedback_id = os.getenv("FEEDBACK_SPREADSHEET_ID")
-    
-    if not feedback_id:
-        st.error("Feedback spreadsheet configuration is missing. Please contact the administrator.")
-        return
-
     # Use a nice card-like container for the form
     with st.container(border=True):
         st.subheader("Submit Your Feedback")
@@ -60,13 +53,9 @@ def view_feedback():
                     school = st.session_state.get("saved_school", "All")
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    row = [timestamp, username, school, category, rating_value, comments]
-                    
                     try:
                         with st.spinner("Submitting your feedback..."):
-                            # Lazy initialization of sheet headers
-                            initialize_feedback_headers(feedback_id, "Sheet1")
-                            append_row_to_sheet(feedback_id, "Sheet1", row)
+                            save_feedback_sqlite(timestamp, username, school, category, rating_value, comments)
                             
                         logging.info(
                             f"✅ Feedback submitted successfully by user '{username}' (School: '{school}'). "
@@ -78,4 +67,4 @@ def view_feedback():
                         logging.error(
                             f"❌ Error submitting feedback from user '{username}': {e}"
                         )
-                        st.error(f"Error submitting feedback to Google Sheets: {e}")
+                        st.error(f"Error submitting feedback: {e}")

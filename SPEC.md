@@ -1,13 +1,33 @@
+> [!NOTE]
+> **Historical document — kept for provenance, not accuracy.**
+>
+> This is the original project brief, written at the start of the project and
+> used to drive Google Gemini / Antigravity agents. It is preserved as written.
+> Sections 1–6 describe the app as it was then and are now wrong in most
+> specifics — the data layer, the caching strategy, the roles, the view list and
+> the file list have all moved on.
+>
+> Section 7 was a forward-looking roadmap. **Phase 1 (the SQLite migration) was
+> delivered** in v1.9.0–v1.10.0, essentially as specified: WAL mode, busy
+> timeouts, and the shared `/opt/shared-audit-data` bind mount.
+>
+> The file is also truncated — it ends part-way through a code block, so any
+> Phase 2 that once followed has been lost.
+>
+> **For the current system, read [CLAUDE.md](CLAUDE.md) and
+> [docs/developer-guide.md](docs/developer-guide.md).** Do not treat anything
+> below as a description of how the app works today.
+
 # Project Specification: Digital Learning Review Dashboard
 
 ## 1. Project Overview
 The Digital Learning Review Dashboard is a Streamlit-based web application that aggregates and visualizes Virtual Learning Environment (VLE) audit data. It is being built to replace a lengthy manual spreadsheet called the VLE Audit, where manual checks were done to all faculty VLE modules and findings recorded in the audit spreadsheet. The new dashboard aims to replace this by pulling much of the data from other sources. The manual audit data remains in there temporarily so there is data to look at and work with, but it will be removed at some point.
 
-It serves as a central hub for faculty to track compliance, accessibility scores, and review self-audit checklists across various modules, schools, and semesters. 
+It serves as a central hub for faculty to track compliance, accessibility scores, and review audit checklists across various modules, schools, and semesters. 
 
 **Primary Goals & KPIs:**
 - Achieve high Ally accessibility scores across modules.
-- Ensure full compliance with the module lead self-audit checklists.
+- Ensure full compliance with the module lead audit checklists.
 
 ## 2. Architecture & Tech Stack
 - **Language:** Python 3.13
@@ -22,7 +42,7 @@ The application relies heavily on Google Sheets as its backend database. The env
 - **Main Audit Data (`MAIN_SPREADSHEET_ID`):** Contains "All Schools Aut" and "All Schools SPR" tabs. May involve manual edits by auditors.
 - **Ally Accessibility Scores (`ALLY_SPREADSHEET_ID`):** Contains module accessibility data. Updated monthly with new tabs added.
 - **Leganto Lists (`LEGANTO_NOLIST_ID`):** Tracks modules missing reading lists. Updated monthly with new tabs.
-- **Self-Audit Checklist (`CHECKLIST_SPREADSHEET_ID`):** A synchronous sheet where module leads input data. It experiences heavy write operations during specific periods of the academic year.
+- **Audit Checklist (`CHECKLIST_SPREADSHEET_ID`):** A synchronous sheet where module leads and support staff input data. It experiences heavy write operations during specific periods of the academic year.
 - **SITS Assessment Data (`ASSESSMENT_SPREADSHEET_ID`):** Contains formal assessment data. Updated annually with new tabs added.
 
 **Caching Strategy:** The app uses Streamlit's `@st.cache_data` with a Time-To-Live (TTL) of 3600 seconds (1 hour) to minimize API calls to Google Sheets while keeping data reasonably fresh.
@@ -40,8 +60,7 @@ The application uses a custom authentication system (`auth.py`) mapped to user c
 ## 5. Core Views & Navigation
 - **🏫 School Dashboard:** The default core view, filtering data by school and active semester.
 - **🏛️ Faculty Overview:** High-level aggregated data across the entire faculty.
-- **📋 Module Report Card:** Deep dive into a specific module's compliance and scores.
-- **✅ Module Checklist:** Interface for viewing/completing self-audits.
+- **📋 Module Report:** Deep dive into a specific module's compliance, scores, and checklist audit items.
 - **Utilities:** App Feedback, Help & Support, Release Changelog.
 - **Admin/Developer Views:** Admin Panel, Developer Guide, How to Contribute.
 
@@ -95,3 +114,6 @@ def get_db_connection():
     # Prevent immediate failures on simultaneous writes by waiting up to 5000ms
     conn.execute("PRAGMA busy_timeout=5000;")
     return conn
+```
+
+*(The original file ends here, mid-section. Whatever followed was not saved.)*

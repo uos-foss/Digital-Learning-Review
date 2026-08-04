@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import logging
 
 # Explicitly load environment variables to ensure credentials are valid immediately on module load
-load_dotenv()
+load_dotenv(override=True)
 
 class BaseAuthProvider:
     """
@@ -70,27 +70,31 @@ class EnvAuthProvider(BaseAuthProvider):
     def get_user_role(self, username: str) -> str:
         entered_user = str(username).strip().upper()
         if entered_user == "ADMIN":
-            return "System Administrator"
+            return "admin"
         elif entered_user == "DLA":
-            return "Digital Learning Advisor"
+            return "DLA"
         elif entered_user == "FACULTY":
-            return "Faculty Reviewer"
-        return "School Module Lead"
+            return "FOSS"
+        return "ML"
 
     def get_user_capabilities(self, username: str) -> list:
         role = self.get_user_role(username)
-        if role in ["System Administrator", "Digital Learning Advisor", "Faculty Reviewer"]:
-            return ["View Faculty Overview", "complete module checklist"]
-        elif role == "School Module Lead":
-            return ["View only own school", "complete module checklist"]
-        elif role == "School Auditor":
-            return ["View only own school", "view module checklist"]
-        elif role == "School Leadership":
-            return ["View Faculty Overview", "View only own school", "view module checklist"]
+        if role == "admin":
+            return ["view_all", "edit_checklist", "access_admin_panel"]
+        elif role == "DLA":
+            return ["view_all", "edit_checklist"]
+        elif role == "FOSS":
+            return ["view_all"]
+        elif role == "ML":
+            return ["view_school", "edit_checklist"]
+        elif role == "SA":
+            return ["view_school"]
+        elif role == "SL":
+            return ["view_all", "view_school"]
         return []
 
 @st.cache_data(ttl=60)
-def load_sheets_users():
+def load_sqlite_users():
     """
     Fetches the registry of users from SQLite.
     Cached for 60 seconds to allow responsive administrator updates.
@@ -119,7 +123,7 @@ def load_sheets_users():
         return {}
 
 @st.cache_data(ttl=60)
-def load_sheets_roles():
+def load_sqlite_roles():
     """
     Queries the 'roles' table from SQLite
     and returns a dictionary mapping role names to their capabilities.
@@ -145,57 +149,85 @@ def load_sheets_roles():
         logging.error(f"❌ Error loading Roles from SQLite: {e}")
         return {}
 
-class GoogleSheetsAuthProvider(BaseAuthProvider):
+class SQLiteAuthProvider(BaseAuthProvider):
     """
-    Phase 2 Authentication: Queries a Google Sheets user ledger containing
+    SQLite Authentication: Queries an SQLite user ledger containing
     usernames, roles, password hashes, and user capabilities.
     """
     def authenticate(self, username: str, password: str) -> bool:
-        import hashlib
-        users = load_sheets_users()
+        from security import hash_password, verify_password, needs_rehash
+
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
-        if uname in users and users[uname]["Status"] == "ACTIVE":
-            entered_hash = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
-            return users[uname]["PasswordHash"] == entered_hash
-        return False
+        if uname not in users or users[uname]["Status"] != "ACTIVE":
+            return False
+
+        stored = users[uname]["PasswordHash"]
+        is_valid, _scheme = verify_password(password, stored)
+        if not is_valid:
+            return False
+
+        # Transparent upgrade: a correct password stored under the old unsalted
+        # SHA-256 scheme is re-hashed with scrypt here, so accounts migrate as
+        # people sign in rather than needing a forced reset.
+        if needs_rehash(stored):
+            try:
+                from database import get_db_connection
+                new_hash = hash_password(password)
+                # Matched case-insensitively rather than via
+                # update_user_field_sqlite, which uppercases the username and so
+                # would silently match nothing for email-style accounts.
+                with get_db_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE users SET PasswordHash = ? WHERE UPPER(Username) = ?",
+                        (new_hash, uname),
+                    )
+                    conn.commit()
+                    updated = cur.rowcount
+                if updated:
+                    # load_sqlite_users is cached for 60s; drop it so the next
+                    # read sees the upgraded hash rather than the superseded one.
+                    load_sqlite_users.clear()
+                    logging.info(f"🔐 Upgraded password hash to scrypt for user '{uname}'.")
+                else:
+                    logging.error(f"❌ Password hash upgrade for '{uname}' matched no rows.")
+            except Exception as e:
+                # The login itself already succeeded - never fail it because the
+                # upgrade could not be written. Log and move on; the next login
+                # will try again.
+                logging.error(f"❌ Could not upgrade password hash for '{uname}': {e}")
+
+        return True
 
     def is_valid_user(self, username: str) -> bool:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         return uname in users and users[uname]["Status"] == "ACTIVE"
 
     def get_school_context(self, username: str) -> str:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users:
             return users[uname]["School"]
         return "All"
 
     def get_user_role(self, username: str) -> str:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users:
             return users[uname]["Role"]
-        return "School Module Lead"
+        return "ML"
 
     def get_user_capabilities(self, username: str) -> list:
-        users = load_sheets_users()
+        users = load_sqlite_users()
         uname = str(username).strip().upper()
         if uname in users:
             role = users[uname]["Role"]
-            roles_map = load_sheets_roles()
+            roles_map = load_sqlite_roles()
             if role.lower() in roles_map:
                 caps_str = roles_map[role.lower()]["Capabilities"]
-                raw_caps = [c.strip() for c in caps_str.split(",") if c.strip()]
-                resolved_caps = []
-                for c in raw_caps:
-                    if c == "view_all":
-                        resolved_caps.extend(["View Faculty Overview", "complete module checklist"])
-                    elif c == "view_school":
-                        resolved_caps.extend(["View only own school", "complete module checklist"])
-                    else:
-                        resolved_caps.append(c)
-                return list(set(resolved_caps))
+                return [c.strip().lower() for c in caps_str.split(",") if c.strip()]
         return []
 
 class ActiveDirectoryAuthProvider(BaseAuthProvider):
@@ -215,19 +247,61 @@ class ActiveDirectoryAuthProvider(BaseAuthProvider):
         return "All"
 
     def get_user_role(self, username: str) -> str:
-        return "School Module Lead"
+        return "ML"
 
     def get_user_capabilities(self, username: str) -> list:
-        return ["View only own school", "complete module checklist"]
+        return ["view_school", "edit_checklist"]
+
+class GoogleOAuthProvider(BaseAuthProvider):
+    """
+    OAuth2-based authentication provider using Google.
+    Delegates role and capability lookups to SQLite queries using the verified email as the Username.
+
+    NOTE ON EMPTY PasswordHash VALUES:
+    Under this provider the identity is proven by Google, so a `users` row acts
+    purely as a whitelist entry and legitimately carries an empty PasswordHash.
+    Such rows are NOT broken and must not be deleted as cleanup - deleting one
+    revokes that person's access entirely.
+
+    They are also not a bypass: verify_password in security.py treats an empty
+    stored hash as an automatic non-match, so the password form rejects every
+    input for these accounts.
+
+    The trade-off is that an empty-hash account cannot log in if AUTH_PROVIDER is
+    switched away from GOOGLE/GOOGLE_OAUTH. Give the account a password via the
+    Admin Panel if you need it to survive that switch.
+    """
+    def __init__(self):
+        self.db_provider = SQLiteAuthProvider()
+
+    def authenticate(self, email: str, id_token_or_code: str) -> bool:
+        # Identity is established by the OAuth token exchange in check_password;
+        # membership of the users table is the only remaining gate.
+        return self.is_valid_user(email)
+
+    def is_valid_user(self, email: str) -> bool:
+        return self.db_provider.is_valid_user(email)
+
+    def get_school_context(self, email: str) -> str:
+        return self.db_provider.get_school_context(email)
+
+    def get_user_role(self, email: str) -> str:
+        return self.db_provider.get_user_role(email)
+
+    def get_user_capabilities(self, email: str) -> list:
+        return self.db_provider.get_user_capabilities(email)
 
 def get_auth_provider() -> BaseAuthProvider:
     """Factory to retrieve the active Auth Provider configured in the environment."""
     provider_name = os.getenv("AUTH_PROVIDER", "").strip().upper()
-    if provider_name == "SHEETS" or (not provider_name and os.getenv("USERS_SPREADSHEET_ID")):
-        return GoogleSheetsAuthProvider()
+    if provider_name == "ENV":
+        return EnvAuthProvider()
     elif provider_name in ["AD", "ACTIVE_DIRECTORY"]:
         return ActiveDirectoryAuthProvider()
-    return EnvAuthProvider()
+    elif provider_name in ["GOOGLE", "GOOGLE_OAUTH"]:
+        return GoogleOAuthProvider()
+    # SQLite is the default primary provider
+    return SQLiteAuthProvider()
 
 def check_password():
     """Returns `True` if the user is authenticated (via session or persistent cookie)."""
@@ -240,17 +314,6 @@ def check_password():
     if "logged_out_this_session" not in st.session_state:
         st.session_state.logged_out_this_session = False
         
-    # [CRITICAL FIX]: If securely logged in and not actively logging out, bypass the cookie component.
-    # This silences background async events completely during active usage, preventing UI resetting.
-    if st.session_state.logged_in and not st.session_state.logout_pending:
-        return True
-
-    # Create component ONLY when required for session state changes (Auth / Restore / Logout)
-    cookie_manager = stx.CookieManager(key="vle_auth_cookies")
-    
-    COOKIE_NAME = "vle_auth_user"
-    COOKIE_TTL_HOURS = 8
-
     # Load credentials dynamically from selection provider
     provider = get_auth_provider()
 
@@ -264,6 +327,113 @@ def check_password():
     if "select_semester_widget" not in st.session_state:
         st.session_state.select_semester_widget = st.session_state.semester
 
+    # Check Google OAuth code callback BEFORE instantiating CookieManager.
+    # This prevents the async component rendering from triggering interrupting reruns during token exchange.
+    if isinstance(provider, GoogleOAuthProvider) and not st.session_state.logged_in:
+        query_params = st.query_params
+        if "code" in query_params:
+            code = query_params["code"]
+            
+            # Prefer the OAuth-specific name. GOOGLE_CLIENT_ID is the legacy fallback,
+            # shared with the service account in data_manager.py - see the note there.
+            client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
+            client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+            redirect_uri = os.getenv("OAUTH_REDIRECT_URI", os.getenv("REDIRECT_URI", "http://localhost:8500/digital-learning-review/")).strip()
+            
+            if not client_id or not client_secret:
+                st.error("😕 OAuth credentials missing in environment.")
+                st.query_params.clear()
+            else:
+                import requests
+                token_url = "https://oauth2.googleapis.com/token"
+                data = {
+                    "code": code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code"
+                }
+                try:
+                    resp = requests.post(token_url, data=data)
+                    if resp.status_code != 200:
+                        logging.error(f"❌ Google Token Exchange failed with code {resp.status_code}: {resp.text}")
+                        logging.error(f"❌ Parameters sent: client_id='{client_id}', redirect_uri='{redirect_uri}'")
+                    resp.raise_for_status()
+                    tokens = resp.json()
+                    access_token = tokens.get("access_token")
+                    
+                    if access_token:
+                        # Fetch user info from Google API directly (avoids clock-skew issues with id_token)
+                        userinfo_url = "https://www.googleapis.com/oauth2/v3/userinfo"
+                        headers = {"Authorization": f"Bearer {access_token}"}
+                        user_resp = requests.get(userinfo_url, headers=headers)
+                        user_resp.raise_for_status()
+                        user_info = user_resp.json()
+                        email = user_info.get("email", "").strip().lower()
+                        
+                        if email:
+                            if provider.is_valid_user(email):
+                                st.session_state.logged_in = True
+                                st.session_state.username = email.upper()
+                                st.session_state.saved_school = provider.get_school_context(email)
+                                st.session_state.capabilities = provider.get_user_capabilities(email)
+                                st.session_state.user_role = provider.get_user_role(email)
+                                st.session_state.logged_out_this_session = False
+                                
+                                # Queue cookie write since CookieManager isn't instantiated yet
+                                st.session_state.needs_cookie_write = email.upper()
+                                logging.info(f"🔑 User '{email.upper()}' authenticated successfully via Google OAuth.")
+                                st.query_params.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"😕 Access Denied: User '{email}' is not on the whitelist.")
+                                logging.warning(f"⚠️ Failed login attempt: '{email}' is not whitelisted.")
+                                st.query_params.clear()
+                        else:
+                            st.error("😕 Could not retrieve email from Google.")
+                            st.query_params.clear()
+                    else:
+                        st.error("😕 Authentication failed: could not retrieve access token from Google.")
+                        # Log only the error fields - never the full response, which
+                        # would put a live token in app.log if Google ever returns one.
+                        logging.error(
+                            f"❌ OAuth exchange failed: {tokens.get('error', 'unknown')} - "
+                            f"{tokens.get('error_description', 'no description')}"
+                        )
+                        st.query_params.clear()
+                except Exception as e:
+                    st.error(f"😕 Authentication failed: {e}")
+                    logging.error(f"❌ OAuth authentication error: {e}")
+                    st.query_params.clear()
+
+    # [CRITICAL FIX]: If securely logged in and not actively logging out, bypass the cookie component.
+    # This silences background async events completely during active usage, preventing UI resetting.
+    #
+    # A queued cookie write from the Google callback is the one exception. The write needs the
+    # component to actually render, so this run must fall through - taking the fast path here left
+    # the write below unreachable, which is why OAuth sessions never survived a refresh or a
+    # duplicated tab while form logins did. Only the single run straight after sign-in falls
+    # through; every run after that takes the fast path as before.
+    if (
+        st.session_state.logged_in
+        and not st.session_state.logout_pending
+        and not st.session_state.get("needs_cookie_write")
+    ):
+        return True
+
+    # Instantiate CookieManager only when needed for state transitions (restoring or logging out)
+    cookie_manager = stx.CookieManager(key="vle_auth_cookies")
+    COOKIE_NAME = "vle_auth_user"
+    COOKIE_TTL_HOURS = 8
+
+    # Handle queued cookie write from successful Google login
+    if st.session_state.logged_in and st.session_state.get("needs_cookie_write"):
+        queued_user = st.session_state.needs_cookie_write
+        expires_at = datetime.now() + timedelta(hours=COOKIE_TTL_HOURS)
+        cookie_manager.set(COOKIE_NAME, queued_user, expires_at=expires_at)
+        st.session_state.needs_cookie_write = None
+        logging.info(f"🍪 Session cookie written for OAuth user '{queued_user}' (expires in {COOKIE_TTL_HOURS}h).")
+
     # Handle pending logout safely
     if st.session_state.get("logout_pending"):
         try:
@@ -272,6 +442,7 @@ def check_password():
             pass
         cookie_manager.set(COOKIE_NAME, "")
         st.session_state["logout_pending"] = False
+        st.query_params.clear()
         logging.info("🚪 User logged out. Browser session and cookies securely cleared.")
 
     # Restore session from browser cookie on page reload
@@ -295,12 +466,15 @@ def check_password():
         entered_user = str(st.session_state.get("login_username", "")).strip()
         entered_pass = str(st.session_state.get("login_password", "")).strip()
 
-        if provider.authenticate(entered_user, entered_pass):
+        # If it's GoogleOAuthProvider, we can authenticate using the underlying db_provider
+        auth_provider = provider.db_provider if isinstance(provider, GoogleOAuthProvider) else provider
+
+        if auth_provider.authenticate(entered_user, entered_pass):
             st.session_state.logged_in = True
             st.session_state.username = entered_user.upper()
-            st.session_state.saved_school = provider.get_school_context(entered_user)
-            st.session_state.capabilities = provider.get_user_capabilities(entered_user)
-            st.session_state.user_role = provider.get_user_role(entered_user)
+            st.session_state.saved_school = auth_provider.get_school_context(entered_user)
+            st.session_state.capabilities = auth_provider.get_user_capabilities(entered_user)
+            st.session_state.user_role = auth_provider.get_user_role(entered_user)
             st.session_state.logged_out_this_session = False
             
             # Persist in browser cookie
@@ -312,16 +486,47 @@ def check_password():
             st.error("😕 Invalid username or password. Please try again.")
             logging.warning(f"⚠️ Failed login attempt for username '{entered_user}'.")
 
-    # Show login form
+    # Show login form (Username/Password is the default UI)
     st.title("🔒 Digital Learning Review Portal")
     st.write("Please sign in to access your school's dashboard and tools.")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.subheader("Sign In")
-        st.text_input("Username (School Code or FACULTY)", placeholder="e.g. ECN, EDC, FACULTY", key="login_username")
+        st.text_input("Username (School Code, email, or FACULTY):", placeholder="e.g. ECN, EDC, or user@domain.com", key="login_username")
         st.text_input("Password", type="password", key="login_password", on_change=password_entered)
         st.caption("Press Enter after typing your password to sign in.")
-    
+        
+        # If Google OAuth is enabled, show the "Sign in with Google" button below the credentials form
+        if isinstance(provider, GoogleOAuthProvider):
+            st.markdown("<div style='text-align: center; margin: 20px 0;'><strong>OR</strong></div>", unsafe_allow_html=True)
+            
+            # Prefer the OAuth-specific name. GOOGLE_CLIENT_ID is the legacy fallback,
+            # shared with the service account in data_manager.py - see the note there.
+            client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
+            redirect_uri = os.getenv("OAUTH_REDIRECT_URI", os.getenv("REDIRECT_URI", "http://localhost:8500/digital-learning-review/")).strip()
+            
+            auth_url = (
+                f"https://accounts.google.com/o/oauth2/v2/auth?"
+                f"client_id={client_id}&"
+                f"response_type=code&"
+                f"scope=openid%20email%20profile&"
+                f"redirect_uri={redirect_uri}&"
+                f"state=state_parameter_passthrough_value&"
+                f"prompt=select_account&"
+                f"access_type=online"
+            )
+            
+            st.markdown(
+                f'<a href="{auth_url}" target="_self" style="'
+                f'display: block; text-align: center; background-color: #4285F4; color: white; '
+                f'padding: 12px 24px; border-radius: 4px; text-decoration: none; font-weight: bold; '
+                f'box-shadow: 0 2px 4px rgba(0,0,0,0.25); font-family: Roboto, sans-serif; transition: background-color .2s;'
+                f'" onmouseover="this.style.backgroundColor=\'#357ae8\'" onmouseout="this.style.backgroundColor=\'#4285F4\'">'
+                f'Sign In with Google'
+                f'</a>',
+                unsafe_allow_html=True
+            )
+            
     st.divider()
     return False

@@ -2,6 +2,7 @@ import sqlite3
 import os
 import pandas as pd
 import platform
+import logging
 
 def get_database_path():
     """
@@ -32,11 +33,12 @@ def init_db():
         os.makedirs(db_dir, exist_ok=True)
         
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     # Create high-write dynamic table for checklists
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS self_audit_checklist (
+        CREATE TABLE IF NOT EXISTS audit_checklist (
             id TEXT PRIMARY KEY,
             timestamp TEXT,
             module_code TEXT,
@@ -52,9 +54,13 @@ def init_db():
     
     # Graceful migration for existing DB
     try:
-        cursor.execute("ALTER TABLE self_audit_checklist ADD COLUMN is_synced INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass # Column already exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='self_audit_checklist'")
+        if cursor.fetchone():
+            cursor.execute("INSERT OR REPLACE INTO audit_checklist SELECT * FROM self_audit_checklist")
+            cursor.execute("DROP TABLE self_audit_checklist")
+            logging.info("Migrated legacy self_audit_checklist to audit_checklist successfully.")
+    except Exception as e:
+        logging.error(f"Migration error from self_audit_checklist to audit_checklist: {e}")
         
     # Create AI Audit write queue table
     cursor.execute("""
@@ -74,7 +80,305 @@ def init_db():
             is_synced INTEGER DEFAULT 0
         )
     """)
+
+    # Create audit_fields table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_fields (
+            id TEXT PRIMARY KEY,
+            label TEXT,
+            action_label TEXT,
+            description TEXT,
+            field_type TEXT,
+            is_active INTEGER DEFAULT 1,
+            display_order INTEGER DEFAULT 0
+        )
+    """)
+
+    # Create audit_responses table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_responses (
+            module_code TEXT,
+            field_id TEXT,
+            value TEXT,
+            auditor_username TEXT,
+            timestamp TEXT,
+            PRIMARY KEY (module_code, field_id)
+        )
+    """)
+
+    # Create ally_scores table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ally_scores (
+            module_code TEXT,
+            snapshot_date TEXT,
+            measured REAL,
+            weighted REAL,
+            files INTEGER,
+            PRIMARY KEY (module_code, snapshot_date)
+        )
+    """)
+
+    # Check and migrate ally_scores table if it exists but lacks snapshot_date
+    cursor.execute("PRAGMA table_info(ally_scores)")
+    ally_columns = [row[1] for row in cursor.fetchall()]
+    
+    if ally_columns and 'snapshot_date' not in ally_columns:
+        cursor.execute("ALTER TABLE ally_scores RENAME TO ally_scores_old")
+        cursor.execute("""
+            CREATE TABLE ally_scores (
+                module_code TEXT,
+                snapshot_date TEXT,
+                measured REAL,
+                weighted REAL,
+                files INTEGER,
+                PRIMARY KEY (module_code, snapshot_date)
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO ally_scores (module_code, snapshot_date, measured, weighted, files)
+            SELECT module_code, '2024-09-01', measured, weighted, files
+            FROM ally_scores_old
+        """)
+        cursor.execute("DROP TABLE ally_scores_old")
+
+    # Create leganto_nolist table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS leganto_nolist (
+            module_code TEXT PRIMARY KEY
+        )
+    """)
+
+    # Create blackboard_links table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS blackboard_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_code TEXT UNIQUE NOT NULL,
+            blackboard_link TEXT NOT NULL,
+            academic_year TEXT NOT NULL,
+            import_date TEXT,
+            last_updated TEXT
+        )
+    """)
+
+    # Create inactive_modules table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inactive_modules (
+            module_code TEXT PRIMARY KEY,
+            reason TEXT,
+            marked_date TEXT,
+            marked_by TEXT
+        )
+    """)
+
+    # Check and migrate comment_bank table
+    cursor.execute("PRAGMA table_info(comment_bank)")
+    columns = [row[1] for row in cursor.fetchall()]
+    
+    if columns and 'category' not in columns:
+        # Migrate old comment_bank to new schema
+        cursor.execute("ALTER TABLE comment_bank RENAME TO comment_bank_old")
+        cursor.execute("""
+            CREATE TABLE comment_bank (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                comment TEXT,
+                advice TEXT,
+                resource_url TEXT,
+                resource_text TEXT
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO comment_bank (comment)
+            SELECT tag FROM comment_bank_old
+        """)
+        cursor.execute("DROP TABLE comment_bank_old")
+    elif not columns:
+        # Create comment_bank table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS comment_bank (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                comment TEXT,
+                advice TEXT,
+                resource_url TEXT,
+                resource_text TEXT
+            )
+        """)
+
+    # Recreate comment_bank table with primary key and autoincrement if it lacks them
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='comment_bank'")
+    if cursor.fetchone():
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='comment_bank'")
+        sql = cursor.fetchone()[0]
+        if "PRIMARY KEY" not in sql or "AUTOINCREMENT" not in sql:
+            cursor.execute("SELECT * FROM comment_bank")
+            old_rows = [dict(r) for r in cursor.fetchall()]
+            cursor.execute("DROP TABLE comment_bank")
+            cursor.execute("""
+                CREATE TABLE comment_bank (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category TEXT,
+                    comment TEXT,
+                    advice TEXT,
+                    resource_url TEXT,
+                    resource_text TEXT
+                )
+            """)
+            for row in old_rows:
+                url_val = row.get("resource_url") or row.get("resources") or ""
+                text_val = row.get("resource_text") or ""
+                cursor.execute("""
+                    INSERT OR IGNORE INTO comment_bank (id, category, comment, advice, resource_url, resource_text)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (row.get("id"), row.get("category"), row.get("comment"), row.get("advice"), url_val, text_val))
+
+    # Ensure comment_bank has resource_url and resource_text columns if missing
+    cursor.execute("PRAGMA table_info(comment_bank)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if columns:
+        if 'resource_url' not in columns:
+            if 'resources' in columns:
+                cursor.execute("ALTER TABLE comment_bank RENAME COLUMN resources TO resource_url")
+                logging.info("Renamed 'resources' column to 'resource_url' in comment_bank table.")
+            else:
+                cursor.execute("ALTER TABLE comment_bank ADD COLUMN resource_url TEXT")
+                logging.info("Added 'resource_url' column to comment_bank table.")
         
+        # Re-fetch columns after possible rename
+        cursor.execute("PRAGMA table_info(comment_bank)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'resource_text' not in columns:
+            cursor.execute("ALTER TABLE comment_bank ADD COLUMN resource_text TEXT")
+            logging.info("Added 'resource_text' column to comment_bank table.")
+
+
+
+
+    # Create feedback table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            Timestamp TEXT,
+            User TEXT,
+            School TEXT,
+            Category TEXT,
+            Rating INTEGER,
+            Comments TEXT
+        )
+    """)
+
+    # Seed default comment bank if empty
+    cursor.execute("SELECT COUNT(*) FROM comment_bank")
+    if cursor.fetchone()[0] == 0:
+        default_tags = [
+            ("Accessibility", "Ally report indicates PowerPoint files scoring low due to images with missing descriptions", "Check through the Ally report in course tools to identify files to be fixed. Add image descriptions to images and re-upload the PowerPoint file.", "", ""),
+            ("Accessibility", "Ally report: accessibility issues found (descriptions/contrast/headings)", "Review Ally report and fix issues such as image descriptions, contrast, and headings.", "", ""),
+            ("Accessibility", "Ally report: untagged or scanned PDFs require OCR", "Run OCR on PDFs to ensure text is readable by screen readers.", "", ""),
+            ("VLE Structure", "Upload files directly to VLE (linked Google Drive files bypass Ally checker)", "Upload files directly to VLE instead of linking from Google Drive.", "", ""),
+            ("VLE Structure", "VLE structure: partial learning material structure in place", "Complete the missing structure for learning materials.", "", ""),
+            ("VLE Structure", "VLE structure: staff contact details or office hours missing", "Add staff contact details and office hours to the VLE.", "", ""),
+            ("VLE Structure", "VLE structure: template has not been populated by module lead", "Ensure the module lead populates the required VLE template.", "", ""),
+            ("Assessment", "Assessment overview: not completed or inconsistent with SITS", "Update the assessment overview to match SITS exactly.", "", ""),
+            ("General", "Module not running: no students or content found", "Confirm if module is running. If not, no further action required.", "", ""),
+            ("Compliance", "Compliant: excellent accessibility and structure", "No action needed. Great job!", "", "")
+        ]
+        cursor.executemany("INSERT INTO comment_bank (category, comment, advice, resource_url, resource_text) VALUES (?, ?, ?, ?, ?)", default_tags)
+
+    # Seed default fields if empty
+    cursor.execute("SELECT COUNT(*) FROM audit_fields")
+    if cursor.fetchone()[0] == 0:
+        default_fields = [
+            ("welcome_message", "Welcome message present?", "Welcome Message Missing", "Check if welcome message is present on VLE.", "boolean", 1, 1),
+            ("contacts_complete", "Key staff contacts complete?", "Staff Contact Details Incomplete", "Verify key contacts are populated.", "boolean", 1, 2),
+            ("outline_visible", "Module outline visible?", "Module Outline Missing", "Ensure module outline is visible to students.", "boolean", 1, 3),
+            ("assessment_overview", "Assessment overview consistent with SITS?", "Assessment Overview Mismatch", "Cross-reference assessment overview with SITS.", "boolean", 1, 4),
+            ("comments", "Additional Observations", "Additional Observations", "Provide any extra comments or observations.", "text", 1, 5)
+        ]
+        cursor.executemany("""
+            INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, default_fields)
+        
+    # Migrate audit_fields to include action_label if missing
+    cursor.execute("PRAGMA table_info(audit_fields)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'action_label' not in columns:
+        cursor.execute("ALTER TABLE audit_fields ADD COLUMN action_label TEXT")
+        logging.info("Migrated audit_fields table: added action_label column.")
+        
+    # Populate/Update defaults for standard fields to be rephrased action items
+    cursor.execute("UPDATE audit_fields SET action_label = 'Welcome Message Missing' WHERE id = 'welcome_message' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Staff Contact Details Incomplete' WHERE id = 'contacts_complete' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Module Outline Missing' WHERE id = 'outline_visible' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Assessment Overview Mismatch' WHERE id = 'assessment_overview' AND (action_label IS NULL OR action_label = '')")
+    cursor.execute("UPDATE audit_fields SET action_label = 'Additional Observations' WHERE id = 'comments' AND (action_label IS NULL OR action_label = '')")
+        
+    # Recreate users table with primary key if it lacks one
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    if cursor.fetchone():
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'")
+        sql = cursor.fetchone()[0]
+        if "PRIMARY KEY" not in sql:
+            # Load old data
+            cursor.execute("SELECT * FROM users")
+            old_rows = [dict(r) for r in cursor.fetchall()]
+            cursor.execute("DROP TABLE users")
+            cursor.execute("""
+                CREATE TABLE users (
+                    Username TEXT PRIMARY KEY,
+                    PasswordHash TEXT,
+                    Role TEXT,
+                    School TEXT,
+                    Capabilities TEXT,
+                    Status TEXT
+                )
+            """)
+            for row in old_rows:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO users (Username, PasswordHash, Role, School, Capabilities, Status)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (row.get("Username"), row.get("PasswordHash"), row.get("Role"), row.get("School"), row.get("Capabilities"), row.get("Status")))
+    else:
+        cursor.execute("""
+            CREATE TABLE users (
+                Username TEXT PRIMARY KEY,
+                PasswordHash TEXT,
+                Role TEXT,
+                School TEXT,
+                Capabilities TEXT,
+                Status TEXT
+            )
+        """)
+
+    # Recreate roles table with primary key if it lacks one
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='roles'")
+    if cursor.fetchone():
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='roles'")
+        sql = cursor.fetchone()[0]
+        if "PRIMARY KEY" not in sql:
+            # Load old data
+            cursor.execute("SELECT * FROM roles")
+            old_rows = [dict(r) for r in cursor.fetchall()]
+            cursor.execute("DROP TABLE roles")
+            cursor.execute("""
+                CREATE TABLE roles (
+                    Role TEXT PRIMARY KEY,
+                    Capabilities TEXT
+                )
+            """)
+            for row in old_rows:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO roles (Role, Capabilities)
+                    VALUES (?, ?)
+                """, (row.get("Role"), row.get("Capabilities")))
+    else:
+        cursor.execute("""
+            CREATE TABLE roles (
+                Role TEXT PRIMARY KEY,
+                Capabilities TEXT
+            )
+        """)
+
     conn.commit()
     conn.close()
 
@@ -82,12 +386,10 @@ def get_db_connection():
     """
     Establishes an SQLite connection to the shared database.
     """
-    # 1. Ensure the enclosing folder structure exists locally or in-container
+    # Ensure the enclosing folder structure exists locally or in-container
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     
     conn = sqlite3.connect(DB_PATH)
-
-    # 🌟 THE FIX: Allow accessing columns by names (string keys) instead of tuple numbers
     conn.row_factory = sqlite3.Row
     
     # Enable WAL mode for asynchronous concurrency
@@ -103,7 +405,7 @@ def cache_dataframe_to_sqlite(df: pd.DataFrame, table_name: str):
             df.to_sql(table_name, conn, if_exists='replace', index=False)
 
 def save_checklist_record(record_id: str, data_row: list):
-    """Saves or updates checklist answers directly to SQLite."""
+    """Saves or updates legacy checklist answers directly to SQLite."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -118,7 +420,7 @@ def save_checklist_record(record_id: str, data_row: list):
         comments = str(data_row[7]) if len(data_row) > 7 else ""
         
         cursor.execute("""
-            INSERT INTO self_audit_checklist (
+            INSERT INTO audit_checklist (
                 id, timestamp, module_code, module_name, welcome_message, contacts_complete, outline_visible, assessment_overview, comments, is_synced
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
@@ -139,7 +441,7 @@ def get_unsynced_checklists():
     """Returns a list of checklist records that haven't been synced to Google Sheets yet."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM self_audit_checklist WHERE is_synced = 0")
+        cursor.execute("SELECT * FROM audit_checklist WHERE is_synced = 0")
         return [dict(row) for row in cursor.fetchall()]
 
 def mark_checklists_synced(record_ids: list):
@@ -149,7 +451,7 @@ def mark_checklists_synced(record_ids: list):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         placeholders = ','.join('?' * len(record_ids))
-        cursor.execute(f"UPDATE self_audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
+        cursor.execute(f"UPDATE audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()
 
 def save_ai_response(payload: dict):
@@ -193,3 +495,277 @@ def mark_ai_responses_synced(record_ids: list):
         placeholders = ','.join('?' * len(record_ids))
         cursor.execute(f"UPDATE ai_audit_queue SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()
+
+# --- New Dynamic Fields and Response helper functions ---
+
+def get_audit_fields():
+    """Returns all active and inactive audit fields ordered by display_order."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields ORDER BY display_order")
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_active_audit_fields():
+    """Returns only active audit fields ordered by display_order."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields WHERE is_active = 1 ORDER BY display_order")
+        return [dict(row) for row in cursor.fetchall()]
+
+def save_audit_field(field_id: str, label: str, action_label: str, description: str, field_type: str, is_active: int, display_order: int):
+    """Saves or updates an audit field definition."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                label=excluded.label,
+                action_label=excluded.action_label,
+                description=excluded.description,
+                field_type=excluded.field_type,
+                is_active=excluded.is_active,
+                display_order=excluded.display_order
+        """, (field_id.strip().lower(), label, action_label, description, field_type, is_active, display_order))
+        conn.commit()
+
+def delete_audit_field(field_id: str):
+    """Deletes an audit field definition and its associated responses."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM audit_fields WHERE id = ?", (field_id,))
+        cursor.execute("DELETE FROM audit_responses WHERE field_id = ?", (field_id,))
+        conn.commit()
+
+def get_audit_responses(module_code: str):
+    """Returns a dict of responses for a given module code."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT field_id, value, auditor_username, timestamp FROM audit_responses WHERE module_code = ?", (module_code.strip().upper(),))
+        rows = cursor.fetchall()
+        return {row['field_id']: {
+            'value': row['value'],
+            'auditor': row['auditor_username'],
+            'timestamp': row['timestamp']
+        } for row in rows}
+
+def get_all_audit_responses():
+    """Returns all audit responses as a DataFrame."""
+    with get_db_connection() as conn:
+        return pd.read_sql_query("SELECT * FROM audit_responses", conn)
+
+def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
+    """Saves or updates a single audit response."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO audit_responses (module_code, field_id, value, auditor_username, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(module_code, field_id) DO UPDATE SET
+                value=excluded.value,
+                auditor_username=excluded.auditor_username,
+                timestamp=excluded.timestamp
+        """, (module_code.strip().upper(), field_id, value, auditor_username, timestamp))
+        conn.commit()
+
+def save_user_sqlite(username: str, password_hash: str, role: str, school: str, capabilities: str, status: str):
+    """Saves or updates a user record in the SQLite database."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO users (Username, PasswordHash, Role, School, Capabilities, Status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(Username) DO UPDATE SET
+                PasswordHash=CASE WHEN excluded.PasswordHash != '' THEN excluded.PasswordHash ELSE users.PasswordHash END,
+                Role=excluded.Role,
+                School=excluded.School,
+                Capabilities=excluded.Capabilities,
+                Status=excluded.Status
+        """, (username.strip().upper(), password_hash, role, school, capabilities, status))
+        conn.commit()
+
+def update_user_field_sqlite(username: str, field_name: str, value: str):
+    """Updates a single field for a user in the SQLite database."""
+    valid_fields = ["PasswordHash", "Role", "School", "Capabilities", "Status"]
+    if field_name not in valid_fields:
+        raise ValueError(f"Invalid user field name: {field_name}")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"UPDATE users SET {field_name} = ? WHERE Username = ?", (value, username.strip().upper()))
+        conn.commit()
+
+def delete_user_sqlite(username: str):
+    """Deletes a user from the SQLite database."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE Username = ?", (username.strip().upper(),))
+        conn.commit()
+
+def save_role_sqlite(role_name: str, capabilities: str):
+    """Saves or updates a role definition in the SQLite database."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO roles (Role, Capabilities)
+            VALUES (?, ?)
+            ON CONFLICT(Role) DO UPDATE SET
+                Capabilities=excluded.Capabilities
+        """, (role_name.strip(), capabilities))
+        conn.commit()
+
+def update_role_field_sqlite(role_name: str, field_name: str, value: str):
+    """Updates a single field for a role in the SQLite database."""
+    valid_fields = ["Capabilities"]
+    if field_name not in valid_fields:
+        raise ValueError(f"Invalid role field name: {field_name}")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"UPDATE roles SET {field_name} = ? WHERE Role = ?", (value, role_name.strip()))
+        conn.commit()
+
+def delete_role_sqlite(role_name: str):
+    """Deletes a role from the SQLite database."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM roles WHERE Role = ?", (role_name.strip(),))
+        conn.commit()
+
+def get_comment_bank():
+    """Fetches all predefined quick comments from the database as dictionaries."""
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, category, comment, advice, resource_url, resource_text FROM comment_bank ORDER BY category, comment")
+        return [dict(row) for row in cursor.fetchall()]
+
+def update_module_lead_sqlite(module_code: str, new_lead: str):
+    """Updates the module lead name in SITS and main vle audit tables if they exist."""
+    module_code = module_code.strip().upper()
+    new_lead = new_lead.strip()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Check and update sits_assessment_2026_27
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sits_assessment_2026_27'")
+        if cursor.fetchone():
+            cursor.execute("UPDATE sits_assessment_2026_27 SET [Academic contact] = ? WHERE [CIS unit code] = ?", (new_lead, module_code))
+            
+        # Check and update main_vle_audit_aut
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='main_vle_audit_aut'")
+        if cursor.fetchone():
+            cursor.execute("UPDATE main_vle_audit_aut SET [Mod. lead] = ? WHERE [New module code] = ?", (new_lead, module_code))
+            
+        # Check and update main_vle_audit_spr
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='main_vle_audit_spr'")
+        if cursor.fetchone():
+            cursor.execute("UPDATE main_vle_audit_spr SET [Mod. lead] = ? WHERE [New module code] = ?", (new_lead, module_code))
+            
+        conn.commit()
+
+def parse_custom_observations(custom):
+    """
+    Parses additional custom observations field which can be:
+    1. A JSON list of dicts: [{"observation": "...", "action": "..."}]
+    2. A legacy template string: "**Observation:** ... \n\n**Action:** ..."
+    3. A legacy plain text string.
+    Returns a list of dicts: [{"observation": "...", "action": "..."}]
+    """
+    import json
+    import re
+    
+    if not custom:
+        return []
+    
+    # If already a list of dicts
+    if isinstance(custom, list):
+        parsed = []
+        for item in custom:
+            if isinstance(item, dict):
+                obs = str(item.get("observation", "")).strip()
+                act = str(item.get("action", "")).strip()
+                if obs or act:
+                    parsed.append({"observation": obs, "action": act})
+        return parsed
+        
+    if isinstance(custom, str):
+        custom_str = custom.strip()
+        
+        # Check if it's JSON encoded
+        if (custom_str.startswith("[") and custom_str.endswith("]")) or (custom_str.startswith("{") and custom_str.endswith("}")):
+            try:
+                data = json.loads(custom_str)
+                if isinstance(data, list):
+                    return parse_custom_observations(data)
+                if isinstance(data, dict):
+                    if "observation" in data or "action" in data:
+                        obs = str(data.get("observation", "")).strip()
+                        act = str(data.get("action", "")).strip()
+                        if obs or act:
+                            return [{"observation": obs, "action": act}]
+            except Exception:
+                pass
+                
+        # If it's empty or matches standard placeholders
+        if not custom_str or custom_str in ("**Observation:**", "**Observation:** \n\n**Action:**", "**Observation:**\n\n**Action:**"):
+            return []
+            
+        # Try to parse string in format "**Observation:** ... **Action:** ..."
+        obs_match = re.search(r'\*\*Observation:\*\*\s*(.*?)(?=\*\*Action:\*\*|$)', custom_str, re.DOTALL | re.IGNORECASE)
+        action_match = re.search(r'\*\*Action:\*\*\s*(.*)', custom_str, re.DOTALL | re.IGNORECASE)
+        
+        obs = obs_match.group(1).strip() if obs_match else ""
+        act = action_match.group(1).strip() if action_match else ""
+        
+        if not obs and not act:
+            return [{"observation": custom_str, "action": ""}]
+        return [{"observation": obs, "action": act}]
+        
+    return []
+
+def save_feedback_sqlite(timestamp, username, school, category, rating, comments):
+    """Saves a feedback submission in the SQLite database."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO feedback (Timestamp, User, School, Category, Rating, Comments)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (timestamp, username, school, category, rating, comments))
+        conn.commit()
+
+def get_inactive_modules():
+    """Returns list of module codes marked as inactive."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT module_code, reason, marked_date, marked_by FROM inactive_modules ORDER BY marked_date DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+def mark_module_inactive(module_code: str, reason: str, marked_by: str):
+    """Mark a module as inactive."""
+    import datetime
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("""
+            INSERT OR REPLACE INTO inactive_modules (module_code, reason, marked_date, marked_by)
+            VALUES (?, ?, ?, ?)
+        """, (module_code.strip().upper(), reason, now, marked_by))
+        conn.commit()
+
+def mark_module_active(module_code: str):
+    """Unmark a module as inactive (restore to active)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM inactive_modules WHERE module_code = ?", (module_code.strip().upper(),))
+        conn.commit()
+
+def is_module_inactive(module_code: str) -> bool:
+    """Check if a module is marked as inactive."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM inactive_modules WHERE module_code = ?", (module_code.strip().upper(),))
+        return cursor.fetchone() is not None
+
+
+# Automatically initialize/migrate database when imported
+init_db()
+
