@@ -131,10 +131,15 @@ def get_latest_checklist_entry(spreadsheet_id, worksheet_name, module_code):
 def get_all_checklist_entries(spreadsheet_id, worksheet_name, module_code):
     """
     Fetches all checklist entries for a given module code.
-    Since we upsert in SQLite, history is limited to the Google Sheets backup.
-    For this view, we can just return the SQLite row as a DataFrame for now, 
-    or query the full history from Google Sheets if explicitly requested.
-    We'll return the SQLite row wrapped in a DataFrame to preserve the interface without hitting the API.
+
+    Returns only the current row, wrapped in a DataFrame to preserve the
+    interface, without hitting the Sheets API. Because we upsert in SQLite there
+    is no per-module history to return.
+
+    There is no Sheets fallback: the push-back that populated the checklist sheet
+    lived in `background_tasks.py`, disabled since v1.9, so that copy is frozen
+    at the migration date and is not a backup. Audit history comes from the
+    nightly database backup — see deploy/RESTORE.md.
     """
     try:
         import pandas as pd
