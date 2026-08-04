@@ -1,0 +1,13 @@
+# Template for .streamlit/config.toml
+#
+# Copy to .streamlit/config.toml in the project root. That directory is
+# gitignored (it is mounted read-only into the container by docker-compose.yml),
+# so the live file exists only on the server — this template is the record of
+# what it should contain.
+#
+# The port must be unique across the sibling apps sharing this VM, and the base
+# path must match the route Caddy proxies to.
+
+[server]
+baseUrlPath = "digital-learning-review"
+port = 8500

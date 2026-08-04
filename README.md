@@ -91,6 +91,8 @@ The database is created on first run. In production it lives on the host at
 - **[docs/developer-guide.md](docs/developer-guide.md)** — architecture,
   database location, auth providers, deployment. Also rendered in-app under
   Resources & Support.
+- **[deploy/RESTORE.md](deploy/RESTORE.md)** — recovery runbook: database
+  restore, full VM rebuild, and what the backups do and don't cover.
 - **[docs/changelog.md](docs/changelog.md)** — release history.
 - **[docs/help.md](docs/help.md)** — the in-app user guide.
 - **[SPEC.md](SPEC.md)** — the original project brief. Historical; kept for

@@ -207,6 +207,33 @@ docker compose up -d --build
 Only modified layers rebuild. The mounted `app.log` and the database directory
 are untouched by a rebuild.
 
+### 💾 Backup and Recovery
+
+A nightly systemd timer takes an online `sqlite3 .backup` of every database on
+the VM, verifies each with `PRAGMA integrity_check`, and uploads it through an
+encrypted rclone remote to Google Drive, together with an archive of the
+configuration files that exist nowhere else — each app's `.env`, the Caddyfile,
+`rclone.conf` and each `config.toml`. Local copies are kept for 30 days in
+`/var/backups/sqlite`; remote copies for 30 days plus a monthly tier held for a
+year.
+
+**The database is the only copy of the audit record.** Audits and feedback are
+never written back to Google Sheets, and `background_tasks.py` — which once
+pushed checklists there — has been disabled since v1.9. Restoring from Sheets is
+not an option for audit data, and a sync will not rebuild the `users` table
+either, because SQLite is authoritative for users and the Users sheet is
+permanently stale.
+
+**[`deploy/RESTORE.md`](https://github.com/uos-foss/Digital-Learning-Review/blob/main/deploy/RESTORE.md)
+is the recovery runbook** — database restore, full VM rebuild, and selective row
+recovery, written to be followed by someone who has not worked on this system
+before. Read it before you need it.
+
+The backup script, its systemd units and the Caddyfile are not in this
+repository: it is public, and the Caddyfile routes many unrelated services on
+this VM. See [`deploy/README.md`](https://github.com/uos-foss/Digital-Learning-Review/blob/main/deploy/README.md)
+for where they live.
+
 > [!IMPORTANT]
 > **Applying `.env` changes**: editing `.env` on the host does not affect a
 > running container, which holds the old values in memory. Recreate it:
