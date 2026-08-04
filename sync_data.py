@@ -538,10 +538,9 @@ def run_synchronization():
             sync_checklist_fields()
         except Exception as e:
             print(f"⚠️ Skipping Checklist Fields sync due to error: {e}")
-        try:
-            sync_blackboard_links()
-        except Exception as e:
-            print(f"⚠️ Skipping Blackboard Links sync due to error: {e}")
+        # Blackboard links are not sheet-managed: the only path into
+        # blackboard_links is the Admin Panel CSV import, via
+        # sync_blackboard_links_from_csv. Nothing to pull here.
         print("✅ Full Sync Process Completed.")
     except Exception as e:
         print(f"❌ Synchronisation failed: {str(e)}", file=sys.stderr)
