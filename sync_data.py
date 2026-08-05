@@ -4,22 +4,6 @@ import pandas as pd
 from database import cache_dataframe_to_sqlite, init_db, save_checklist_record, get_db_connection
 
 
-def sync_main_audit():
-    print("🔄 Pulling Main Audit Data...")
-    from data_manager import get_spreadsheet_data
-    from processing import get_processed_audit_data
-    main_id = os.getenv("MAIN_SPREADSHEET_ID")
-    if main_id:
-        try:
-            ss, _ = get_spreadsheet_data(main_id)
-            df_aut = get_processed_audit_data(ss, "All Schools Aut")
-            df_spr = get_processed_audit_data(ss, "All Schools SPR")
-            cache_dataframe_to_sqlite(df_aut, "main_vle_audit_aut")
-            cache_dataframe_to_sqlite(df_spr, "main_vle_audit_spr")
-            print("✅ Main Audit Data synced.")
-        except Exception as e:
-            print(f"❌ Error syncing Main Audit Data: {e}")
-
 def sync_assessment_data():
     print("🔄 Pulling SITS Assessment Data...")
     from data_manager import get_spreadsheet_data
@@ -140,23 +124,6 @@ def sync_checklists():
             print("✅ Checklists synced.")
         except Exception as e:
             print(f"❌ Error syncing Checklists: {e}")
-
-def sync_ai_responses():
-    print("🔄 Pulling AI Responses...")
-    from data_manager import get_spreadsheet_data
-    sheet_id = os.getenv("AI_RESPONSES_SPREADSHEET_ID")
-    if sheet_id:
-        try:
-            ss, _ = get_spreadsheet_data(sheet_id)
-            # Fetch data from the first worksheet
-            worksheet = ss.get_worksheet(0)
-            data = worksheet.get_all_values()
-            if len(data) > 1:
-                df_responses = pd.DataFrame(data[1:], columns=data[0])
-                cache_dataframe_to_sqlite(df_responses, "ai_audit_responses")
-            print("✅ AI Responses synced.")
-        except Exception as e:
-            print(f"❌ Error syncing AI Responses: {e}")
 
 def sync_comment_bank():
     print("🔄 Syncing Comment Bank bidirectionally (Pull & Push)...")
@@ -525,11 +492,21 @@ def run_synchronization():
     print("🔄 Starting Data Synchronization...")
     try:
         init_db()
-        sync_main_audit()
+        # The 25/26 baseline in main_vle_audit_aut/_spr is frozen: MAIN_SPREADSHEET_ID
+        # was retired in v1.15.0 and there is no longer a pull for those tables. They
+        # stay in SQLite as a read-only historical reference (app.py still reads them
+        # for Prog. lead, module URLs and the Ally/Leganto fallbacks), so nothing here
+        # may rebuild them - cache_dataframe_to_sqlite replaces, which would wipe the
+        # snapshot with an empty frame.
         sync_assessment_data()
         sync_users_and_roles()
         sync_checklists()
-        sync_ai_responses()
+        # ai_audit_responses is not ours to sync. The satellite AI-Audit app
+        # writes that table itself from its own AI_RESPONSES_SPREADSHEET_ID, into
+        # this same shared database, and nothing in this app reads it. Pulling it
+        # here duplicated that work - and, because the two apps can be pointed at
+        # different copies of the responses sheet, could replace their cache with
+        # rows from another sheet. Read the table if you need it; do not refresh it.
         try:
             sync_comment_bank()
         except Exception as e:

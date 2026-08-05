@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.14.0"
+__version__ = "1.15.0"
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -108,10 +108,9 @@ def update_semester():
 
 
 # Data Loading
-def table_exists(conn, table_name):
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    return cursor.fetchone() is not None
+# table_exists now lives in database.py, so database.py can use it too. Kept
+# importable from here because several modules already reference app.table_exists.
+from database import table_exists
 
 def map_level_value(val):
     if pd.isna(val):

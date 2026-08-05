@@ -321,8 +321,10 @@ def update_user_row(spreadsheet_id, username, column_name, new_value):
 if __name__ == "__main__":
     # Quick test to verify connection
     try:
-        main_id = os.getenv("MAIN_SPREADSHEET_ID")
-        ss, sheets = get_spreadsheet_data(main_id)
+        # MAIN_SPREADSHEET_ID was retired in v1.15.0; DATA_SHEET_ID is the
+        # sheet this smoke test can still reach.
+        data_id = os.getenv("DATA_SHEET_ID")
+        ss, sheets = get_spreadsheet_data(data_id)
         print(f"Successfully connected to: {ss.title}")
         print("Worksheets found:")
         for sheet in sheets:

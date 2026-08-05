@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from processing import (aggregate_faculty_stats, calculate_compliance_gap, is_compliant_val,
-                        get_school_comparison, resolve_semester_df, FACULTY_SCHOOLS)
+from processing import (aggregate_faculty_stats, calculate_compliance_gap, calculate_module_compliance,
+                        get_school_comparison, resolve_semester_df, summarise_ai_declarations,
+                        FACULTY_SCHOOLS)
+from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
 
 def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("🏛️ Faculty Overview")
@@ -35,7 +37,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     
     # ABSOLUTE LOCKDOWN ROUTER: Uses robust native widget for 100% reliable state linkage across reloads.
     # Also enables true lazy-loading, increasing app speed by not calculating inactive views!
-    view_options = ["🏫 School Comparison", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
+    view_options = ["🏫 School Comparison", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum"]
     
     selected_view = st.segmented_control(
         "Navigate View:", 
@@ -300,43 +302,44 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     render_status_type = "success"
 
             elif lens == "🔍 Critical Compliance Gaps":
-                audit_cols = [
-                    'Welcome to your module message?', 'Key staff contacts complete?', 
-                    'Module outline complete?', 'How you will be assessed visible?',
-                    'Skills development (SGAs) visible?', 'Accessibility statement visible?',
-                    'School handbook visible?', 'Assessment overview - present and consistent with SITS',
-                    'Assessment support and guidance visible to students?',
-                    'University help and study support visible to students?'
-                ]
-                present_cols = [c for c in audit_cols if c in source_data.columns]
-                
-                if not present_cols:
-                    render_status = "Compliance auditing data columns could not be located."
+                counts, max_items = calculate_module_compliance(
+                    get_all_audit_responses(), get_active_audit_fields()
+                )
+
+                if max_items == 0:
+                    render_status = "No scorable audit fields are configured."
                     render_status_type = "error"
+                elif counts.empty:
+                    render_status = "No audits submitted yet, so there are no compliance gaps to show."
+                    render_status_type = "info"
                 else:
-                    compliance_scores = source_data[present_cols].copy()
-                    for c in present_cols:
-                        compliance_scores[c] = compliance_scores[c].apply(is_compliant_val)
-                    
-                    source_data['Compliant Items'] = compliance_scores.sum(axis=1)
-                    max_items = len(present_cols)
-                    threshold = max_items - 2 
-                    
-                    gap_df = source_data[source_data['Compliant Items'] < threshold].sort_values('Compliant Items')
-                    
+                    source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
+                    scored_df = source_data.merge(
+                        counts, left_on='MatchCode', right_on='module_code', how='inner'
+                    )
+
+                    threshold = max_items - 2
+                    gap_df = scored_df[scored_df['Compliant Items'] < threshold].sort_values('Compliant Items')
+
                     if not gap_df.empty:
-                        render_status = f"🎯 Displaying {len(gap_df)} modules missing multiple key structural requirements."
+                        render_status = (
+                            f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
+                            "missing multiple key structural requirements."
+                        )
                         render_status_type = "warning"
                         gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
-                        
+
                         display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
                         render_df = gap_df[display_cols].copy()
                         render_configs = {
                             "New module code": "Code", "Module name": "Module Name",
                             "Mod. lead": "Lead", "DisplayValue": "Compliance Count"
                         }
+                    elif scored_df.empty:
+                        render_status = "No modules in this semester have been audited yet."
+                        render_status_type = "info"
                     else:
-                        render_status = "All modules meet healthy baseline structural thresholds!"
+                        render_status = f"All {len(scored_df)} audited modules meet healthy baseline structural thresholds!"
                         render_status_type = "success"
 
             elif lens == "📋 Missing Audits":
@@ -528,3 +531,96 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.info("No matching SITS assessment data found for this semester's modules.")
         else:
             st.warning("SITS Assessment data is not loaded or is empty.")
+
+    elif selected_view == "🤖 AI in the Curriculum":
+        st.subheader(f"AI in the Curriculum ({semester})")
+        st.caption(
+            "Declarations made by module leads in the AI in the Curriculum Audit, "
+            "a separate app that shares this portal's database. Leads complete "
+            "these themselves, unlike the VLE audit."
+        )
+
+        declarations = get_ai_declarations()
+        active_codes = set(active_df['New module code'].dropna().astype(str).str.strip().str.upper())
+        # Every module SITS knows about, so a declaration for a module that runs
+        # in the other semester is not mistaken for one SITS has never heard of.
+        known_codes = set()
+        for frame in (df_aut, df_spr):
+            if frame is not None and not frame.empty:
+                known_codes |= set(frame['New module code'].dropna().astype(str).str.strip().str.upper())
+        summary = summarise_ai_declarations(declarations, active_codes, known_codes)
+
+        if declarations.empty:
+            st.info(
+                "No declarations have been submitted yet. They will appear here as "
+                "module leads complete the AI in the Curriculum Audit."
+            )
+        else:
+            per_module = summary['per_module']
+            declared = summary['declared']
+            in_scope = summary['in_scope']
+            pct = (declared / in_scope * 100) if in_scope else 0.0
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Modules Declared", f"{declared} / {in_scope}")
+            col2.metric("Coverage", f"{pct:.1f}%")
+            col3.metric("Assessments Covered", int(per_module['Assessments Declared'].sum()) if not per_module.empty else 0)
+
+            st.progress(min(pct / 100, 1.0))
+
+            if summary['other_semester']:
+                st.caption(
+                    f"{len(summary['other_semester'])} further module(s) have declarations "
+                    f"but run in the other semester: {', '.join(summary['other_semester'])}."
+                )
+
+            if summary['unmatched']:
+                st.warning(
+                    f"⚠️ {len(summary['unmatched'])} module(s) have declarations but do not "
+                    f"appear in SITS at all, so they are excluded from every figure here: "
+                    f"{', '.join(summary['unmatched'])}. The satellite app offered a 2025/26 "
+                    "module list until its v1.2.0, so these are real submissions against "
+                    "modules that no longer exist — they need reconciling, not ignoring."
+                )
+
+            st.divider()
+            st.markdown("##### **Coverage by School**")
+
+            if per_module.empty:
+                st.info("No declarations match modules in this semester.")
+            else:
+                declared_codes = set(per_module['module_code'])
+                rows = []
+                for school in FACULTY_SCHOOLS:
+                    school_codes = {c for c in active_codes if c.startswith(school)}
+                    if not school_codes:
+                        continue
+                    n_declared = len(school_codes & declared_codes)
+                    rows.append({
+                        "School": school,
+                        "Modules": len(school_codes),
+                        "Declared": n_declared,
+                        "Coverage": f"{(n_declared / len(school_codes) * 100):.1f}%",
+                        "_pct": n_declared / len(school_codes) * 100,
+                    })
+
+                if rows:
+                    df_schools = pd.DataFrame(rows).sort_values("_pct", ascending=False)
+                    st.dataframe(
+                        df_schools[["School", "Modules", "Declared", "Coverage"]],
+                        hide_index=True,
+                        width="stretch",
+                    )
+
+                gen_ai_yes = int((per_module['Gen AI Activity'] == "Yes").sum())
+                st.caption(
+                    f"{gen_ai_yes} of {len(per_module)} declared modules report a Gen AI "
+                    "engaged learning activity."
+                )
+
+                with st.expander("Declared modules", expanded=False):
+                    st.dataframe(
+                        per_module.rename(columns={'module_code': 'Module Code'}),
+                        hide_index=True,
+                        width="stretch",
+                    )

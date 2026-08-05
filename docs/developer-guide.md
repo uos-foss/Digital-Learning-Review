@@ -80,7 +80,7 @@ All configuration comes from `.env`, injected into the container by
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` | Google sign-in. `REDIRECT_URI` is accepted as a fallback. |
 | `GOOGLE_SA_CLIENT_ID` | The service account's own client id — a different credential from the OAuth one. |
 | `GOOGLE_TYPE`, `GOOGLE_PROJECT_ID`, `GOOGLE_PRIVATE_KEY_ID`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_AUTH_URI`, `GOOGLE_TOKEN_URI`, `GOOGLE_AUTH_PROVIDER_X509_CERT_URL`, `GOOGLE_CLIENT_X509_CERT_URL`, `GOOGLE_UNIVERSE_DOMAIN` | Service-account fields reassembled into credentials by `get_gspread_client()`. `GOOGLE_PRIVATE_KEY` keeps its `\n` escapes; they are expanded at load. |
-| `MAIN_SPREADSHEET_ID`, `ASSESSMENT_SPREADSHEET_ID`, `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `AI_RESPONSES_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for the ETL. |
+| `ASSESSMENT_SPREADSHEET_ID`, `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for the ETL. Two were retired in v1.15.0: `MAIN_SPREADSHEET_ID` (the 25/26 baseline it fed is now a frozen SQLite-only snapshot) and `AI_RESPONSES_SPREADSHEET_ID` (owned by the satellite AI-Audit app, which writes `ai_audit_responses` into the shared database itself). |
 | `USER_ADMIN`, `USER_DLA`, `USER_FACULTY`, `USER_<SCHOOL>` | Seed credentials, used only by `EnvAuthProvider` and initial seeding. |
 
 > [!NOTE]
@@ -109,6 +109,38 @@ All configuration comes from `.env`, injected into the container by
 The database runs in WAL mode with busy timeouts so multiple containers can
 share it concurrently. In production it lives on a host volume, **not** in the
 image — rebuilding the container does not touch the data.
+
+### 🤝 Shared database contract
+
+The **AI in the Curriculum Audit** satellite app (`../AI-Audit`) writes to this
+same database. The two are separate containers with no import path between
+them, so this boundary is a convention that nothing enforces.
+
+| Table | Owner | Other app |
+| :--- | :--- | :--- |
+| `main_vle_audit_aut`, `main_vle_audit_spr` | this portal (frozen snapshot) | — |
+| `sits_assessment_2026_27` | this portal | AI-Audit reads |
+| `users`, `roles`, `audit_*`, `comment_bank`, `blackboard_links`, `ally_scores` | this portal | AI-Audit must not touch |
+| `ai_audit_queue` | **AI-Audit** | this portal reads |
+| `ai_audit_responses` | **AI-Audit** | this portal reads |
+
+Points that have already caused bugs:
+
+- **Never write `ai_audit_*` from here.** `sync_ai_responses()` was removed in
+  v1.15.0 for exactly this reason: it pulled AI-Audit's sheet into
+  `ai_audit_responses`, which that app maintains itself, and the two `.env`
+  files can name different copies of that sheet.
+- Both apps call `init_db()` at start-up and both declare `ai_audit_queue` with
+  `CREATE TABLE IF NOT EXISTS`. Whichever starts first defines the schema, so
+  the column list must stay identical in both `database.py` files.
+- AI-Audit reads `sits_assessment_2026_27` but never populates it — that is
+  `sync_assessment_data()` here. Both must name the same **"All Schools
+  2026/27"** worksheet, or leads declare against a module list this portal does
+  not report on.
+- `get_gspread_client()`, `get_database_path()`, `cache_dataframe_to_sqlite()`
+  and `security.py` exist as deliberate copies in both repos rather than a
+  shared package, which would add a build and release step to two images.
+  Change one, check the other.
 
 ### 🔐 Authentication
 

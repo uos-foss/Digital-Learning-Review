@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from processing import calculate_compliance_gap, is_compliant_val, resolve_semester_df, FACULTY_SCHOOLS
+from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
+                        summarise_ai_declarations, FACULTY_SCHOOLS)
+from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
 
 def to_sentence_case(name: str) -> str:
     """Convert name to sentence case (capitalize first letter only)."""
@@ -112,7 +114,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -399,43 +401,44 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         render_status_type = "success"
 
                 elif lens == "🔍 Critical Compliance Gaps":
-                    audit_cols = [
-                        'Welcome to your module message?', 'Key staff contacts complete?', 
-                        'Module outline complete?', 'How you will be assessed visible?',
-                        'Skills development (SGAs) visible?', 'Accessibility statement visible?',
-                        'School handbook visible?', 'Assessment overview - present and consistent with SITS',
-                        'Assessment support and guidance visible to students?',
-                        'University help and study support visible to students?'
-                    ]
-                    present_cols = [c for c in audit_cols if c in source_data.columns]
-                    
-                    if not present_cols:
-                        render_status = "Compliance auditing data columns could not be located."
+                    counts, max_items = calculate_module_compliance(
+                        get_all_audit_responses(), get_active_audit_fields()
+                    )
+
+                    if max_items == 0:
+                        render_status = "No scorable audit fields are configured."
                         render_status_type = "error"
+                    elif counts.empty:
+                        render_status = "No audits submitted yet, so there are no compliance gaps to show."
+                        render_status_type = "info"
                     else:
-                        compliance_scores = source_data[present_cols].copy()
-                        for c in present_cols:
-                            compliance_scores[c] = compliance_scores[c].apply(is_compliant_val)
-                        
-                        source_data['Compliant Items'] = compliance_scores.sum(axis=1)
-                        max_items = len(present_cols)
-                        threshold = max_items - 2 
-                        
-                        gap_df = source_data[source_data['Compliant Items'] < threshold].sort_values('Compliant Items')
-                        
+                        source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
+                        scored_df = source_data.merge(
+                            counts, left_on='MatchCode', right_on='module_code', how='inner'
+                        )
+
+                        threshold = max_items - 2
+                        gap_df = scored_df[scored_df['Compliant Items'] < threshold].sort_values('Compliant Items')
+
                         if not gap_df.empty:
-                            render_status = f"🎯 Displaying {len(gap_df)} modules missing multiple key structural requirements."
+                            render_status = (
+                                f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
+                                "missing multiple key structural requirements."
+                            )
                             render_status_type = "warning"
                             gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
-                            
+
                             display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
                             render_df = gap_df[display_cols].copy()
                             render_configs = {
                                 "New module code": "Code", "Module name": "Module Name",
                                 "Mod. lead": "Lead", "DisplayValue": "Compliance Count"
                             }
+                        elif scored_df.empty:
+                            render_status = "No modules in this school have been audited yet."
+                            render_status_type = "info"
                         else:
-                            render_status = "All modules meet healthy baseline structural thresholds!"
+                            render_status = f"All {len(scored_df)} audited modules meet healthy baseline structural thresholds!"
                             render_status_type = "success"
 
                 elif lens == "📋 Missing Audits":
@@ -560,6 +563,69 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             st.write(f"**Most Common Type:** `{most_common}` (`{most_common_count}` times)")
                     else:
                         st.info("No metrics available.")
+
+            elif selected_view == "🤖 AI in the Curriculum":
+                st.subheader(f"AI in the Curriculum — {school}")
+                st.caption(
+                    "Declarations made by module leads themselves, in the separate "
+                    "AI in the Curriculum Audit app."
+                )
+
+                school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
+                known_codes = set()
+                for frame in (df_aut, df_spr):
+                    if frame is not None and not frame.empty:
+                        known_codes |= set(frame['New module code'].dropna().astype(str).str.strip().str.upper())
+                summary = summarise_ai_declarations(get_ai_declarations(), school_codes, known_codes)
+                per_module = summary['per_module']
+                declared = summary['declared']
+                in_scope = summary['in_scope']
+                pct = (declared / in_scope * 100) if in_scope else 0.0
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Modules Declared", f"{declared} / {in_scope}")
+                col2.metric("Coverage", f"{pct:.1f}%")
+                col3.metric(
+                    "Assessments Covered",
+                    int(per_module['Assessments Declared'].sum()) if not per_module.empty else 0,
+                )
+                st.progress(min(pct / 100, 1.0))
+
+                st.divider()
+                declared_codes = set(per_module['module_code']) if not per_module.empty else set()
+
+                tab_missing, tab_declared = st.tabs(["📋 Awaiting Declaration", "✅ Declared"])
+
+                with tab_missing:
+                    missing = school_df[~school_df['New module code'].astype(str).str.strip().str.upper().isin(declared_codes)]
+                    if missing.empty:
+                        st.success("Every module in this school has a declaration.")
+                    else:
+                        st.warning(f"{len(missing)} module(s) have no AI declaration.")
+                        st.dataframe(
+                            missing[['New module code', 'Module name', 'Mod. lead']].rename(
+                                columns={'New module code': 'Code', 'Module name': 'Module Name', 'Mod. lead': 'Lead'}
+                            ),
+                            hide_index=True,
+                            width="stretch",
+                        )
+
+                with tab_declared:
+                    if per_module.empty:
+                        st.info("No declarations for this school yet.")
+                    else:
+                        names = school_df.set_index(
+                            school_df['New module code'].astype(str).str.strip().str.upper()
+                        )['Module name'].to_dict()
+                        shown = per_module.copy()
+                        shown['Module Name'] = shown['module_code'].map(names)
+                        st.dataframe(
+                            shown.rename(columns={'module_code': 'Code'})[
+                                ['Code', 'Module Name', 'Assessments Declared', 'Gen AI Activity']
+                            ],
+                            hide_index=True,
+                            width="stretch",
+                        )
 
             st.divider()
             csv_school = school_df.to_csv(index=False).encode('utf-8')

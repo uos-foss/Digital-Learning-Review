@@ -1,6 +1,38 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.14.0 (Current) — *School Comparison, Blackboard Links & Security Hardening*
+### 🚀 Version 1.15.0 (Current) — *Legacy VLE Audit Spreadsheet Retired*
+*4 August 2026*
+
+* **The 25/26 audit spreadsheet is no longer an upstream source.** A full sync
+  no longer reaches out to it, removing one spreadsheet from the ETL. The 25/26
+  baseline it produced stays exactly as it is inside the portal's own database,
+  frozen at its final state, and still supplies programme leads, module links
+  and accessibility figures for modules the current audit round has not yet
+  covered.
+* **Critical Compliance Gaps now reflects live audits.** Both the Faculty
+  Overview and School Dashboard lens read submitted audits rather than the
+  25/26 answers, so the list tracks the current round. Modules that have not
+  been audited yet are no longer counted as failing every item — they appear in
+  the Missing Audits lens instead, and the compliance figure now states how many
+  audited modules it covers.
+* **Clearer warning on deleting the legacy tables.** The Admin Panel's cleanup
+  action now spells out that it cannot be undone, since no sync will rebuild
+  those tables.
+* **AI audit responses are no longer synced twice.** The AI in the Curriculum
+  form is a separate app that shares this portal's database and already keeps
+  its own responses up to date. This portal was fetching the same records a
+  second time, which duplicated work and could overwrite that app's data with a
+  different copy of the sheet. A full sync now leaves those records alone.
+* **AI in the Curriculum declarations now appear in the portal.** Module leads
+  complete these themselves in a separate app, and until now the results went
+  nowhere. There is a new view on the Faculty Overview and School Dashboard
+  showing how many modules have declared and which are still outstanding, and
+  the Module Report lists each assessment's declared AI usability and intended
+  use. Coverage counts a module once, however many assessments it has.
+  Declarations against modules that no longer exist in SITS are shown as a
+  warning rather than dropped, so they can be reconciled.
+
+### 🚀 Version 1.14.0 — *School Comparison, Blackboard Links & Security Hardening*
 *31 July – 3 August 2026*
 
 * **Faculty School Comparison**: New default tab on the Faculty Overview showing

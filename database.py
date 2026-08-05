@@ -62,7 +62,10 @@ def init_db():
     except Exception as e:
         logging.error(f"Migration error from self_audit_checklist to audit_checklist: {e}")
         
-    # Create AI Audit write queue table
+    # Owned by the satellite AI-Audit app, which shares this database. Kept here
+    # only so a cold start from either app produces the same schema - this app
+    # never writes it. The column list must stay identical to that app's
+    # database.py, or whichever runs first wins and the other breaks.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ai_audit_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -454,47 +457,11 @@ def mark_checklists_synced(record_ids: list):
         cursor.execute(f"UPDATE audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()
 
-def save_ai_response(payload: dict):
-    """Saves a new AI Audit response to the local queue."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO ai_audit_queue (
-                timestamp, module_code, module_title, school, user_id,
-                gen_ai_activity, assessment_title, assessment_type,
-                ai_usability, ai_intended_use, status, is_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-        """, (
-            payload.get("Timestamp", ""),
-            payload.get("Module Code", ""),
-            payload.get("Module Title", ""),
-            payload.get("School", ""),
-            payload.get("User ID", ""),
-            payload.get("Gen AI Learning Activity", ""),
-            payload.get("Assessment Title", ""),
-            payload.get("Assessment Type", ""),
-            payload.get("AI Usability", ""),
-            payload.get("AI Intended Use", ""),
-            payload.get("Status", "")
-        ))
-        conn.commit()
-
-def get_unsynced_ai_responses():
-    """Returns a list of AI Audit records that haven't been synced to Google Sheets yet."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM ai_audit_queue WHERE is_synced = 0")
-        return [dict(row) for row in cursor.fetchall()]
-
-def mark_ai_responses_synced(record_ids: list):
-    """Marks a list of AI Audit queue IDs as synced."""
-    if not record_ids:
-        return
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        placeholders = ','.join('?' * len(record_ids))
-        cursor.execute(f"UPDATE ai_audit_queue SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
-        conn.commit()
+# The ai_audit_queue write helpers that used to live here are gone. That queue
+# belongs to the satellite AI-Audit app: it inserts the rows, pushes them to its
+# own sheet and then deletes them. Writing it from here would have double-posted
+# every submission, because that app removes the rows this app only flagged as
+# synced. Read the table if you need it; do not write it.
 
 # --- New Dynamic Fields and Response helper functions ---
 
@@ -549,10 +516,81 @@ def get_audit_responses(module_code: str):
             'timestamp': row['timestamp']
         } for row in rows}
 
+def table_exists(conn, table_name):
+    """True if the named table is present. Defined here rather than in app.py
+    so that database.py can use it without importing the entry point."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cursor.fetchone() is not None
+
 def get_all_audit_responses():
     """Returns all audit responses as a DataFrame."""
     with get_db_connection() as conn:
         return pd.read_sql_query("SELECT * FROM audit_responses", conn)
+
+def get_ai_declarations():
+    """
+    Every AI in the Curriculum declaration, as a DataFrame, one row per
+    assessment.
+
+    Owned by the satellite AI-Audit app - see the shared database contract in
+    docs/developer-guide.md. Read only: this portal must never write these
+    tables. ai_audit_queue is that app's durable record; ai_audit_responses is
+    its cache of the responses spreadsheet and holds the same declarations
+    again, so the two are unioned and de-duplicated with the queue winning.
+
+    Returns an empty frame if the satellite has never run against this
+    database, which is the normal state of a fresh local checkout.
+    """
+    columns = ['module_code', 'module_title', 'school', 'user_id', 'timestamp',
+               'gen_ai_activity', 'assessment_title', 'assessment_type',
+               'ai_usability', 'ai_intended_use', 'status']
+    frames = []
+
+    with get_db_connection() as conn:
+        if table_exists(conn, 'ai_audit_queue'):
+            frames.append(pd.read_sql_query(
+                """
+                SELECT module_code, module_title, school, user_id, timestamp,
+                       gen_ai_activity, assessment_title, assessment_type,
+                       ai_usability, ai_intended_use, status
+                FROM ai_audit_queue
+                """, conn))
+
+        if table_exists(conn, 'ai_audit_responses'):
+            # That table is written by df.to_sql from the spreadsheet, so its
+            # columns are the sheet's display headers rather than these names.
+            df_resp = pd.read_sql_query("SELECT * FROM ai_audit_responses", conn)
+            if not df_resp.empty:
+                renames = {
+                    'Module Code': 'module_code', 'Module Title': 'module_title',
+                    'School': 'school', 'User ID': 'user_id', 'Timestamp': 'timestamp',
+                    'Gen AI Learning Activity': 'gen_ai_activity',
+                    'Assessment Title': 'assessment_title',
+                    'Assessment Type': 'assessment_type',
+                    'AI Usability': 'ai_usability',
+                    'AI Intended Use': 'ai_intended_use', 'Status': 'status',
+                }
+                df_resp = df_resp.rename(columns=renames)
+                for col in columns:
+                    if col not in df_resp.columns:
+                        df_resp[col] = ""
+                frames.append(df_resp[columns])
+
+    if not frames:
+        return pd.DataFrame(columns=columns)
+
+    df = pd.concat(frames, ignore_index=True)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+
+    key = pd.DataFrame({
+        c: df[c].astype(str).str.strip().str.upper()
+        for c in ['timestamp', 'module_code', 'assessment_title', 'user_id']
+    })
+    return df[~key.duplicated(keep='first')].reset_index(drop=True)
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
     """Saves or updates a single audit response."""

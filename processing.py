@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import logging
 
 # Schools that make up this faculty. Module codes are prefixed with these.
@@ -33,44 +32,6 @@ def resolve_semester_df(df_aut, df_spr, semester):
         return source[source['Semester'] == 'All year'].copy()
 
     return df_aut if df_aut is not None else pd.DataFrame()
-
-def clean_audit_dataframe(df):
-    """
-    General cleaning for audit dataframes.
-    """
-    # Remove rows that are completely empty or have no module name
-    df = df.dropna(subset=['Module name'], how='all')
-    df = df[df['Module name'] != '']
-    
-    # Convert numerical columns
-    score_cols = [c for c in df.columns if 'Ally' in c and ('All' in c or 'Files' in c or 'Score' in c)]
-    for col in score_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    return df
-
-def get_processed_audit_data(spreadsheet, worksheet_name):
-    """
-    Fetches and processes a specific audit worksheet.
-    """
-    try:
-        sheet = spreadsheet.worksheet(worksheet_name)
-        data = sheet.get_all_values()
-        
-        if not data or len(data) < 2:
-            return pd.DataFrame()
-            
-        # Row 1 is the actual header
-        headers = data[1]
-        rows = data[2:]
-        
-        df = pd.DataFrame(rows, columns=headers)
-        df = clean_audit_dataframe(df)
-        
-        return df
-    except Exception as e:
-        print(f"Error processing {worksheet_name}: {e}")
-        return pd.DataFrame()
 
 def aggregate_faculty_stats(df_aut, df_spr):
     """
@@ -173,168 +134,120 @@ def calculate_compliance_gap(df):
             positive_count = series_numeric.sum()
             total_count = len(df)
             gaps[col] = (positive_count / total_count) if total_count > 0 else 0
-            
+
     return gaps
 
-def get_checklist_summaries(spreadsheet_id):
+def calculate_module_compliance(df_responses, active_fields):
     """
-    Fetches all checklist entries and returns a dictionary 
-    mapping module codes to their latest audit status.
-    """
-    from data_manager import get_gspread_client
-    import os
-    client = get_gspread_client()
-    try:
-        spreadsheet = client.open_by_key(spreadsheet_id)
-        worksheet = spreadsheet.worksheet("Sheet1")
-        data = worksheet.get_all_values()
-        if len(data) <= 1:
-            return {}
-        
-        headers = data[0]
-        summaries = {}
-        # Iterate and keep the LATEST for each module (since they are in chronological order usually)
-        for row in data[1:]:
-            if len(row) > 1:
-                m_code = row[1]
-                q1 = row[3] == "TRUE"
-                q2 = row[4] == "TRUE"
-                q3 = row[5] == "TRUE"
-                q4 = row[6] == "TRUE"
-                
-                q_states = [q1, q2, q3, q4]
-                true_count = sum(q_states)
-                
-                if true_count == len(q_states):
-                    status = "✅ Complete"
-                elif true_count > 0:
-                    status = "🟡 Partial"
-                else:
-                    status = "❌ Incomplete"
+    Counts compliant items per module from submitted audit responses.
 
-                summaries[m_code] = {
-                    'Timestamp': row[0],
-                    'Q1': q1,
-                    'Q2': q2,
-                    'Q3': q3,
-                    'Q4': q4,
-                    'Status': status,
-                    'Comments': row[7] if len(row) > 7 else ""
-                }
-        return summaries
-    except Exception as e:
-        logging.error(f"❌ Error loading checklist summaries from Google Sheets: {e}")
-        return {}
+    The per-module counterpart to calculate_dynamic_compliance_gap, which
+    aggregates the same data per field. Kept I/O-free: callers pass in
+    get_all_audit_responses() and get_active_audit_fields().
 
-def get_updated_ally_scores(spreadsheet_id):
-    """
-    Fetches the updated Ally overall scores from the external Ally spreadsheet
-    and returns a mapping dictionary of {clean_module_code: overall_score}.
-    """
-    from data_manager import get_spreadsheet_data
-    try:
-        ss, _ = get_spreadsheet_data(spreadsheet_id)
-        sheet = ss.worksheet("Sheet1")
-        data = sheet.get_all_values()
-        if len(data) <= 1:
-            return {}
-            
-        mapping = {}
-        for row in data[1:]:
-            if len(row) >= 8:
-                # Extract clean module code, e.g., 'GPL439' from 'GPL439.A.279588'
-                raw_code = str(row[1]).split('.')[0].strip().upper()
-                
-                # Parse total files (column index 4) and measured score (column index 7)
-                files = pd.to_numeric(row[4], errors='coerce')
-                if pd.isna(files) or files < 0:
-                    files = 0
-                    
-                measured_score = pd.to_numeric(row[7], errors='coerce')
-                
-                if raw_code and not pd.isna(measured_score):
-                    # Asymptotic Credibility Model (k=0.15, baseline=0.50)
-                    credibility = 1.0 - np.exp(-0.15 * files)
-                    weighted_score = credibility * measured_score + (1.0 - credibility) * 0.50
-                    mapping[raw_code] = {
-                        'measured': measured_score,
-                        'weighted': weighted_score,
-                        'files': int(files)
-                    }
-                    
-        return mapping
-    except Exception as e:
-        import logging
-        logging.error(f"❌ Error loading updated Ally data: {e}")
-        return {}
+    Only boolean and yes/no fields are scored - text fields such as Additional
+    Comments have no compliant/non-compliant state. Modules with no responses
+    at all are absent from the result rather than scoring zero: an unaudited
+    module is not a compliance gap, it is a missing audit, and belongs to the
+    Missing Audits lens instead.
 
-def get_leganto_nolist_data(spreadsheet_id):
+    Returns (DataFrame[module_code, Compliant Items], max_items).
     """
-    Fetches the Leganto 'no list' course codes from the external spreadsheet
-    and returns a set of clean module codes.
-    """
-    from data_manager import get_spreadsheet_data
-    try:
-        ss, _ = get_spreadsheet_data(spreadsheet_id)
-        # Assuming first worksheet based on inspect script
-        sheet = ss.worksheets()[0] 
-        data = sheet.get_all_values()
-        if len(data) <= 1:
-            return set()
-            
-        # Header row is index 0. Looking for 'Course Code' (usually index 2)
-        headers = data[0]
-        col_idx = -1
-        for i, header in enumerate(headers):
-            if 'Course Code' in str(header):
-                col_idx = i
-                break
-        
-        if col_idx == -1:
-            # Fallback to expected index 2 if not found by name
-            col_idx = 2
-            
-        no_list_codes = set()
-        for row in data[1:]:
-            if len(row) > col_idx:
-                raw_code = str(row[col_idx]).split('.')[0].strip().upper()
-                if raw_code:
-                    no_list_codes.add(raw_code)
-                    
-        return no_list_codes
-    except Exception as e:
-        import logging
-        logging.error(f"❌ Error loading Leganto No-List data: {e}")
-        return set()
+    scored = [f for f in (active_fields or []) if f.get('field_type') in ['boolean', 'yes/no']]
+    max_items = len(scored)
+    empty = pd.DataFrame(columns=['module_code', 'Compliant Items'])
 
-def get_assessment_data(spreadsheet_id):
+    if max_items == 0 or df_responses is None or df_responses.empty:
+        return empty, max_items
+
+    field_ids = {f['id'] for f in scored}
+    df = df_responses[df_responses['field_id'].isin(field_ids)].copy()
+    if df.empty:
+        return empty, max_items
+
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    # Audit values are written as the strings 'True'/'False' by the Audit Portal.
+    # is_compliant_val is for the free-text legacy columns and would read
+    # 'False' as compliant, so match the strict set used by the field gap chart.
+    df['compliant'] = df['value'].apply(lambda v: 1 if str(v).strip().upper() in ['TRUE', 'YES', '1'] else 0)
+
+    counts = df.groupby('module_code')['compliant'].sum().reset_index()
+    counts.columns = ['module_code', 'Compliant Items']
+    return counts, max_items
+
+def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=None):
     """
-    Fetches the assessment data from the assessment spreadsheet
-    and returns it as a pandas DataFrame.
+    Rolls per-assessment AI declarations up to per-module.
+
+    The satellite AI-Audit app records one row per assessment, so a module with
+    three assessments contributes three rows. The Faculty and School views want
+    modules, not assessments: a module counts as declared once any of its
+    assessments has been.
+
+    `module_codes` is the set in scope for the figures - normally the SITS list
+    for the selected semester or school.
+
+    `known_codes` is every module SITS knows about, used only to classify what
+    falls outside that scope. Without it a Spring module viewed in Autumn looks
+    identical to a module SITS has never heard of, and the two need different
+    responses: the first is routine, the second is a declaration that can never
+    be reconciled and exists because the satellite offered a 2025/26 module list
+    until its v1.2.0. Only the second is reported as `unmatched`. Neither is
+    dropped silently.
+
+    Kept I/O-free: callers pass in database.get_ai_declarations().
+
+    Returns {'per_module': DataFrame, 'declared': int, 'in_scope': int,
+    'unmatched': list, 'other_semester': list}.
     """
-    from data_manager import get_spreadsheet_data
-    try:
-        ss, _ = get_spreadsheet_data(spreadsheet_id)
-        sheet = ss.worksheet("All Schools 2025/26")
-        data = sheet.get_all_values()
-        if len(data) <= 1:
-            return pd.DataFrame()
-            
-        headers = data[0]
-        rows = data[1:]
-        df = pd.DataFrame(rows, columns=headers)
-        
-        # Clean columns: trim whitespaces and convert code to uppercase
-        if 'CIS unit code' in df.columns:
-            df['CIS unit code'] = df['CIS unit code'].astype(str).str.strip().str.upper()
-        if 'Module code' in df.columns:
-            df['Module code'] = df['Module code'].astype(str).str.strip().str.upper()
-            
-        return df
-    except Exception as e:
-        import logging
-        logging.error(f"❌ Error loading Assessment data: {e}")
-        return pd.DataFrame()
+    empty = pd.DataFrame(columns=['module_code', 'Assessments Declared', 'Gen AI Activity'])
+    result = {'per_module': empty, 'declared': 0, 'in_scope': 0,
+              'unmatched': [], 'other_semester': []}
+
+    scope = None
+    if module_codes is not None:
+        scope = {str(c).strip().upper() for c in module_codes if str(c).strip()}
+        result['in_scope'] = len(scope)
+
+    if df_declarations is None or df_declarations.empty:
+        return result
+
+    df = df_declarations.copy()
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    df = df[df['module_code'] != ""]
+    if df.empty:
+        return result
+
+    if scope is not None:
+        outside = set(df['module_code']) - scope
+        if known_codes is not None:
+            known = {str(c).strip().upper() for c in known_codes if str(c).strip()}
+            result['unmatched'] = sorted(outside - known)
+            result['other_semester'] = sorted(outside & known)
+        else:
+            result['unmatched'] = sorted(outside)
+        df = df[df['module_code'].isin(scope)]
+    else:
+        result['in_scope'] = df['module_code'].nunique()
+
+    if df.empty:
+        return result
+
+    # "Yes" if any assessment on the module reported a Gen AI learning activity.
+    gen_ai = df.groupby('module_code')['gen_ai_activity'].apply(
+        lambda s: "Yes" if (s.astype(str).str.strip().str.lower() == "yes").any() else "No"
+    )
+    counts = df.groupby('module_code').size()
+
+    per_module = pd.DataFrame({
+        'module_code': counts.index,
+        'Assessments Declared': counts.values,
+    })
+    per_module['Gen AI Activity'] = per_module['module_code'].map(gen_ai)
+
+    result['per_module'] = per_module.reset_index(drop=True)
+    result['declared'] = len(per_module)
+    return result
 
 def sanitize_row_data(row_data):
     """
