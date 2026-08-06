@@ -3,7 +3,12 @@ import pandas as pd
 import datetime
 import logging
 import json
-from processing import get_module_mapping, FACULTY_SCHOOLS
+from processing import (
+    get_module_mapping,
+    FACULTY_SCHOOLS,
+    CURRENT_ACADEMIC_YEAR,
+    summarise_ally_issues,
+)
 from database import (
     get_active_audit_fields,
     get_audit_responses,
@@ -11,8 +16,231 @@ from database import (
     save_audit_response,
     get_comment_bank,
     update_module_lead_sqlite,
-    parse_custom_observations
+    parse_custom_observations,
+    get_ally_history,
 )
+
+# How each Ally score band reads to an auditor. Ally's own wording, so the
+# portal and the course report agree.
+ALLY_BANDS = [
+    (1.0, "#047857", "Perfect", "No accessibility issues were found by the tool."),
+    (0.67, "#10B981", "High", "Mostly accessible, but minor improvements are still possible."),
+    (0.34, "#F59E0B", "Medium", "Somewhat accessible. Needs improvement."),
+    (0.0, "#EF4444", "Low", "Severe or multiple accessibility issues."),
+]
+
+# What each maturity class means for reading the score beside it. There is no
+# "Built"/"Complete" state: module leads add content just-in-time throughout
+# the course, often up to the final assessment, so a content count can only
+# ever show a course has started - never that it is finished.
+ALLY_MATURITY_NOTE = {
+    "Not yet built": ("#6B7280", "ℹ️", "This course still holds only its rolled-over template. "
+                      "The accessibility score describes the template, not teaching materials."),
+    "Empty": ("#6B7280", "ℹ️", "Ally has found no content in this course at all."),
+    "In progress": ("#F59E0B", "🚧", "The course has content beyond its template, so the score "
+                    "reflects real material - but module leads build throughout the year, "
+                    "so expect it to keep moving as more goes up."),
+    "No data": ("#6B7280", "—", "This module has no Ally record for the current year."),
+}
+
+
+def _ally_band(score):
+    for threshold, colour, level, description in ALLY_BANDS:
+        if score >= threshold:
+            return colour, level, description
+    return ALLY_BANDS[-1][1:]
+
+
+def _score_tile(label, score, sub):
+    """One of the three surface scores, or a muted tile when nothing applies."""
+    if score is None or pd.isna(score):
+        return f"""
+        <div style="text-align:center;border-radius:10px;padding:10px 8px;
+                    background-color:#6B728010;border:1px solid #6B728033;">
+            <span style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;
+                         letter-spacing:.8px;display:block;">{label}</span>
+            <h2 style="margin:0;color:#6B7280;font-size:24px;font-weight:800;">--</h2>
+            <span style="font-size:11px;color:#6B7280;">{sub}</span>
+        </div>"""
+    colour, level, _ = _ally_band(float(score))
+    return f"""
+    <div style="text-align:center;border-radius:10px;padding:10px 8px;
+                background-color:{colour}10;border:1px solid {colour}33;">
+        <span style="font-size:10px;font-weight:700;color:{colour};text-transform:uppercase;
+                     letter-spacing:.8px;display:block;">{label}</span>
+        <h2 style="margin:0;color:{colour};font-size:28px;font-weight:800;">{float(score):.1%}</h2>
+        <span style="font-size:11px;color:#6B7280;">{sub}</span>
+    </div>"""
+
+
+def _render_ally_card(selected_code, active_row):
+    """
+    The module's accessibility profile.
+
+    Shows Ally's three scores as Ally reports them. The portal used to display
+    a single locally credibility-weighted figure instead, which pulled thin
+    courses toward 50% and so disagreed with the score the module lead sees in
+    Blackboard. What that weighting was really groping at - is there enough
+    here to judge? - is now answered directly by the item counts and the
+    content maturity banner.
+    """
+    with st.container(border=True):
+        st.subheader("🔍 Ally Accessibility",
+                     help="Ally's own scores for this course, from the most recent "
+                          "institutional export. Files and editor pages are scored "
+                          "separately because they are fixed in completely different ways.")
+
+        if active_row is None:
+            st.info("No Ally accessibility data is available for this module.")
+            return
+
+        maturity = str(active_row.get('Content Maturity', 'No data') or 'No data')
+        overall = active_row.get('Ally Overall')
+        files_score = active_row.get('Ally Files')
+        wysiwyg_score = active_row.get('Ally WYSIWYG')
+        n_files = int(active_row.get('Total Files', 0) or 0)
+        n_wysiwyg = int(active_row.get('Ally WYSIWYG Items', 0) or 0)
+        students = int(active_row.get('Ally Students', 0) or 0)
+        shells = int(active_row.get('Ally Shells', 0) or 0)
+        last_checked = str(active_row.get('Ally Last Checked', '') or '')
+
+        if maturity == "No data" or (n_files == 0 and n_wysiwyg == 0 and shells == 0):
+            st.info(
+                f"No Ally record for this module in {CURRENT_ACADEMIC_YEAR}. That usually "
+                "means it has no Blackboard course, or its course sits under a different "
+                "code — the Admin Panel's Ally import reports both.")
+            return
+
+        # 1. Maturity first. A template scoring 99% is not an accessibility result.
+        colour, icon, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
+        st.markdown(
+            f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
+                        padding:8px 12px;border-radius:4px;margin-bottom:12px;">
+                <b style="color:{colour};">{icon} {maturity}</b>
+                <span style="color:#6B7280;font-size:13px;"> — {note}</span>
+            </div>""", unsafe_allow_html=True)
+
+        # 2. The three scores, each with the volume of content behind it.
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(_score_tile("Overall", overall, f"{n_files + n_wysiwyg} items"),
+                    unsafe_allow_html=True)
+        c2.markdown(_score_tile("Files", files_score,
+                                f"{n_files} file{'' if n_files == 1 else 's'}"),
+                    unsafe_allow_html=True)
+        c3.markdown(_score_tile("Editor pages", wysiwyg_score,
+                                f"{n_wysiwyg} page{'' if n_wysiwyg == 1 else 's'}"),
+                    unsafe_allow_html=True)
+
+        if (files_score is not None and wysiwyg_score is not None
+                and pd.notna(files_score) and pd.notna(wysiwyg_score)):
+            gap = float(wysiwyg_score) - float(files_score)
+            if abs(gap) >= 0.15:
+                worse, better = ("uploaded files", "pages built in Blackboard") if gap > 0 \
+                    else ("pages built in Blackboard", "uploaded files")
+                st.caption(
+                    f"The {worse} score {abs(gap):.0%} lower than the {better}. "
+                    + ("Fixing documents means re-authoring and re-uploading them."
+                       if gap > 0 else
+                       "Page problems are fixable directly in the Blackboard editor."))
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+        # 3. The worklist. This is what turns a score into something an auditor
+        #    can hand to a module lead.
+        _render_ally_issues(selected_code, active_row)
+
+        # 4. Status strip.
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Students", f"{students}")
+        s2.metric("Course shells", f"{shells}",
+                  help="Separate Blackboard sites under this module code, "
+                       "usually different cohorts. Scores combine all of them.")
+        s3.metric("Ally enabled", "Yes" if active_row.get('Ally Enabled', True) else "No")
+        s4.metric("Last scanned", pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—",
+                  help="When Ally last looked at this course, not when the export was taken.")
+
+        if not active_row.get('Ally Enabled', True):
+            st.warning("⚠️ Ally is switched off for this course, so students get no "
+                       "alternative formats and the module lead sees no feedback.")
+
+        _render_ally_trend(selected_code)
+
+        st.caption(
+            "ℹ️ Ally figures come from periodic institutional exports and can lag the "
+            "live course. The module's own Ally Course Report inside Blackboard is "
+            "always current.")
+
+
+def _render_ally_issues(selected_code, active_row):
+    """The module's outstanding accessibility issues, worst first."""
+    df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
+    if df_issues is None or df_issues.empty:
+        return
+
+    mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
+                     == str(selected_code).strip().upper()]
+    profile = summarise_ally_issues(mine)
+
+    if profile.empty:
+        n_items = int(active_row.get('Ally Items', 0) or 0)
+        if n_items:
+            st.success(f"✅ Ally found no accessibility issues across {n_items} items.")
+        return
+
+    severe = int(active_row.get('Ally Severe', 0) or 0)
+    total_items = int(profile['items'].sum())
+    header = f"Fix these first — {len(profile)} issue type(s) across {total_items} items"
+    if severe:
+        header = f"🔴 {header}"
+
+    with st.expander(header, expanded=bool(severe)):
+        surface_words = {
+            'editor': ("✏️", "Fix in the Blackboard editor"),
+            'image': ("🖼️", "Fix in the browser via Ally feedback"),
+            'file': ("📄", "Re-author and re-upload the file"),
+        }
+        badge_colour = {"Severe": "#EF4444", "Major": "#F59E0B", "Minor": "#6B7280"}
+        for _, row in profile.iterrows():
+            icon, where = surface_words.get(row['surface'], ("📄", ""))
+            colour = badge_colour.get(row['severity_label'], "#6B7280")
+            st.markdown(
+                f"""<div style="padding:6px 0;border-bottom:1px solid #E5E7EB;">
+                    <span style="background:{colour}1A;color:{colour};font-size:10px;
+                                 font-weight:700;padding:2px 6px;border-radius:4px;
+                                 text-transform:uppercase;">{row['severity_label']}</span>
+                    <b style="margin-left:6px;">{row['label']}</b>
+                    <span style="color:#6B7280;"> — {row['items']} item(s)</span><br>
+                    <span style="font-size:13px;color:#4B5563;">{icon} {where}. {row['advice']}</span>
+                </div>""", unsafe_allow_html=True)
+
+        url = str(active_row.get('URL', '') or '')
+        if url:
+            st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
+
+
+def _render_ally_trend(selected_code):
+    """Score over the stored snapshots, when there is more than one."""
+    try:
+        history = get_ally_history(str(selected_code).strip().upper(), CURRENT_ACADEMIC_YEAR)
+    except Exception as exc:
+        logging.warning(f"Could not load Ally history for {selected_code}: {exc}")
+        return
+
+    if history.empty or history['snapshot_date'].nunique() < 2:
+        return
+
+    # Snapshots are only stored when a course changes, so every point here is a
+    # real movement rather than a repeated reading.
+    series = (history.groupby('snapshot_date')
+                     .apply(lambda g: (g['overall_score'] * (g['total_files'] + g['total_wysiwyg'])).sum()
+                                      / max((g['total_files'] + g['total_wysiwyg']).sum(), 1),
+                            include_groups=False)
+                     .rename("Overall score"))
+    st.markdown("**Accessibility over time**")
+    st.line_chart(series, height=140)
+    st.caption("Each point is a snapshot in which this course's content actually changed.")
+
+
 
 def title_case_name(name: str) -> str:
     if not name:
@@ -45,82 +273,43 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
     combined_options = sorted([f"{code} - {name}" for code, name in module_mapping.items()])
     
     schools_list = list(FACULTY_SCHOOLS)
-    
-    # Check layout parameter for default layout
-    default_mini = False
-    if "layout" in st.query_params and st.query_params.get("layout") == "mini":
-        default_mini = True
-    elif "mini" in st.query_params and st.query_params.get("mini") == "true":
-        default_mini = True
-        
-    if "minified_mode" not in st.session_state:
-        st.session_state.minified_mode = default_mini
-        
-    minified_mode = st.session_state.minified_mode
-
-    if minified_mode:
-        st.markdown("""
-            <style>
-            /* Hide sidebar and collapse control */
-            [data-testid="stSidebar"], [data-testid="collapsedControl"] {
-                display: none !important;
-            }
-            /* Hide Streamlit top header bar */
-            [data-testid="stHeader"], .stAppHeader {
-                display: none !important;
-            }
-            /* Adjust padding on the main viewport */
-            div.block-container {
-                padding-top: 1rem !important;
-                padding-left: 1rem !important;
-                padding-right: 1rem !important;
-                padding-bottom: 1rem !important;
-            }
-            /* Make form containers take full width and less padding */
-            div[data-testid="stForm"] {
-                padding: 12px !important;
-            }
-            </style>
-        """, unsafe_allow_html=True)
 
     user_caps = st.session_state.get("capabilities", [])
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
-    
+
     if only_own_school:
-        if not minified_mode:
-            school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {st.session_state.saved_school}</span>"
-            st.markdown(f"<h1>Module Report{school_context_badge}</h1>", unsafe_allow_html=True)
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {st.session_state.saved_school}</span>"
+        st.markdown(f"<h1>Module Report{school_context_badge}</h1>", unsafe_allow_html=True)
         combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
     else:
-        if not minified_mode:
-            st.title("Module Report")
-            # Optional multi-tenant school filter to focus without siloing
-            if st.session_state.saved_school != "All":
-                filter_by_school = st.checkbox(f"Focus on my school ({st.session_state.saved_school})", value=True, key="rc_focus_school")
-                if filter_by_school:
-                    combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
-                else:
-                    selected_school = st.selectbox(
-                        "Select School to Focus", 
-                        ["All Schools"] + schools_list,
-                        index=0,
-                        key="rc_school_select",
-                        help="Switch to another school's module list."
-                    )
-                    if selected_school != "All Schools":
-                        combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
+        st.title("Module Report")
+        # Optional multi-tenant school filter to focus without siloing
+        if st.session_state.saved_school != "All":
+            filter_by_school = st.checkbox(f"Focus on my school ({st.session_state.saved_school})", value=True, key="rc_focus_school")
+            if filter_by_school:
+                combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
             else:
-                # Fallback for "All Schools" users (e.g. FACULTY) to filter module list by school
                 selected_school = st.selectbox(
-                    "Filter by School", 
+                    "Select School to Focus",
                     ["All Schools"] + schools_list,
                     index=0,
-                    key="rc_school_select_all",
-                    help="Filter the module selection list by a specific school."
+                    key="rc_school_select",
+                    help="Switch to another school's module list."
                 )
                 if selected_school != "All Schools":
                     combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
-            
+        else:
+            # Fallback for "All Schools" users (e.g. FACULTY) to filter module list by school
+            selected_school = st.selectbox(
+                "Filter by School",
+                ["All Schools"] + schools_list,
+                index=0,
+                key="rc_school_select_all",
+                help="Filter the module selection list by a specific school."
+            )
+            if selected_school != "All Schools":
+                combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
+
     if 'selected_module_code' not in st.session_state:
         st.session_state.selected_module_code = ""
 
@@ -137,22 +326,14 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         else:
             st.session_state.selected_module_code = ""
 
-    col_search, col_mini = st.columns([3, 1])
-    with col_search:
-        st.selectbox(
-            "Search by Module Code or Name", 
-            options=[""] + combined_options, 
-            index=current_idx, 
-            key="unified_search",
-            on_change=on_module_change
-        )
-    with col_mini:
-        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True) # align with selectbox label
-        minified_val = st.toggle("Minified View", value=minified_mode, key="minified_mode_toggle", help="Toggle compact single-column layout for side-by-side auditing with Blackboard.")
-        if minified_val != minified_mode:
-            st.session_state.minified_mode = minified_val
-            st.rerun()
-    
+    st.selectbox(
+        "Search by Module Code or Name",
+        options=[""] + combined_options,
+        index=current_idx,
+        key="unified_search",
+        on_change=on_module_change
+    )
+
     selected_code = st.session_state.selected_module_code
     
     if selected_code:
@@ -195,156 +376,26 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 
             sa_status = checklist_sums.get(selected_code, {}).get('Status', "❌ No Submission")
             
-            if minified_mode:
-                # Render a very compact info bar for side-by-side auditing
-                with st.container(border=True):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if url:
-                            st.markdown(f"🔗 **[Open Blackboard Site 🌐]({url})**")
-                        else:
-                            st.markdown("⚠️ **VLE Link Missing**")
-                    with c2:
-                        st.markdown(f"Status: **{sa_status}**")
-            else:
-                with st.container(border=True):
-                    c1, c2, c3, c4 = st.columns(4)
-                    with c1:
-                        st.markdown(f"**Module Lead:**  \n{mod_lead}", unsafe_allow_html=True)
-                    with c2:
-                        st.markdown(f"**Level:**  \n{ug_pg}", unsafe_allow_html=True)
-                    with c3:
-                        if url:
-                            st.markdown(f"**VLE Link:**  \n[Open Module Site]({url})", unsafe_allow_html=True)
-                        else:
-                            st.markdown("**VLE Link:**  \n<span style='color: #9CA3AF;'>--</span>", unsafe_allow_html=True)
-                    with c4:
-                        st.markdown(f"**Checklist Status:**  \n{sa_status}", unsafe_allow_html=True)
-        
-        # Extract Ally scores
-        ally_score = None
-        ally_files = 0
-        if active_row is not None:
-            ally_score = active_row.get('Ally 25/26 All', None)
-            if pd.isna(ally_score):
-                ally_score = active_row.get('Ally Weighted', None)
-            if pd.isna(ally_score):
-                ally_score = active_row.get('Ally Measured', None)
-                
-            ally_files = active_row.get('Total Files', 0)
-            if pd.isna(ally_files) or ally_files == 0:
-                ally_files = active_row.get('Ally 25/26 Files', 0)
-                
-        st.markdown(" ")
-        
-        # Get latest snapshot date if available in local ally table
-        snapshot_date_str = None
-        df_ally_local = st.session_state.get("df_ally_local", pd.DataFrame())
-        if not df_ally_local.empty and 'module_code' in df_ally_local.columns:
-            module_rows = df_ally_local[df_ally_local['module_code'].astype(str).str.strip().str.upper() == selected_code.strip().upper()]
-            if not module_rows.empty and 'snapshot_date' in module_rows.columns:
-                latest_row = module_rows.sort_values('snapshot_date').iloc[-1]
-                raw_date = str(latest_row['snapshot_date'])
-                try:
-                    parsed_dt = pd.to_datetime(raw_date, errors='coerce')
-                    if not pd.isna(parsed_dt):
-                        snapshot_date_str = parsed_dt.strftime('%d-%m-%Y')
-                    else:
-                        snapshot_date_str = raw_date
-                except Exception:
-                    snapshot_date_str = raw_date
-
-        # 2b. Grouped Ally / Accessibility Profile Card
-        if not minified_mode:
             with st.container(border=True):
-                st.subheader("Ally Accessibility", help="The accessibility score is credibility-weighted using the Asymptotic Credibility Model (k=0.15, baseline=50%) to ensure reliability even for low file counts.")
-                if pd.notna(ally_score):
-                    score_val = float(ally_score)
-                    files_val = int(ally_files) if pd.notna(ally_files) else 0
-                    
-                    # A balanced 3-column layout: Score Badge | Progress Bar | Files Scanned Metric
-                    col_score, col_progress, col_files = st.columns([1.3, 1.7, 1.0])
-                    
-                    if files_val == 0:
-                        with col_score:
-                            st.markdown(f"""
-                            <div style="text-align: center; border-radius: 10px; padding: 12px 8px; background-color: #6B728010; border: 1px solid #6B728033; box-shadow: 0 2px 6px #6B728008; margin-top: 5px;">
-                                <span style="font-size: 10px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: 0.8px; display: block; margin-bottom: 2px;">Ally Score</span>
-                                <h2 style="margin: 0; color: #6B7280; font-size: 26px; font-weight: 800; font-family: system-ui, -apple-system, sans-serif; padding: 6px 0;">N/A</h2>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            if snapshot_date_str:
-                                st.markdown(f"<div style='text-align: center; margin-top: 5px; font-size: 11px; color: #6B7280;'>Snapshot Date: <b>{snapshot_date_str}</b></div>", unsafe_allow_html=True)
-                        with col_progress:
-                            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-                            st.markdown("**Ally Score Over Time:**")
-                            st.caption("No files scanned to evaluate.")
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.markdown(f"**Module Lead:**  \n{mod_lead}", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"**Level:**  \n{ug_pg}", unsafe_allow_html=True)
+                with c3:
+                    if url:
+                        st.markdown(f"**VLE Link:**  \n[Open Module Site]({url})", unsafe_allow_html=True)
                     else:
-                        with col_score:
-                            # Color coding logic (matching Blackboard Ally score tiers and descriptions)
-                            if score_val >= 1.0:
-                                color = "#047857" # Dark Green
-                                level = "Perfect"
-                                description = "Perfect! No accessibility issues were found by the tool."
-                            elif score_val >= 0.67:
-                                color = "#10B981" # Light Green
-                                level = "High"
-                                description = "Almost there. The file is mostly accessible, but minor improvements are still possible."
-                            elif score_val >= 0.34:
-                                color = "#F59E0B" # Amber/Orange
-                                level = "Medium"
-                                description = "A little better. The file is somewhat accessible and needs improvement."
-                            else:
-                                color = "#EF4444" # Red
-                                level = "Low"
-                                description = "Needs help! The file has severe or multiple accessibility issues."
-                            
-                            st.markdown(f"""
-                            <div style="text-align: center; border-radius: 10px; padding: 12px 8px; background-color: {color}10; border: 1px solid {color}33; box-shadow: 0 2px 6px {color}08; margin-top: 5px;">
-                                <span style="font-size: 10px; font-weight: 700; color: {color}; text-transform: uppercase; letter-spacing: 0.8px; display: block; margin-bottom: 2px;">{level} (Weighted)</span>
-                                <h2 style="margin: 0; color: {color}; font-size: 34px; font-weight: 800; font-family: system-ui, -apple-system, sans-serif;">{score_val:.1%}</h2>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            if snapshot_date_str:
-                                st.markdown(f"<div style='text-align: center; margin-top: 5px; font-size: 11px; color: #6B7280;'>Snapshot Date: <b>{snapshot_date_str}</b></div>", unsafe_allow_html=True)
-                            else:
-                                st.markdown("<div style='text-align: center; margin-top: 5px; font-size: 11px; color: #6B7280;'>Snapshot Date: <b>Latest Sync</b></div>", unsafe_allow_html=True)
-                            
-                        with col_progress:
-                            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-                            st.markdown("**Ally Score Over Time:**")
-                            
-                            df_ally_local = st.session_state.get("df_ally_local", pd.DataFrame())
-                            if not df_ally_local.empty and 'snapshot_date' in df_ally_local.columns:
-                                module_history = df_ally_local[df_ally_local['module_code'] == selected_code].copy()
-                                if not module_history.empty and len(module_history) > 1:
-                                    module_history['snapshot_date'] = pd.to_datetime(module_history['snapshot_date'])
-                                    module_history = module_history.sort_values('snapshot_date').set_index('snapshot_date')
-                                    st.line_chart(module_history['weighted'], height=100)
-                                else:
-                                    st.progress(score_val)
-                                    st.caption(description)
-                            else:
-                                st.progress(score_val)
-                                st.caption(description)
-                        
-                    with col_files:
-                        st.metric("Files Scanned", f"{files_val}", help="Total number of uploaded learning materials and files processed by Ally.")
-                        
-                    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
-                    
-                    # Low file count context warning (only for files > 0 but < 5)
-                    if 0 < files_val < 5:
-                        st.info(f"ℹ️ **Accessibility Compliance Note**: While the Ally score is high, only a low number of files (**{files_val}** files) have been uploaded. A high score on very few files does not automatically indicate comprehensive VLE accessibility.")
-                    
-                    # Explicit note explaining the weighted score calculation
-                    st.caption("ℹ️ Ally Accessibility is calculated using monthly snapshot data, so may be out of date. Refer to your own module's Ally Course Report inside Blackboard. **Weighted Score**: Adjusted via the Asymptotic Credibility Model. Modules with few uploaded files are blended with a neutral 50% baseline score to ensure scores are statistically representative of actual VLE usage.")
-                else:
-                    st.info("No Ally accessibility score data is available for this module.")
-                
-            st.markdown("---")
-        
+                        st.markdown("**VLE Link:**  \n<span style='color: #9CA3AF;'>--</span>", unsafe_allow_html=True)
+                with c4:
+                    st.markdown(f"**Checklist Status:**  \n{sa_status}", unsafe_allow_html=True)
+
+        st.markdown(" ")
+
+        # 2b. Ally / Accessibility profile
+        _render_ally_card(selected_code, active_row)
+        st.markdown("---")
+
         # 3. Integration: Add Dynamic Checklist editing/summary
         active_fields = get_active_audit_fields()
         
@@ -469,10 +520,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             
             # Display Actions & Recommendations Expander
             expander_title = f"Actions & Recommendations ({len(pending_items)})"
-            parent_pending = st.container() if minified_mode else st.expander(expander_title, expanded=(len(pending_items) > 0))
-            with parent_pending:
-                if minified_mode:
-                    st.markdown(f"#### ⚠️ Actions & Recommendations ({len(pending_items)})")
+            with st.expander(expander_title, expanded=(len(pending_items) > 0)):
                 if not has_audit:
                     st.markdown("""
                     <div style="border-left: 4px solid #EF4444; background-color: rgba(239, 68, 68, 0.02); padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; border-top: 1px solid rgba(239, 68, 68, 0.05); border-right: 1px solid rgba(239, 68, 68, 0.05); border-bottom: 1px solid rgba(239, 68, 68, 0.05);">
@@ -575,7 +623,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         ai_rows = get_ai_declarations()
         if not ai_rows.empty:
-            ai_rows = ai_rows[ai_rows['module_code'] == str(module_code).strip().upper()]
+            ai_rows = ai_rows[ai_rows['module_code'] == str(selected_code).strip().upper()]
 
         if ai_rows.empty:
             st.caption(
