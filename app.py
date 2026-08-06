@@ -13,7 +13,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.15.0"
+__version__ = "1.16.0"
+
+from processing import CURRENT_ACADEMIC_YEAR
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -150,11 +152,30 @@ def load_audit_data():
             legacy_aut = pd.read_sql_query("SELECT * FROM main_vle_audit_aut", conn) if table_exists(conn, "main_vle_audit_aut") else pd.DataFrame()
             legacy_spr = pd.read_sql_query("SELECT * FROM main_vle_audit_spr", conn) if table_exists(conn, "main_vle_audit_spr") else pd.DataFrame()
             
-            # Load local Ally, Leganto, and Blackboard links tables if they exist
-            df_ally_local = pd.read_sql_query("SELECT * FROM ally_scores", conn) if table_exists(conn, "ally_scores") else pd.DataFrame()
-            st.session_state["df_ally_local"] = df_ally_local
+            # Load local Leganto and Blackboard links tables if they exist
             df_leganto_local = pd.read_sql_query("SELECT * FROM leganto_nolist", conn) if table_exists(conn, "leganto_nolist") else pd.DataFrame()
-            df_blackboard_links = pd.read_sql_query("SELECT * FROM blackboard_links WHERE academic_year = '2026-27'", conn) if table_exists(conn, "blackboard_links") else pd.DataFrame()
+            df_blackboard_links = pd.read_sql_query(
+                "SELECT * FROM blackboard_links WHERE academic_year = ?", conn,
+                params=(CURRENT_ACADEMIC_YEAR,)) if table_exists(conn, "blackboard_links") else pd.DataFrame()
+
+        # Ally comes from the institutional export, at Blackboard-course grain,
+        # and is rolled up to modules here. The frames are stashed for the views
+        # that need the detail behind the headline score.
+        from database import get_ally_courses_latest, get_ally_issues_latest, get_ally_content_latest
+        from processing import aggregate_ally_to_modules, count_ally_issues_by_module
+
+        df_ally_courses = get_ally_courses_latest(CURRENT_ACADEMIC_YEAR)
+        df_ally_issues = get_ally_issues_latest(CURRENT_ACADEMIC_YEAR)
+        st.session_state["df_ally_courses"] = df_ally_courses
+        st.session_state["df_ally_issues"] = df_ally_issues
+        st.session_state["df_ally_content"] = get_ally_content_latest(CURRENT_ACADEMIC_YEAR)
+
+        ally_modules = aggregate_ally_to_modules(df_ally_courses)
+        ally_local_map = (ally_modules.set_index('module_code').to_dict(orient='index')
+                          if not ally_modules.empty else {})
+        issue_counts = count_ally_issues_by_module(df_ally_issues)
+        ally_issue_map = (issue_counts.set_index('module_code').to_dict(orient='index')
+                          if not issue_counts.empty else {})
 
         # Combine legacy tables to build reference lookups
         legacy_dfs = [df for df in [legacy_aut, legacy_spr] if not df.empty]
@@ -168,21 +189,6 @@ def load_audit_data():
                 ref_lookup = {}
         else:
             ref_lookup = {}
-
-        # Local Ally lookup
-        ally_local_map = {}
-        if not df_ally_local.empty and 'module_code' in df_ally_local.columns:
-            df_ally_local['module_code'] = df_ally_local['module_code'].astype(str).str.strip().str.upper()
-            if 'snapshot_date' in df_ally_local.columns:
-                latest_ally = df_ally_local.sort_values('snapshot_date').groupby('module_code').tail(1)
-            else:
-                latest_ally = df_ally_local
-            for _, row in latest_ally.iterrows():
-                ally_local_map[row['module_code']] = {
-                    'measured': row.get('measured', None),
-                    'weighted': row.get('weighted', None),
-                    'files': row.get('files', 0)
-                }
 
         # Local Leganto set
         leganto_local_set = set()
@@ -227,28 +233,25 @@ def load_audit_data():
             # Retrieve legacy reference fields if they exist
             ref_fields = ref_lookup.get(code, {})
             
-            # Get Ally scores (prefer local ally_scores table, fallback to legacy)
-            measured_score = None
-            weighted_score = None
-            files_count = 0
-            
-            if code in ally_local_map:
-                measured_score = ally_local_map[code]['measured']
-                weighted_score = ally_local_map[code]['weighted']
-                files_count = ally_local_map[code]['files']
-            else:
-                # Fallback to legacy audit row
-                measured_score = ref_fields.get('Ally Measured', ref_fields.get('Ally 25/26 All', None))
-                weighted_score = ref_fields.get('Ally Weighted', ref_fields.get('Ally 25/26 All', None))
-                files_count = ref_fields.get('Total Files', ref_fields.get('Ally 25/26 Files', 0))
+            # Ally, for this academic year only. There is deliberately no
+            # fallback to the legacy audit tables here: those carry 2025-26
+            # figures, and showing last year's accessibility against this
+            # year's module list is how the old dashboard came to overstate
+            # what had been measured.
+            ally = ally_local_map.get(code, {})
+            issue_counts_row = ally_issue_map.get(code, {})
 
-            # Cast / fallback values
-            measured_score = pd.to_numeric(measured_score, errors='coerce')
-            weighted_score = pd.to_numeric(weighted_score, errors='coerce')
-            files_count = pd.to_numeric(files_count, errors='coerce')
-            if pd.isna(measured_score): measured_score = None
-            if pd.isna(weighted_score): weighted_score = None
-            if pd.isna(files_count): files_count = 0
+            def _score(key):
+                val = pd.to_numeric(ally.get(key), errors='coerce')
+                return None if pd.isna(val) else float(val)
+
+            overall_score = _score('overall_score')
+            files_score = _score('files_score')
+            wysiwyg_score = _score('wysiwyg_score')
+            files_count = int(ally.get('total_files', 0) or 0)
+            wysiwyg_count = int(ally.get('total_wysiwyg', 0) or 0)
+            items_count = int(ally.get('total_items', 0) or 0)
+            maturity = ally.get('content_maturity', "No data")
 
             # Get Leganto Status (prefer local leganto_nolist table, fallback to legacy)
             if df_leganto_local.empty:
@@ -272,11 +275,31 @@ def load_audit_data():
                 'UG/ PG/ Other': level,
                 'URL': blackboard_url,
                 'Semester': semester,
-                'Ally Measured': measured_score,
-                'Ally Weighted': weighted_score,
-                'Ally 25/26 All': weighted_score if weighted_score is not None else measured_score,
+                # Ally's own three scores, unmodified. The credibility-weighted
+                # 'Ally Weighted' this replaced was a local invention that
+                # shrank small courses toward 50%, which on a rolled-over year
+                # of template content moved the faculty mean by 30 points.
+                'Ally Overall': overall_score,
+                'Ally Files': files_score,
+                'Ally WYSIWYG': wysiwyg_score,
                 'Total Files': files_count,
-                'Ally Shift': (weighted_score - measured_score) if (weighted_score is not None and measured_score is not None) else 0.0,
+                'Ally WYSIWYG Items': wysiwyg_count,
+                'Ally Items': items_count,
+                'Ally Students': int(ally.get('students', 0) or 0),
+                'Ally Enabled': bool(ally.get('ally_enabled', 1)),
+                'Ally Last Checked': ally.get('last_checked_on', ''),
+                'Ally Shells': int(ally.get('shell_count', 0) or 0),
+                'Content Maturity': maturity,
+                'Ally Severe': int(issue_counts_row.get('severe', 0) or 0),
+                'Ally Major': int(issue_counts_row.get('major', 0) or 0),
+                'Ally Minor': int(issue_counts_row.get('minor', 0) or 0),
+
+                # Transitional aliases for views not yet moved onto the names
+                # above. 'Ally 25/26 All' in particular is a hardcoded year that
+                # should not outlive this migration.
+                'Ally Measured': files_score,
+                'Ally Weighted': overall_score,
+                'Ally 25/26 All': overall_score,
                 'Leganto Missing': leganto_missing,
                 
                 # Include other legacy audit columns as reference
@@ -355,7 +378,37 @@ def load_checklist_data():
             leganto_missing_set = set()
             if not df_leganto.empty and 'module_code' in df_leganto.columns:
                 leganto_missing_set = {str(code).strip().upper() for code in df_leganto['module_code']}
-            
+
+        # Findings Ally can establish on its own. These are counted alongside
+        # the auditor's answers the same way a missing Leganto list already is;
+        # nothing is written to audit_responses, so an audit response still
+        # means something a person recorded.
+        from database import get_ally_courses_latest, get_ally_issues_latest
+        from processing import count_ally_issues_by_module
+
+        ally_severe_set = set()
+        ally_disabled_set = set()
+        try:
+            issues = count_ally_issues_by_module(get_ally_issues_latest(CURRENT_ACADEMIC_YEAR))
+            if not issues.empty:
+                ally_severe_set = set(issues.loc[issues['severe'] > 0, 'module_code'])
+
+            df_courses = get_ally_courses_latest(CURRENT_ACADEMIC_YEAR)
+            if not df_courses.empty and 'ally_enabled' in df_courses.columns:
+                off = df_courses[df_courses['ally_enabled'] == 0]
+                ally_disabled_set = {str(c).strip().upper() for c in off['module_code']}
+        except Exception as e:
+            logging.warning(f"Could not derive Ally findings: {e}")
+
+        def ally_findings(code):
+            """Derived actionable items for a module, and why."""
+            reasons = []
+            if code in ally_severe_set:
+                reasons.append("Severe accessibility issue found by Ally")
+            if code in ally_disabled_set:
+                reasons.append("Ally is switched off for this course")
+            return reasons
+
         if df_resp.empty:
             df_resp = pd.DataFrame(columns=['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'])
             
@@ -403,7 +456,10 @@ def load_checklist_data():
             # Incorporate Leganto missing status
             if m_code in leganto_missing_set:
                 actionable_items += 1
-                        
+
+            derived = ally_findings(m_code)
+            actionable_items += len(derived)
+
             audit_status = responses.get('audit_status', '')
             if audit_status == 'submitted':
                 status = "✅ Submitted"
@@ -419,24 +475,29 @@ def load_checklist_data():
             summaries[m_code] = {
                 'Status': status,
                 'Actionable Items': actionable_items,
+                'Derived Findings': derived,
                 'Timestamp': latest_ts,
                 'Auditor': latest_auditor,
                 'Responses': responses,
                 'Comments': responses.get('comments', '')
             }
-            
-        # Ensure modules with missing Leganto but no checklist responses are included
-        for m_code in leganto_missing_set:
+
+        # Modules where the data has found something but nobody has audited yet
+        # still need to appear, or the finding is invisible until someone opens
+        # the module.
+        for m_code in leganto_missing_set | ally_severe_set | ally_disabled_set:
             if m_code not in summaries:
+                derived = ally_findings(m_code)
                 summaries[m_code] = {
                     'Status': "❌ Not Started",
-                    'Actionable Items': 1,
+                    'Actionable Items': (1 if m_code in leganto_missing_set else 0) + len(derived),
+                    'Derived Findings': derived,
                     'Timestamp': "Never",
                     'Auditor': "System",
                     'Responses': {},
                     'Comments': ''
                 }
-                
+
         return summaries
     except Exception as e:
         logging.error(f"Error loading checklist summaries from SQLite: {e}")

@@ -1,6 +1,53 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.15.0 (Current) — *Legacy VLE Audit Spreadsheet Retired*
+### 🚀 Version 1.16.0 (Current) — *Ally Institutional Report*
+*5 August 2026*
+
+* **Ally now tells you what is wrong, not just how bad it is.** The full
+  Anthology institutional report carries a per-check breakdown — untagged PDFs,
+  scanned documents, missing image descriptions, low contrast, and 35 more —
+  counted in the number of content items affected. Module reports list a
+  module's own issues worst-first, each with plain-English advice and a note on
+  whether it is fixable in the Blackboard editor or needs the source document
+  re-authored. School and Faculty views roll the same data into an issue league
+  table, so one intervention can be aimed at hundreds of items.
+* **Files and editor pages are scored separately.** Ally rates uploaded
+  documents and pages built in Blackboard independently, and they behave very
+  differently — the two are now shown side by side with the volume of content
+  behind each. A single blended number hid the distinction, and with it the
+  answer to whether a school needs document-authoring support or Blackboard
+  training.
+* **Scores are qualified by whether a course has moved past its template.** A
+  course fresh from rollover holds only its template and Ally scores that
+  template close to 100%. Every average now covers only courses with content
+  beyond the template, and the Priority Action List ignores the rest. There is
+  deliberately no "Built" or "Complete" state to report — module leads build
+  just-in-time throughout the course, often up to the final assessment, so a
+  file count can only ever show a course has started, never that it is
+  finished. A build-out tracker shows that progress instead. **Expect the
+  accessibility figures to look sparser than before**: the numbers previously
+  on screen were the 2025-26 academic year, and 2026-27 courses are still
+  largely templates.
+* **The credibility-weighted score has been withdrawn.** It blended thin
+  courses toward 50%, which on a rolled-over year moved the faculty average by
+  30 points and disagreed with the score module leads see in their own course.
+  The portal now shows Ally's own figures unchanged.
+* **Severe accessibility issues raise an action.** An unreadable scanned
+  document, a corrupt file, a document locked against screen readers, or Ally
+  being switched off for a course now counts as an actionable item, in the same
+  way a missing Leganto list already did. No audit field is auto-answered — an
+  audit response still means something a Digital Learning Advisor recorded.
+* **The importer says what it dropped.** The Ally export covers every
+  Blackboard course the institution has ever had, so the Admin Panel now asks
+  which academic year to import and reports how many rows were discarded, how
+  many courses matched SITS, and which codes exist on only one side. Repeat
+  imports only store courses whose measurements have actually moved, so a
+  weekly import does not fill the history with identical rows. Blackboard
+  module links are refreshed from the same file.
+* **Fixed**: the Module Report crashed with a `NameError` when a module had an
+  AI in the Curriculum declaration, a fault introduced in v1.15.0.
+
+### 🚀 Version 1.15.0 — *Legacy VLE Audit Spreadsheet Retired*
 *4 August 2026*
 
 * **The 25/26 audit spreadsheet is no longer an upstream source.** A full sync

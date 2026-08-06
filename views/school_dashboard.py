@@ -1,8 +1,15 @@
 import streamlit as st
 import pandas as pd
 from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
-                        summarise_ai_declarations, FACULTY_SCHOOLS)
-from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
+                        summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
+                        reconcile_ally_modules)
+from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
+                      get_ally_history)
+from views.ally_widgets import (
+    scoreable, mean_score, impact_weighted_score, render_maturity_banner,
+    render_maturity_breakdown, render_surface_split, render_issue_profile,
+    render_severe_register, build_accessibility_risk_list,
+)
 
 def to_sentence_case(name: str) -> str:
     """Convert name to sentence case (capitalize first letter only)."""
@@ -89,13 +96,21 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
             school_df['Actionable Items'] = school_df['New module code'].apply(get_actionable_items)
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Total Modules", len(school_df))
             with col2:
-                avg_ally = school_df['Ally 25/26 All'].mean() if 'Ally 25/26 All' in school_df.columns else 0
-                st.metric("Avg Ally Score", f"{avg_ally:.1%}")
+                started = len(scoreable(school_df))
+                st.metric("Content in progress", f"{started}",
+                          help="Modules with content beyond their rolled-over template. "
+                               "Only these carry a meaningful accessibility score - there is "
+                               "no 'finished' state, since module leads build throughout the year.")
             with col3:
+                avg_ally = mean_score(school_df)
+                st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
+                          help="Ally's overall score, averaged across modules with content beyond "
+                               "their template only.")
+            with col4:
                 audited_count = school_df['Audited?'].apply(lambda x: "✅" in x).sum()
                 st.metric("Audit Participation", f"{(audited_count / len(school_df)):.1%}")
             
@@ -135,11 +150,18 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     "Module name": "Module Name",
                     "Mod. lead": "Module Lead"
                 }
-                # Add single Ally score column
-                if 'Ally 25/26 All' in display_df.columns:
-                    display_df['Ally Score'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+                # Ally score, qualified by how far the course has been built - an
+                # untouched template scores near 100% and would otherwise read as
+                # the best module in the school.
+                if 'Ally Overall' in display_df.columns:
+                    display_df['Ally Score'] = display_df.apply(
+                        lambda r: f"{r['Ally Overall']:.1%}" if pd.notna(r.get('Ally Overall')) else "",
+                        axis=1)
                     cols.append('Ally Score')
                     configs['Ally Score'] = "Ally Score"
+                if 'Content Maturity' in display_df.columns:
+                    cols.append('Content Maturity')
+                    configs['Content Maturity'] = "Build Stage"
                 cols.append('Audited?')
                 configs['Audited?'] = "Audited?"
                 cols.append('Actionable Items')
@@ -181,132 +203,150 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.divider()
 
             elif selected_view == "📊 Ally Analytics":
-                st.subheader(f"Ally Accessibility Scores ({semester})")
+                st.subheader(f"Accessibility Profile — {school} ({semester})")
+                render_maturity_banner(school_df)
 
-                # Ally data table
-                if not school_df.empty and 'Ally 25/26 All' in school_df.columns:
-                    ally_display_df = school_df.copy()
-                    ally_display_df['Mod. lead'] = ally_display_df['Mod. lead'].apply(to_sentence_case)
+                ally_tabs = st.tabs([
+                    "🔧 What to fix", "🏗️ Build progress", "📄 Files vs pages",
+                    "🔴 Severe issues", "📋 By module", "🔗 Reconciliation",
+                ])
 
-                    ally_cols = ['New module code', 'Module name', 'Mod. lead']
-                    ally_configs = {
-                        "New module code": "Module Code",
-                        "Module name": "Module Name",
-                        "Mod. lead": "Module Lead"
-                    }
+                df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
 
-                    # Add Ally score columns
-                    if 'Ally Measured' in ally_display_df.columns:
-                        ally_display_df['Measured'] = ally_display_df['Ally Measured'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                        ally_cols.append('Measured')
-                        ally_configs['Measured'] = "Measured"
-
-                    if 'Ally 25/26 All' in ally_display_df.columns:
-                        ally_display_df['Weighted'] = ally_display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                        ally_cols.append('Weighted')
-                        ally_configs['Weighted'] = "Weighted Score"
-
-                    if 'Ally Shift' in ally_display_df.columns:
-                        ally_display_df['Shift (Δ)'] = ally_display_df['Ally Shift'].apply(lambda x: f"{x:+.1%}" if pd.notna(x) else "")
-                        ally_cols.append('Shift (Δ)')
-                        ally_configs['Shift (Δ)'] = "Score Change"
-
-                    if 'Total Files' in ally_display_df.columns:
-                        ally_cols.append('Total Files')
-                        ally_configs['Total Files'] = st.column_config.NumberColumn("Files", format="%d")
-
-                    ally_table_df = ally_display_df[ally_cols].reset_index(drop=True)
-
-                    st.markdown("##### **Detailed Ally Scores by Module**")
-                    st.dataframe(
-                        ally_table_df,
-                        column_config=ally_configs,
-                        width="stretch",
-                        hide_index=True
+                with ally_tabs[0]:
+                    st.markdown("##### The accessibility work this school is carrying")
+                    st.caption(
+                        "Counted in content items rather than modules, because that is the "
+                        "size of the job. One session on exporting tagged PDFs can clear "
+                        "hundreds of items at once."
                     )
-                    st.divider()
+                    render_issue_profile(df_issues, school_codes, top_n=12,
+                                         key=f"school_issue_profile_{school}")
 
-                st.subheader(f"Ally Score Distribution ({semester})")
-                if not school_df.empty and 'Ally 25/26 All' in school_df.columns:
-                    scores_series = school_df['Ally 25/26 All'].dropna()
-                    if not scores_series.empty:
-                        bins = [i/10.0 for i in range(11)]
-                        labels = [f"{i*10}-{(i+1)*10}%" for i in range(10)]
-                        
-                        binned = pd.cut(scores_series, bins=bins, labels=labels, include_lowest=True)
-                        dist_df = binned.value_counts().sort_index().reset_index()
-                        dist_df.columns = ['Score Bracket', 'Module Count']
-                        
-                        st.caption("Frequency distribution of overall accessibility scores for this school.")
-                        st.bar_chart(dist_df, x='Score Bracket', y='Module Count')
-                        
-                        # Drill Down Section
-                        with st.expander("🔍 Inspect Modules in Specific Bracket"):
-                            drill_options = ["Choose a bracket..."] + list(reversed(labels))
-                            selected_bracket = st.selectbox("Filter list by score range:", drill_options, key="school_hist_drill_down")
-                            
-                            if selected_bracket != "Choose a bracket...":
-                                drill_source = school_df[school_df['Ally 25/26 All'].notna()].copy()
-                                drill_source['Bracket'] = pd.cut(drill_source['Ally 25/26 All'], bins=bins, labels=labels, include_lowest=True)
-                                
-                                bracket_matches = drill_source[drill_source['Bracket'] == selected_bracket]
-                                
-                                if not bracket_matches.empty:
-                                    st.success(f"Found {len(bracket_matches)} modules in the {selected_bracket} range.")
-                                    display_df = bracket_matches.copy()
-                                    display_df['Score'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}")
-                                    
-                                    cols = ['New module code', 'Module name', 'Mod. lead', 'Score']
-                                    existing_cols = [c for c in cols if c in display_df.columns]
-                                    
-                                    safe_display_df = display_df[existing_cols].sort_values('Score', ascending=False).reset_index(drop=True)
-                                    
-                                    selection_drill = st.dataframe(
-                                        safe_display_df,
-                                        width="stretch",
-                                        hide_index=True,
-                                        on_select="rerun",
-                                        selection_mode="single-row",
-                                        key="school_analytics_drill_dataframe"
-                                    )
-                                    
-                                    if selection_drill.selection.rows:
-                                        row_idx = selection_drill.selection.rows[0]
-                                        clicked_code = safe_display_df.iloc[row_idx]['New module code']
-                                        st.success(f"🔍 Selected Module: **{clicked_code}**")
-                                        
-                                        c1, c2 = st.columns(2)
-                                        with c1:
-                                            if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="school_btn_drill_rc_jump"):
-                                                st.session_state.selected_module_code = clicked_code
-                                                st.switch_page(st.session_state.pg_module)
-                                        with c2:
-                                            if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="school_btn_drill_cl_jump"):
-                                                st.session_state.selected_module_code = clicked_code
-                                                st.switch_page(st.session_state.pg_audit)
-                                else:
-                                    st.info(f"No modules found in the {selected_bracket} range.")
+                with ally_tabs[1]:
+                    st.markdown("##### How much of the school's provision has content yet")
+                    render_maturity_breakdown(school_df)
+                    built_df = scoreable(school_df)
+                    b1, b2, b3 = st.columns(3)
+                    b1.metric("Modules with content", f"{len(built_df)} / {len(school_df)}")
+                    b2.metric("Files scanned",
+                              f"{int(pd.to_numeric(school_df.get('Total Files'), errors='coerce').fillna(0).sum()):,}")
+                    b3.metric("Editor pages",
+                              f"{int(pd.to_numeric(school_df.get('Ally WYSIWYG Items'), errors='coerce').fillna(0).sum()):,}")
+
+                with ally_tabs[2]:
+                    st.markdown("##### Uploaded documents against pages built in Blackboard")
+                    render_surface_split(school_df)
+                    plain = mean_score(school_df)
+                    weighted = impact_weighted_score(school_df)
+                    if plain is not None and weighted is not None:
+                        w1, w2 = st.columns(2)
+                        w1.metric("Average across modules", f"{plain:.1%}")
+                        w2.metric("Weighted by enrolment", f"{weighted:.1%}",
+                                  delta=f"{(weighted - plain) * 100:+.1f} pts",
+                                  help="What students actually encounter. Below the plain "
+                                       "average means the busiest modules are the weaker ones.")
+
+                with ally_tabs[3]:
+                    st.markdown("##### Modules carrying a severe accessibility issue")
+                    render_severe_register(school_df, key=f"school_severe_{school}")
+
+                with ally_tabs[4]:
+                    st.markdown("##### Every module, with the detail behind its score")
+                    if school_df.empty or 'Ally Overall' not in school_df.columns:
+                        st.warning("No Ally data found for this school.")
                     else:
-                        st.warning("No numerical Ally scores found to distribute.")
-                else:
-                    st.warning("No data found for this school.")
+                        table = school_df.copy()
+                        table['Mod. lead'] = table['Mod. lead'].apply(to_sentence_case)
+                        table = table.sort_values(['Ally Severe', 'Ally Major'], ascending=False)
+                        show = [c for c in [
+                            'New module code', 'Module name', 'Mod. lead', 'Content Maturity',
+                            'Ally Overall', 'Ally Files', 'Ally WYSIWYG', 'Total Files',
+                            'Ally WYSIWYG Items', 'Ally Severe', 'Ally Major', 'Ally Minor',
+                            'Ally Students'] if c in table.columns]
+                        st.dataframe(
+                            table[show].reset_index(drop=True),
+                            column_config={
+                                'New module code': "Module Code",
+                                'Module name': "Module Name",
+                                'Mod. lead': "Module Lead",
+                                'Content Maturity': "Build Stage",
+                                'Ally Overall': st.column_config.NumberColumn("Overall", format="%.1f%%"),
+                                'Ally Files': st.column_config.NumberColumn("Files", format="%.1f%%"),
+                                'Ally WYSIWYG': st.column_config.NumberColumn("Pages", format="%.1f%%"),
+                                'Total Files': st.column_config.NumberColumn("# Files", format="%d"),
+                                'Ally WYSIWYG Items': st.column_config.NumberColumn("# Pages", format="%d"),
+                                'Ally Severe': st.column_config.NumberColumn("Severe", format="%d"),
+                                'Ally Major': st.column_config.NumberColumn("Major", format="%d"),
+                                'Ally Minor': st.column_config.NumberColumn("Minor", format="%d"),
+                                'Ally Students': st.column_config.NumberColumn("Students", format="%d"),
+                            },
+                            width="stretch", hide_index=True)
+
+                with ally_tabs[5]:
+                    st.markdown("##### Where Ally and SITS disagree")
+                    st.caption(
+                        "Programme-level and community Blackboard sites have no SITS module, "
+                        "and a few SITS modules have no Blackboard course. Both used to "
+                        "disappear silently at import."
+                    )
+                    df_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
+                    if df_courses.empty:
+                        st.info("No Ally courses loaded.")
+                    else:
+                        ally_here = df_courses[
+                            df_courses['module_code'].astype(str).str[:3] == school]
+                        rec = reconcile_ally_modules(ally_here['module_code'], school_codes)
+                        r1, r2, r3 = st.columns(3)
+                        r1.metric("Matched", len(rec['matched']))
+                        r2.metric("Ally only", len(rec['ally_only']))
+                        r3.metric("SITS only", len(rec['sits_only']))
+                        if rec['ally_only']:
+                            st.write("**Blackboard courses with no SITS module this semester**")
+                            st.code(", ".join(rec['ally_only']))
+                        if rec['sits_only']:
+                            st.write("**SITS modules with no Blackboard course**")
+                            st.code(", ".join(rec['sits_only']))
 
             elif selected_view == "📈 Trends":
                 st.subheader(f"Accessibility Trends ({school})")
-                df_ally_local = st.session_state.get("df_ally_local", pd.DataFrame())
-                if not df_ally_local.empty and 'snapshot_date' in df_ally_local.columns:
-                    school_history = df_ally_local[df_ally_local['module_code'].isin(school_codes)].copy()
-                    if not school_history.empty:
-                        school_history['snapshot_date'] = pd.to_datetime(school_history['snapshot_date'])
-                        trend_df = school_history.groupby('snapshot_date')['weighted'].mean().reset_index()
-                        trend_df = trend_df.sort_values('snapshot_date').set_index('snapshot_date')
-                        st.markdown("**Average School Ally Score Over Time**")
-                        st.line_chart(trend_df['weighted'], height=300)
-                    else:
-                        st.info("No historical Ally data available for this school.")
-                else:
-                    st.info("Historical Ally data is not yet available.")
+                try:
+                    history = get_ally_history(academic_year=CURRENT_ACADEMIC_YEAR)
+                except Exception:
+                    history = pd.DataFrame()
 
+                if history.empty:
+                    st.info("Historical Ally data is not yet available.")
+                elif history['snapshot_date'].nunique() < 2:
+                    st.info(
+                        "Only one Ally snapshot has been imported so far, so there is no "
+                        "trend to plot yet. Import the report again after Ally next runs "
+                        "and this fills in."
+                    )
+                else:
+                    school_history = history[history['module_code'].isin(school_codes)].copy()
+                    if school_history.empty:
+                        st.info("No historical Ally data for this school.")
+                    else:
+                        school_history['items'] = (school_history['total_files']
+                                                   + school_history['total_wysiwyg'])
+                        grouped = school_history.groupby('snapshot_date')
+                        trend = pd.DataFrame({
+                            'Overall score': grouped.apply(
+                                lambda g: (g['overall_score'] * g['items']).sum()
+                                / max(g['items'].sum(), 1), include_groups=False),
+                            'Files uploaded': grouped['total_files'].sum(),
+                        })
+                        trend.index = pd.to_datetime(trend.index)
+                        st.markdown("**Average accessibility score over time**")
+                        st.line_chart(trend['Overall score'], height=260)
+                        st.markdown("**Content uploaded over time**")
+                        st.line_chart(trend['Files uploaded'], height=220)
+                        st.caption(
+                            "A course is only re-recorded when its content actually changes, "
+                            "so each point is a real movement. Early in the year the upload "
+                            "line matters more than the score line."
+                        )
             elif selected_view == "✅ Compliance Gap":
                 st.subheader(f"Compliance Gap Analysis ({semester})")
                 
@@ -370,7 +410,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 
                 lens = st.radio(
                     "Choose inspection criteria:",
-                    ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
+                    ["⚠️ Accessibility Risk", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
                     horizontal=True,
                     label_visibility="collapsed",
                     key="school_priority_lens_selector"
@@ -380,25 +420,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 render_df = None
                 render_configs = {}
                 render_status = None
-                render_status_type = "info" 
-                
+                render_status_type = "info"
+
                 source_data = school_df.copy()
-                
-                if lens == "⚠️ Low Accessibility (<70%)":
-                    filtered_df = source_data[source_data['Ally 25/26 All'] < 0.7].sort_values('Ally 25/26 All')
-                    if not filtered_df.empty:
-                        render_status = f"🎯 Found {len(filtered_df)} modules requiring Accessibility remediation (<70%)."
-                        render_status_type = "warning"
-                        filtered_df['DisplayValue'] = filtered_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                        display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                        render_df = filtered_df[display_cols].copy()
-                        render_configs = {
-                            "New module code": "Code", "Module name": "Module Name",
-                            "Mod. lead": "Lead", "DisplayValue": st.column_config.TextColumn("Overall Score")
-                        }
-                    else:
-                        render_status = "No modules below the 70% Ally threshold!"
-                        render_status_type = "success"
+
+                if lens == "⚠️ Accessibility Risk":
+                    render_df, render_configs, render_status, render_status_type = \
+                        build_accessibility_risk_list(source_data)
 
                 elif lens == "🔍 Critical Compliance Gaps":
                     counts, max_items = calculate_module_compliance(

@@ -40,7 +40,7 @@ It serves as a central hub for faculty to track compliance, accessibility scores
 The application relies heavily on Google Sheets as its backend database. The environment variables map to the respective Google Sheets:
 
 - **Main Audit Data (`MAIN_SPREADSHEET_ID`):** Contains "All Schools Aut" and "All Schools SPR" tabs. May involve manual edits by auditors.
-- **Ally Accessibility Scores (`ALLY_SPREADSHEET_ID`):** Contains module accessibility data. Updated monthly with new tabs added.
+- **Ally Accessibility:** Not a spreadsheet. The Anthology Ally institutional report is uploaded as a CSV in the Admin Panel, which writes `ally_courses`, `ally_issues` and `ally_content`. The retired `ALLY_SPREADSHEET_ID` no longer exists.
 - **Leganto Lists (`LEGANTO_NOLIST_ID`):** Tracks modules missing reading lists. Updated monthly with new tabs.
 - **Audit Checklist (`CHECKLIST_SPREADSHEET_ID`):** A synchronous sheet where module leads and support staff input data. It experiences heavy write operations during specific periods of the academic year.
 - **SITS Assessment Data (`ASSESSMENT_SPREADSHEET_ID`):** Contains formal assessment data. Updated annually with new tabs added.
