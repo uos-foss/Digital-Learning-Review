@@ -16,9 +16,17 @@ from database import (
     save_role_sqlite,
     update_role_field_sqlite,
     delete_role_sqlite,
+    save_ally_snapshot,
+    refresh_ally_scores_projection,
+    purge_legacy_ally_scores,
+    get_ally_academic_years,
     init_db
 )
-from processing import FACULTY_SCHOOLS
+from processing import (
+    FACULTY_SCHOOLS,
+    parse_ally_export,
+    reconcile_ally_modules,
+)
 
 def parse_log_line(line):
     """
@@ -92,6 +100,219 @@ def get_dataframe_size_kb(df):
         return df.memory_usage(deep=True).sum() / 1024.0
     except Exception:
         return 0.0
+
+def _sits_module_codes():
+    """SITS modules within FACULTY_SCHOOLS, for reconciling an Ally import
+    against. Scoped the same way the rest of the app scopes modules by code
+    prefix (school dashboards, comparison tables) - otherwise cross-faculty
+    provision codes like FCS601, which every other view already excludes as
+    not belonging to a single school, show up here as a false gap."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sits_assessment_2026_27'")
+            if not cursor.fetchone():
+                return set()
+            df = pd.read_sql_query(
+                'SELECT DISTINCT "CIS unit code" AS c FROM sits_assessment_2026_27', conn)
+        codes = {str(c).strip().upper() for c in df['c'] if str(c).strip()}
+        return {c for c in codes if c[:3] in FACULTY_SCHOOLS}
+    except Exception as exc:
+        logging.warning(f"Could not read SITS codes for Ally reconciliation: {exc}")
+        return set()
+
+
+def _render_ally_import():
+    """
+    Importer for the Anthology Ally institutional report.
+
+    Kept separate from the generic table importer because this export is not a
+    table dump: it is every Blackboard course the institution has ever had,
+    spanning a decade, wide across 39 accessibility checks. It has to be scoped
+    to a year and a faculty and reshaped before any of it means anything, and
+    the operator needs to see what was dropped before committing.
+    """
+    st.markdown("---")
+    st.subheader("🔍 Ally Institutional Report Import")
+    st.write(
+        "Upload the Ally **courses** export. It is filtered to one academic year "
+        "and to this faculty, then split into course scores, the accessibility "
+        "issue census and the content-type census."
+    )
+
+    ally_file = st.file_uploader("Choose the Ally institutional report (CSV)",
+                                 type="csv", key="uploader_ally_report")
+    if ally_file is None:
+        with st.expander("What this import expects"):
+            st.markdown(
+                "- The **courses** export from the Ally institutional report, not the "
+                "department overview.\n"
+                "- Columns `Term name`, `Course id`, `Course code`, `Overall score`, "
+                "`Files score`, `WYSIWYG score`, plus the issue columns such as `Tagged:2`.\n"
+                "- Rows for other academic years and other faculties are discarded, and "
+                "the counts are reported before you commit."
+            )
+        return
+
+    try:
+        df_raw = pd.read_csv(ally_file, low_memory=False)
+    except Exception as exc:
+        st.error(f"❌ Could not read that CSV: {exc}")
+        return
+
+    # Peek at the years present so the selector offers real options rather than
+    # a free-text box someone can typo.
+    try:
+        from processing import ally_term_to_academic_year
+        years = sorted({y for y in df_raw.get('Term name', pd.Series(dtype=str))
+                        .map(ally_term_to_academic_year) if y}, reverse=True)
+    except Exception:
+        years = []
+
+    if not years:
+        st.error("❌ No academic years found. Does this export include a `Term name` column?")
+        return
+
+    c1, c2 = st.columns(2)
+    with c1:
+        academic_year = st.selectbox(
+            "Academic year to import:", years, index=0, key="ally_import_year",
+            help="Every other year in the file is discarded.")
+    with c2:
+        # A date in the filename is the usual convention; never guess silently.
+        default_date = datetime.date.today()
+        match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', ally_file.name)
+        if match:
+            parsed = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
+            if not pd.isna(parsed):
+                default_date = parsed.date()
+        snapshot_date = st.date_input(
+            "Snapshot date:", value=default_date, key="ally_import_date",
+            help="When Ally produced this export. Taken from the filename where possible.")
+
+    try:
+        parsed = parse_ally_export(df_raw, academic_year, snapshot_date.strftime('%Y-%m-%d'))
+    except Exception as exc:
+        st.error(f"❌ {exc}")
+        return
+
+    courses = parsed['courses']
+    if courses.empty:
+        st.warning(
+            f"No {academic_year} courses for this faculty in that file "
+            f"({parsed['rows_in']} rows read, {parsed['dropped_other_years']} in other years).")
+        return
+
+    st.markdown("**What this file contains**")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Rows read", f"{parsed['rows_in']:,}")
+    m2.metric("Other years dropped", f"{parsed['dropped_other_years']:,}",
+              help="Years present: " + ", ".join(parsed['years_seen']))
+    m3.metric("Outside faculty dropped", f"{parsed['dropped_out_of_faculty']:,}")
+    m4.metric("Courses kept", f"{len(courses):,}",
+              help=f"{courses['module_code'].nunique()} distinct module codes")
+
+    m5, m6, m7 = st.columns(3)
+    m5.metric("Module codes", f"{courses['module_code'].nunique():,}")
+    m6.metric("Issue rows", f"{len(parsed['issues']):,}")
+    m7.metric("Content-type rows", f"{len(parsed['content']):,}")
+
+    shells = courses['module_code'].value_counts()
+    if (shells > 1).any():
+        multi = shells[shells > 1]
+        st.caption(
+            f"ℹ️ {len(multi)} module(s) run more than one Blackboard course shell "
+            f"({', '.join(multi.index[:6])}{'…' if len(multi) > 6 else ''}). "
+            "All shells are stored; scores are combined per module on display.")
+
+    # Reconciliation - roughly a twentieth of Ally rows are programme-level or
+    # community sites SITS has never heard of. They used to disappear silently.
+    sits_codes = _sits_module_codes()
+    if sits_codes:
+        rec = reconcile_ally_modules(courses['module_code'], sits_codes)
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Matched to SITS", f"{len(rec['matched']):,}")
+        r2.metric("In Ally only", f"{len(rec['ally_only']):,}")
+        r3.metric("In SITS only", f"{len(rec['sits_only']):,}")
+        with st.expander("Reconciliation detail"):
+            st.write("**Ally courses with no SITS module** — usually programme-level "
+                     "or community sites. They are stored but never appear in the audits.")
+            st.code(", ".join(rec['ally_only']) or "none")
+            st.write("**SITS modules with no Ally course** — no Blackboard site, or the "
+                     "site sits under a different code.")
+            st.code(", ".join(rec['sits_only']) or "none")
+
+    with st.expander("Preview parsed rows"):
+        st.dataframe(courses.head(8), use_container_width=True)
+        if not parsed['issues'].empty:
+            st.dataframe(parsed['issues'].head(8), use_container_width=True)
+
+    st.markdown("**Import options**")
+    also_links = st.checkbox(
+        "Also refresh Blackboard module links from this file",
+        value=True, key="ally_import_links",
+        help="Every Ally row carries the course URL, so the separate links CSV is redundant.")
+    force_all = st.checkbox(
+        "Store every course, even unchanged ones", value=False, key="ally_import_force",
+        help="Normally a course is only written when its measurements have moved since "
+             "the last snapshot, so a weekly import does not fill the history with "
+             "identical rows.")
+    confirm = st.checkbox("Confirm: write this Ally snapshot to the database.",
+                          key="ally_import_confirm")
+
+    if st.button("🚀 Import Ally report", type="primary", disabled=not confirm,
+                 key="btn_import_ally"):
+        try:
+            with st.spinner("Writing Ally snapshot..."):
+                result = save_ally_snapshot(parsed['courses'], parsed['issues'],
+                                            parsed['content'], force_all=force_all)
+                projected = refresh_ally_scores_projection(academic_year)
+
+                linked = 0
+                if also_links:
+                    from sync_data import sync_blackboard_links_from_csv
+                    df_links = (parsed['courses'][['module_code', 'course_url']]
+                                .rename(columns={'course_url': 'blackboard_link'}))
+                    df_links = df_links[df_links['blackboard_link'] != ""]
+                    # One row per module; the busiest shell already sorts first.
+                    df_links = df_links.drop_duplicates(subset=['module_code'], keep='first')
+                    linked, _ = sync_blackboard_links_from_csv(df_links, academic_year)
+
+            if result['courses_written'] == 0:
+                st.info(
+                    f"Nothing to write — all {result['courses_unchanged']} courses are "
+                    "unchanged since the last snapshot. Tick 'store every course' to "
+                    "force a write.")
+            else:
+                st.success(
+                    f"✅ Imported {result['courses_written']} courses "
+                    f"({result['courses_unchanged']} unchanged and skipped), "
+                    f"{result['issues']} issue rows, {result['content']} content rows.")
+            st.caption(f"Legacy `ally_scores` projection rebuilt: {projected} modules."
+                       + (f" Blackboard links refreshed: {linked}." if also_links else ""))
+            logging.info(
+                "🔍 Ally import %s: %s courses written, %s unchanged, %s issues, %s content",
+                academic_year, result['courses_written'], result['courses_unchanged'],
+                result['issues'], result['content'])
+            st.cache_data.clear()
+        except Exception as exc:
+            st.error(f"❌ Ally import failed: {exc}")
+            logging.error(f"Ally import error: {exc}")
+
+    with st.expander("⚠️ Purge legacy Ally scores"):
+        st.write(
+            "`ally_scores` predates the institutional export. Its historic contents were "
+            "the 2025-26 academic year stored under column names that implied otherwise, "
+            "plus some dummy 2024 fixtures. Purging empties the table; the next import "
+            "rebuilds it from `ally_courses`."
+        )
+        purge_ok = st.checkbox("Confirm: delete all legacy ally_scores rows.",
+                               key="ally_purge_confirm")
+        if st.button("🗑️ Purge ally_scores", disabled=not purge_ok, key="btn_purge_ally"):
+            removed = purge_legacy_ally_scores()
+            st.success(f"Removed {removed} legacy rows. Re-import to rebuild the projection.")
+            st.cache_data.clear()
+
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     # Strict lockdown verification using RBAC capabilities
@@ -819,11 +1040,16 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             "Audit Responses Data": "audit_responses",
             "User Accounts": "users",
             "User Roles": "roles",
-            "VLE Ally Scores": "ally_scores",
+            "Ally Courses": "ally_courses",
+            "Ally Issues": "ally_issues",
+            "Ally Content Types": "ally_content",
+            "VLE Ally Scores (legacy projection)": "ally_scores",
             "Leganto No-Lists": "leganto_nolist",
             "Legacy Audit Baseline (Autumn 25/26)": "main_vle_audit_aut",
             "Legacy Audit Baseline (Spring 25/26)": "main_vle_audit_spr"
         }
+
+        _render_ally_import()
 
         # Separate handling for Blackboard Links (CSV upload)
         st.markdown("---")
@@ -930,115 +1156,18 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
 
                                 
-                    elif target_table == "ally_scores":
-                        # Attempt to parse DD-MM-YY from filename e.g. '15-10-24_Ally Data.csv'
-                        match = re.search(r'(\d{1,2}-\d{1,2}-\d{2,4})', uploaded_file.name)
-                        snapshot_date = None
-                        if match:
-                            parsed_date = pd.to_datetime(match.group(1), format='%d-%m-%y', errors='coerce')
-                            if pd.isna(parsed_date):
-                                parsed_date = pd.to_datetime(match.group(1), format='%d-%m-%Y', errors='coerce')
-                            if not pd.isna(parsed_date):
-                                snapshot_date = parsed_date.strftime('%Y-%m-%d')
-                            else:
-                                st.warning("Could not parse date from filename. Using today's date.")
-                                snapshot_date = datetime.datetime.now().strftime('%Y-%m-%d')
-                        else:
-                            st.warning("No date found in filename. Using today's date.")
-                            snapshot_date = datetime.datetime.now().strftime('%Y-%m-%d')
-
-                        # Column normalization and mapping
-                        # 1. Module Code
-                        module_col = None
-                        for col in df_import.columns:
-                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
-                            if col_clean in ["module code", "course code", "course id", "module_code", "course_code"]:
-                                module_col = col
-                                break
-                        if module_col is not None:
-                            # Extract clean module code (e.g. GPL439.A.279588 -> GPL439)
-                            df_import['module_code'] = df_import[module_col].astype(str).apply(
-                                lambda x: x.split('.')[0].strip().upper() if pd.notna(x) and x.strip() != "" else ""
-                            )
-                        else:
-                            raise ValueError("CSV must contain a 'Course code', 'Course ID', or 'module_code' column.")
-                        
-                        # Filter out empty module codes
-                        df_import = df_import[df_import['module_code'] != ""]
-                        if len(df_import) == 0:
-                            raise ValueError("No valid module codes found in the CSV.")
-
-                        # 2. Files
-                        files_col = None
-                        for col in df_import.columns:
-                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
-                            if col_clean in ["files", "total files", "file count", "files count", "total file count"]:
-                                files_col = col
-                                break
-                        if files_col is not None:
-                            df_import['files'] = pd.to_numeric(df_import[files_col], errors='coerce').fillna(0).astype(int)
-                        else:
-                            df_import['files'] = 0
-
-                        # Helper to clean score percentage or fraction
-                        def clean_score_column(series):
-                            cleaned = series.astype(str).str.strip().str.replace("%", "", regex=False)
-                            num = pd.to_numeric(cleaned, errors='coerce')
-                            # If any max value is > 1.0 (indicating 0-100 scale), convert to 0-1 fraction
-                            if not num.isna().all() and num.max() > 1.0:
-                                num = num / 100.0
-                            return num
-
-                        # 3. Measured
-                        measured_col = None
-                        for col in df_import.columns:
-                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
-                            if col_clean in ["measured", "files score", "file score", "measured score"]:
-                                measured_col = col
-                                break
-                        if measured_col is not None:
-                            df_import['measured'] = clean_score_column(df_import[measured_col])
-                        else:
-                            # Fallback to look for score
-                            for col in df_import.columns:
-                                if "score" in str(col).lower() and col not in ["files", "total files", "file count", "files count", "total file count"]:
-                                    measured_col = col
-                                    break
-                            if measured_col is not None:
-                                df_import['measured'] = clean_score_column(df_import[measured_col])
-                            else:
-                                df_import['measured'] = 0.0
-
-                        # 4. Weighted
-                        weighted_col = None
-                        for col in df_import.columns:
-                            col_clean = str(col).strip().lower().replace("_", " ").replace("-", " ")
-                            if col_clean in ["weighted", "overall score", "weighted score"]:
-                                weighted_col = col
-                                break
-                        if weighted_col is not None:
-                            df_import['weighted'] = clean_score_column(df_import[weighted_col])
-                        else:
-                            df_import['weighted'] = pd.Series([None] * len(df_import))
-
-                        # Apply credibility model to populate missing weighted scores
-                        import numpy as np
-                        def get_row_weighted(row):
-                            m = row['measured']
-                            f = row['files']
-                            w = row['weighted']
-                            if pd.notna(w) and not pd.isna(w):
-                                return float(w)
-                            if pd.isna(m) or m is None:
-                                return 0.50
-                            credibility = 1.0 - np.exp(-0.15 * f)
-                            return float(credibility * m + (1.0 - credibility) * 0.50)
-
-                        df_import['weighted'] = df_import.apply(get_row_weighted, axis=1)
-                        df_import['snapshot_date'] = snapshot_date
-
-                        # Keep ONLY standard columns to match SQLite schema
-                        df_import = df_import[['module_code', 'snapshot_date', 'measured', 'weighted', 'files']]
+                    elif target_table in ("ally_scores", "ally_courses", "ally_issues", "ally_content"):
+                        # The old path here guessed at column meanings, and guessed
+                        # wrong once the institutional export arrived: it matched
+                        # 'files score' to measured and 'overall score' to weighted,
+                        # so the stored series quietly changed meaning. Ally data now
+                        # comes in through its own importer above, which scopes the
+                        # file to a year and a faculty and shows what it dropped.
+                        raise ValueError(
+                            "Ally data is imported through the 🔍 Ally Institutional Report "
+                            "Import section at the top of this tab, not here. Export from "
+                            "these tables still works."
+                        )
 
                     st.markdown("**Uploaded Data Preview:**")
                     st.dataframe(df_import.head(3), use_container_width=True)
@@ -1072,14 +1201,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
                         with st.spinner("Writing records to SQLite..."):
                             with get_db_connection() as conn:
-                                predefined_tables = ["comment_bank", "audit_fields", "audit_responses", "users", "roles", "ally_scores", "leganto_nolist"]
+                                # No Ally tables here - they are import-blocked above
+                                # and handled by the dedicated Ally importer.
+                                predefined_tables = ["comment_bank", "audit_fields", "audit_responses", "users", "roles", "leganto_nolist"]
                                 expected_cols = {
                                     "comment_bank": ['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text'],
                                     "audit_fields": ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'],
                                     "audit_responses": ['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'],
                                     "users": ['Username', 'PasswordHash', 'Role', 'School', 'Capabilities', 'Status'],
                                     "roles": ['Role', 'Capabilities'],
-                                    "ally_scores": ['module_code', 'snapshot_date', 'measured', 'weighted', 'files'],
                                     "leganto_nolist": ['module_code']
                                 }
 
@@ -1121,7 +1251,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                             "audit_responses": ["module_code", "field_id"],
                                             "users": "Username",
                                             "roles": "Role",
-                                            "ally_scores": ["module_code", "snapshot_date"],
                                             "leganto_nolist": "module_code",
                                             "main_vle_audit_aut": None,
                                             "main_vle_audit_spr": None
