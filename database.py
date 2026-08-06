@@ -213,6 +213,30 @@ def init_db():
         )
     """)
 
+    # Leganto reading-list status/items for courses that DO have a list
+    # (draft vs published, and citation counts). Snapshot-per-import, same
+    # shape as ally_courses, so a later real-year import doesn't destroy a
+    # reference/test set and a specific academic_year can be purged on its
+    # own once real data replaces it.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS leganto_lists (
+            course_code TEXT,
+            snapshot_date TEXT,
+            academic_year TEXT,
+            module_code TEXT,
+            course_name TEXT,
+            school TEXT,
+            course_term TEXT,
+            list_info TEXT,
+            draft_lists INTEGER,
+            published_lists INTEGER,
+            draft_items INTEGER,
+            published_items INTEGER,
+            status TEXT,
+            PRIMARY KEY (course_code, snapshot_date, academic_year)
+        )
+    """)
+
     # Create blackboard_links table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS blackboard_links (
@@ -892,6 +916,139 @@ def purge_legacy_ally_scores():
         cursor.execute("DELETE FROM ally_scores")
         conn.commit()
     logging.info("Purged %d legacy ally_scores rows.", before)
+    return before
+
+# --- Leganto reading lists -------------------------------------------------
+
+_LEGANTO_CHANGE_COLS = ['status', 'draft_lists', 'published_lists', 'draft_items', 'published_items']
+
+def get_leganto_academic_years():
+    """Academic years present in leganto_lists, newest first."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'leganto_lists'):
+            return []
+        rows = conn.execute(
+            "SELECT DISTINCT academic_year FROM leganto_lists "
+            "WHERE academic_year IS NOT NULL AND academic_year != '' "
+            "ORDER BY academic_year DESC"
+        ).fetchall()
+    return [r[0] for r in rows]
+
+def get_leganto_lists_latest(academic_year=None):
+    """One row per Leganto course, at that course's latest snapshot.
+
+    Snapshots are stored only when a course actually changes (see
+    save_leganto_snapshot), so different courses sit at different
+    snapshot_dates and a single MAX over the whole table would drop
+    everything that has not moved recently.
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'leganto_lists'):
+            return pd.DataFrame()
+        if academic_year:
+            sql = """
+                SELECT c.* FROM leganto_lists c
+                JOIN (
+                    SELECT course_code, MAX(snapshot_date) AS ms
+                    FROM leganto_lists WHERE academic_year = ? GROUP BY course_code
+                ) m ON c.course_code = m.course_code AND c.snapshot_date = m.ms
+                WHERE c.academic_year = ?
+            """
+            return pd.read_sql_query(sql, conn, params=(academic_year, academic_year))
+        sql = """
+            SELECT c.* FROM leganto_lists c
+            JOIN (
+                SELECT course_code, MAX(snapshot_date) AS ms
+                FROM leganto_lists GROUP BY course_code
+            ) m ON c.course_code = m.course_code AND c.snapshot_date = m.ms
+        """
+        return pd.read_sql_query(sql, conn)
+
+def save_leganto_snapshot(df_lists, force_all=False):
+    """Writes one Leganto reading-list export into leganto_lists.
+
+    Courses whose status/counts are identical to their most recent stored
+    snapshot for the *same academic_year* are skipped unless force_all, so
+    the snapshot series holds genuine observations only - same discipline as
+    save_ally_snapshot. Scoped to academic_year (unlike save_ally_snapshot,
+    which never needed to be): two different years can legitimately carry
+    identical-looking rows - e.g. a reference import of last year's export
+    followed by this year's real one - and that must never be mistaken for
+    "nothing changed" and silently skipped.
+    """
+    if df_lists is None or df_lists.empty:
+        return {'written': 0, 'unchanged': 0}
+
+    df_lists = df_lists.copy()
+
+    with get_db_connection() as conn:
+        prev = pd.read_sql_query("""
+            SELECT c.* FROM leganto_lists c
+            JOIN (SELECT course_code, academic_year, MAX(snapshot_date) AS ms
+                  FROM leganto_lists GROUP BY course_code, academic_year) m
+              ON c.course_code = m.course_code AND c.academic_year = m.academic_year
+             AND c.snapshot_date = m.ms
+        """, conn) if table_exists(conn, 'leganto_lists') else pd.DataFrame()
+
+    unchanged = 0
+    if not force_all and not prev.empty:
+        merged = df_lists.merge(
+            prev[['course_code', 'academic_year'] + _LEGANTO_CHANGE_COLS],
+            on=['course_code', 'academic_year'], how='left', suffixes=('', '_prev'))
+        same = pd.Series(True, index=merged.index)
+        for col in _LEGANTO_CHANGE_COLS:
+            a = merged[col].astype(str).fillna('')
+            b = merged[f'{col}_prev'].astype(str).fillna('')
+            same &= (a == b)
+        same &= merged['status_prev'].notna()
+        unchanged = int(same.sum())
+        df_lists = df_lists[~same.values].copy()
+
+    if df_lists.empty:
+        return {'written': 0, 'unchanged': unchanged}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany("""
+            INSERT INTO leganto_lists (
+                course_code, snapshot_date, academic_year, module_code, course_name,
+                school, course_term, list_info, draft_lists, published_lists,
+                draft_items, published_items, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(course_code, snapshot_date, academic_year) DO UPDATE SET
+                module_code=excluded.module_code,
+                course_name=excluded.course_name, school=excluded.school,
+                course_term=excluded.course_term, list_info=excluded.list_info,
+                draft_lists=excluded.draft_lists, published_lists=excluded.published_lists,
+                draft_items=excluded.draft_items, published_items=excluded.published_items,
+                status=excluded.status
+        """, df_lists[[
+            'course_code', 'snapshot_date', 'academic_year', 'module_code', 'course_name',
+            'school', 'course_term', 'list_info', 'draft_lists', 'published_lists',
+            'draft_items', 'published_items', 'status']].itertuples(index=False, name=None))
+        conn.commit()
+
+    logging.info("Leganto list snapshot written: %d courses (%d unchanged).",
+                 len(df_lists), unchanged)
+    return {'written': len(df_lists), 'unchanged': unchanged}
+
+def purge_leganto_lists(academic_year):
+    """Deletes every leganto_lists row for one academic_year.
+
+    Scoped to a single year rather than the whole table, so a reference/test
+    import (e.g. last year's export, imported early to build against) can be
+    dropped cleanly once the real current-year export replaces it.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if not table_exists(conn, 'leganto_lists'):
+            return 0
+        before = cursor.execute(
+            "SELECT COUNT(*) FROM leganto_lists WHERE academic_year = ?", (academic_year,)
+        ).fetchone()[0]
+        cursor.execute("DELETE FROM leganto_lists WHERE academic_year = ?", (academic_year,))
+        conn.commit()
+    logging.info("Purged %d leganto_lists rows for %s.", before, academic_year)
     return before
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):

@@ -168,7 +168,17 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
                 
                 if 'Leganto Missing' in display_df.columns:
-                    display_df['Leganto'] = display_df['Leganto Missing'].apply(lambda x: "❌ No List" if x is True else "✅ OK")
+                    def _leganto_display(r):
+                        if r.get('Leganto Missing') is True:
+                            return "❌ No List"
+                        status = r.get('Leganto List Status', '')
+                        items = r.get('Leganto List Items', 0)
+                        if status == 'Published':
+                            return f"✅ Published ({items})"
+                        if status in ('Draft', 'Mixed'):
+                            return f"📝 Draft ({items})"
+                        return "✅ OK"
+                    display_df['Leganto'] = display_df.apply(_leganto_display, axis=1)
                     cols.append('Leganto')
                     configs['Leganto'] = "Leganto Status"
                 

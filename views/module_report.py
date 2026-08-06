@@ -209,7 +209,8 @@ def _render_ally_trend(selected_code):
     st.caption("Each point is a snapshot in which this course's content actually changed.")
 
 
-def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit):
+def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit,
+                           leganto_draft=False, leganto_items=0):
     """
     A short, neutral summary of what's outstanding across Ally, the checklist,
     and Leganto - the one place these three add up to a single picture.
@@ -236,6 +237,8 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
         bullets.append(f"{pending_count} checklist item{'s' if pending_count != 1 else ''} outstanding")
     if leganto_missing:
         bullets.append("no Leganto reading list connected")
+    elif leganto_draft:
+        bullets.append(f"reading list still in Draft in Leganto ({leganto_items} item{'s' if leganto_items != 1 else ''})")
     if not has_audit:
         bullets.append("not yet audited by a Digital Learning Advisor")
 
@@ -302,7 +305,8 @@ def _render_pending_item_card(item):
     """, unsafe_allow_html=True)
 
 
-def _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit):
+def _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit,
+                              leganto_draft=False, leganto_items=0):
     """
     One severity-ranked worklist across Ally, the checklist, and Leganto.
 
@@ -325,6 +329,14 @@ def _render_unified_worklist(active_row, ally_profile, pending_items, leganto_mi
             'type': 'boolean',
             'label': 'Leganto Reading List Missing',
             'description': "This module doesn't have a reading list connected in Leganto yet."
+        })
+    elif leganto_draft:
+        major_checklist.append({
+            'type': 'boolean',
+            'label': 'Leganto Reading List Not Published',
+            'description': (f"This module's Leganto list has {leganto_items} item"
+                             f"{'s' if leganto_items != 1 else ''} but is still in Draft "
+                             "- not visible to students yet.")
         })
 
     total = len(severe) + len(major_ally) + len(major_checklist) + len(minor)
@@ -567,17 +579,31 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             if spr_m.iloc[0]['Leganto Missing'] is True:
                 leganto_missing = True
 
+        # Draft/Published status and item count for modules that DO have a
+        # list. A blank status just means this module isn't in that export -
+        # not the same as 'Leganto Missing' above.
+        leganto_status = str(active_row.get('Leganto List Status', '')).strip() if active_row is not None else ''
+        leganto_items = int(active_row.get('Leganto List Items', 0) or 0) if active_row is not None else 0
+        leganto_draft = leganto_status in ('Draft', 'Mixed')
+
         # Checklist and Ally data are both needed by the health banner and the
         # unified worklist, so compute them before rendering anything.
         active_fields = get_active_audit_fields()
         pending_items, completed_items, has_audit, last_updated_str, responses = \
             _compute_checklist_items(selected_code, checklist_sums, active_fields)
         if not leganto_missing:
-            completed_items.append({
-                'type': 'boolean',
-                'label': 'Leganto Reading List: OK / Connected',
-                'description': 'The module has a reading list connected in Leganto.'
-            })
+            if leganto_status == 'Published':
+                completed_items.append({
+                    'type': 'boolean',
+                    'label': 'Leganto Reading List: Published',
+                    'description': f"Published in Leganto with {leganto_items} item{'s' if leganto_items != 1 else ''}."
+                })
+            elif not leganto_draft:
+                completed_items.append({
+                    'type': 'boolean',
+                    'label': 'Leganto Reading List: OK / Connected',
+                    'description': 'The module has a reading list connected in Leganto.'
+                })
         ally_profile = _ally_issue_profile(selected_code)
 
         # 1. Overview metadata + module health banner
@@ -612,7 +638,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 with c4:
                     st.markdown(f"**Checklist Status:**  \n{sa_status}", unsafe_allow_html=True)
 
-        _render_health_banner(ally_profile, len(pending_items), leganto_missing, has_audit)
+        _render_health_banner(ally_profile, len(pending_items), leganto_missing, has_audit,
+                              leganto_draft, leganto_items)
 
         st.markdown(" ")
 
@@ -621,7 +648,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         st.markdown("---")
 
         # 3. One outstanding-items worklist across Ally, the checklist, and Leganto
-        _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit)
+        _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit,
+                                 leganto_draft, leganto_items)
 
         # 4. Checklist detail: DLA edit access, completed criteria, internal notes
         is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)

@@ -20,12 +20,18 @@ from database import (
     refresh_ally_scores_projection,
     purge_legacy_ally_scores,
     get_ally_academic_years,
+    save_leganto_snapshot,
+    get_leganto_academic_years,
+    purge_leganto_lists,
     init_db
 )
 from processing import (
     FACULTY_SCHOOLS,
+    CURRENT_ACADEMIC_YEAR,
     parse_ally_export,
     reconcile_ally_modules,
+    parse_leganto_lists_export,
+    ally_term_to_academic_year,
 )
 
 def parse_log_line(line):
@@ -312,6 +318,170 @@ def _render_ally_import():
             removed = purge_legacy_ally_scores()
             st.success(f"Removed {removed} legacy rows. Re-import to rebuild the projection.")
             st.cache_data.clear()
+
+
+def _render_leganto_import():
+    """
+    Importer for the Leganto reading-list status/items export - the courses
+    that DO have a list, showing whether it's Draft or Published and how many
+    citations it holds. Separate from the generic table importer (and from
+    the leganto_nolist 'missing list' CSV) because the raw export needs
+    reshaping (duplicate Draft/Published headers, Course Code -> module code)
+    and explicit year-scoping before it means anything, the same reasons the
+    Ally importer above is dedicated rather than generic.
+    """
+    st.markdown("---")
+    st.subheader("📚 Leganto Reading List Import")
+    st.write(
+        "Upload the Leganto export of courses that **have** a reading list. It "
+        "reports each list's Draft/Published status and item count, filtered "
+        "to this faculty and tagged with the academic year you choose below."
+    )
+
+    leganto_file = st.file_uploader("Choose the Leganto reading-list export (CSV)",
+                                    type="csv", key="uploader_leganto_lists")
+    if leganto_file is None:
+        with st.expander("What this import expects"):
+            st.markdown(
+                "- Columns `School`, `Course Code`, `Course Name`, `Course Term`, "
+                "`Course List Info`, then `Draft`, `Published` (count of lists in "
+                "that state) and `Draft`, `Published` again (summed item count) - "
+                "pandas reads the repeated headers as `Draft`, `Published`, "
+                "`Draft.1`, `Published.1`.\n"
+                "- There is no per-row academic year column, so you choose the "
+                "year to tag the import with below - it is not read from the file.\n"
+                "- Courses outside this faculty's module-code prefixes are "
+                "dropped, and the count is reported before you commit."
+            )
+        return
+
+    try:
+        df_raw = pd.read_csv(leganto_file)
+    except Exception as exc:
+        st.error(f"❌ Could not read that CSV: {exc}")
+        return
+
+    # Purely informational - there is no reliable per-row year column, so this
+    # never decides anything on its own, only warns when the tag looks wrong.
+    detected_years = []
+    if 'Course Name' in df_raw.columns:
+        detected_years = sorted({y for y in df_raw['Course Name'].map(ally_term_to_academic_year) if y},
+                                 reverse=True)
+
+    year_options = list(dict.fromkeys(
+        [CURRENT_ACADEMIC_YEAR] + detected_years + get_leganto_academic_years()))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        academic_year = st.selectbox(
+            "Academic year to tag this import as:", year_options, index=0,
+            key="leganto_import_year",
+            help="Not read from the file - there is no reliable per-row year column.")
+    with c2:
+        default_date = datetime.date.today()
+        match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', leganto_file.name)
+        if match:
+            parsed = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
+            if not pd.isna(parsed):
+                default_date = parsed.date()
+        snapshot_date = st.date_input(
+            "Snapshot date:", value=default_date, key="leganto_import_date",
+            help="When this export was produced. Taken from the filename where possible.")
+
+    if detected_years and academic_year not in detected_years:
+        st.warning(
+            f"⚠️ Course names in this file suggest {', '.join(detected_years)}, but you're "
+            f"about to tag it as **{academic_year}**. That's fine for a deliberate reference/"
+            f"test import (e.g. ahead of the real {CURRENT_ACADEMIC_YEAR} export), but double-check "
+            "before committing if that wasn't the intent."
+        )
+
+    try:
+        parsed = parse_leganto_lists_export(df_raw, academic_year, snapshot_date.strftime('%Y-%m-%d'))
+    except Exception as exc:
+        st.error(f"❌ {exc}")
+        return
+
+    lists_df = parsed['lists']
+    if lists_df.empty:
+        st.warning(
+            f"No in-faculty rows found ({parsed['rows_in']} rows read, "
+            f"{parsed['dropped_out_of_faculty']} outside this faculty).")
+        return
+
+    st.markdown("**What this file contains**")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Rows read", f"{parsed['rows_in']:,}")
+    m2.metric("Outside faculty dropped", f"{parsed['dropped_out_of_faculty']:,}")
+    m3.metric("Courses kept", f"{len(lists_df):,}")
+    m4.metric("Module codes", f"{lists_df['module_code'].nunique():,}")
+
+    status_counts = lists_df['status'].value_counts()
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Published", f"{int(status_counts.get('Published', 0)):,}")
+    s2.metric("Draft", f"{int(status_counts.get('Draft', 0)):,}")
+    s3.metric("Mixed", f"{int(status_counts.get('Mixed', 0)):,}")
+    s4.metric("No List Expected", f"{int(status_counts.get('No List Expected', 0)):,}")
+
+    sits_codes = _sits_module_codes()
+    if sits_codes:
+        rec = reconcile_ally_modules(lists_df['module_code'], sits_codes)
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Matched to SITS", f"{len(rec['matched']):,}")
+        r2.metric("In Leganto only", f"{len(rec['ally_only']):,}")
+        r3.metric("In SITS only", f"{len(rec['sits_only']):,}")
+
+    with st.expander("Preview parsed rows"):
+        st.dataframe(lists_df.head(8), use_container_width=True)
+
+    st.markdown("**Import options**")
+    force_all = st.checkbox(
+        "Store every course, even unchanged ones", value=False, key="leganto_import_force",
+        help="Normally a course is only written when its status or item count has moved "
+             "since the last snapshot, so a re-import does not fill the history with "
+             "identical rows.")
+    confirm = st.checkbox("Confirm: write this Leganto snapshot to the database.",
+                          key="leganto_import_confirm")
+
+    if st.button("🚀 Import Leganto reading lists", type="primary", disabled=not confirm,
+                 key="btn_import_leganto"):
+        try:
+            with st.spinner("Writing Leganto snapshot..."):
+                result = save_leganto_snapshot(lists_df, force_all=force_all)
+
+            if result['written'] == 0:
+                st.info(
+                    f"Nothing to write — all {result['unchanged']} courses are "
+                    "unchanged since the last snapshot. Tick 'store every course' to force a write.")
+            else:
+                st.success(
+                    f"✅ Imported {result['written']} courses "
+                    f"({result['unchanged']} unchanged and skipped) for {academic_year}.")
+            logging.info(
+                "📚 Leganto import %s: %s courses written, %s unchanged",
+                academic_year, result['written'], result['unchanged'])
+            st.cache_data.clear()
+        except Exception as exc:
+            st.error(f"❌ Leganto import failed: {exc}")
+            logging.error(f"Leganto import error: {exc}")
+
+    with st.expander("🗑️ Purge Leganto reading-list data"):
+        st.write(
+            "Deletes every stored row for one academic year - the way to drop a "
+            "reference/test import (e.g. last year's data, imported early to build "
+            "against) once the real export for that year lands."
+        )
+        years_present = get_leganto_academic_years()
+        if not years_present:
+            st.caption("No Leganto reading-list data stored yet.")
+        else:
+            purge_year = st.selectbox("Academic year to purge:", years_present, key="leganto_purge_year")
+            purge_ok = st.checkbox("Confirm: delete all leganto_lists rows for this year.",
+                                   key="leganto_purge_confirm")
+            if st.button("🗑️ Purge Leganto year", disabled=not purge_ok, key="btn_purge_leganto"):
+                removed = purge_leganto_lists(purge_year)
+                st.success(f"Removed {removed} rows for {purge_year}.")
+                st.cache_data.clear()
 
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
@@ -1050,6 +1220,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         }
 
         _render_ally_import()
+        _render_leganto_import()
 
         # Separate handling for Blackboard Links (CSV upload)
         st.markdown("---")
