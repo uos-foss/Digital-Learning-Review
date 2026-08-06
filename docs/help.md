@@ -38,7 +38,9 @@ Five tabs:
 * **School Comparison** — One row per school: module count, audit coverage,
   average Ally score, VLE compliance and an overall status badge. Faculty-wide
   totals sit beneath the table. Click any row to open that school's dashboard.
-* **Ally Analytics** — Distribution of accessibility scores across the faculty.
+* **Ally Analytics** — The faculty's accessibility profile, in six tabs: the
+  issue league table, build-out tracker, files against editor pages, severity
+  load by school, score distribution and a data-coverage check.
 * **Compliance Gap** — Which audit checks are most often failed.
 * **Priority Action List** — Modules most in need of attention.
 * **Assessment Types** — SITS assessment strategy overall, or compared across
@@ -57,14 +59,40 @@ Five tabs:
 Six tabs. Note that these are **not** the same set as the Faculty Overview —
 this page has All Modules and Trends, and does not have School Comparison.
 
-* **All Modules** — Every module in the school with its lead, Ally score and
-  audit status.
-* **Ally Analytics** — Per-module measured and weighted scores, score change
-  and file counts, followed by the score distribution.
-* **Trends** — The school's average weighted Ally score plotted over time, from
-  the monthly Ally snapshots.
+* **All Modules** — Every module in the school with its lead, Ally score, build
+  stage and audit status.
+* **Ally Analytics** — Six tabs: what to fix, build progress, files against
+  editor pages, severe issues, a per-module table, and reconciliation against
+  SITS.
+* **Trends** — The school's accessibility score and content volume over the
+  stored Ally snapshots.
 * **Compliance Gap**, **Priority Action List**, **Assessment Types** — As on
   the Faculty Overview, scoped to this school.
+
+> **Reading Ally scores correctly.** Ally reports three scores, and the portal
+> shows all three because they mean different things:
+>
+> * **Files** — uploaded documents: PDFs, Word files, PowerPoints. Fixing these
+>   means correcting the source document and re-uploading it.
+> * **Editor pages** — pages built with the Blackboard content editor. These
+>   are usually fixable in place in a couple of minutes.
+> * **Overall** — the two combined, weighted by how much content sits behind
+>   each.
+>
+> A module scoring well overall can still hide a completely inaccessible
+> document, which is why the module report lists the actual issues rather than
+> stopping at the score.
+>
+> **Build stage matters more than the score early in the year.** A freshly
+> rolled-over course contains only its template — about two files and two dozen
+> editor pages — and Ally scores that template close to 100%. Every average in
+> the portal therefore covers only courses marked *In progress*, and the
+> Priority Action List ignores courses that have not started yet. There is no
+> "Complete" or "Built" stage — module leads build just-in-time throughout the
+> course, often right up to the final assessment, so no count of files can ever
+> say a course is finished, only that it has started. Before term starts, the
+> build-out tracker is the useful view; the scores become meaningful as
+> material goes up.
 
 ### ⚡ Jumping Between Views
 
@@ -100,7 +128,7 @@ That database is populated from several sources:
 | Source | Contents | How it is updated |
 | :--- | :--- | :--- |
 | **SITS** | Module list, teaching periods, assessment strategy | Imported annually |
-| **Ally** | Accessibility scores and file counts, with history | Monthly snapshots |
+| **Ally** | Accessibility scores, content counts and per-check issue counts, with history | Institutional report, imported periodically |
 | **Leganto** | Which modules have no reading list | Monthly |
 | **Blackboard** | Direct links to each module's VLE site | CSV import in the Admin Panel |
 | **Audits** | Advisor findings against each module | Saved in the Audit Portal as advisors work |

@@ -26,7 +26,7 @@ graph TD
         AuditAut[(main_vle_audit_aut Table)]
         AuditSpr[(main_vle_audit_spr Table)]
         Checklists[(audit_responses Table)]
-        Ally[(ally_scores Table)]
+        Ally[(ally_courses / ally_issues / ally_content Tables)]
         Leganto[(leganto_nolist Table)]
     end
 
@@ -98,19 +98,19 @@ graph TD
 * **Code Reference**: [views/module_report.py:L158-L195](file:///c:/Users/fs1hpc/Documents/GitHub/Digital-Learning-Review/views/module_report.py#L158-L195)
 
 ### 4. VLE Accessibility Profile (Ally) Card
-* **Purpose**: Displays the parsed accessibility health score and volume of content scanned by Blackboard Ally.
-* **UI Elements**: Colored score tier card, progress bar (`st.progress`), and file counts metric.
-* **Data Origin**:
-  - **Ally Score (`ally_score`)**: Resolves active row columns in priority: `'Ally 25/26 All'` ➔ `'Ally Weighted'` ➔ `'Ally Measured'`.
-  - **Total Files (`ally_files`)**: Prioritizes `'Total Files'` ➔ `'Ally 25/26 Files'`.
-* **Derivation Logic**:
-  - Score value is mapped into official Blackboard Ally tiers:
-    - **Perfect** ($\ge 100\%$): Dark Green (`#047857`) - *"Perfect! No accessibility issues were found by the tool."*
-    - **High** ($67\% \le \text{Score} < 100\%$): Light Green (`#10B981`) - *"Almost there. The file is mostly accessible, but minor improvements are still possible."*
-    - **Medium** ($34\% \le \text{Score} < 67\%$): Amber/Orange (`#F59E0B`) - *"A little better. The file is somewhat accessible and needs improvement."*
-    - **Low** ($< 34\%$): Red (`#EF4444`) - *"Needs help! The file has severe or multiple accessibility issues."*
-  - **Low Content Warnings**: If `files_val == 0`, a warning banner informs that the score is unverified due to lack of uploads. If `files_val < 5`, an info banner is displayed stating that the score may skew due to low content.
-* **Code Reference**: [views/module_report.py:L197-L251](file:///c:/Users/fs1hpc/Documents/GitHub/Digital-Learning-Review/views/module_report.py#L197-L251)
+* **Purpose**: Shows what Ally found in this course and what to do about it. Rendered by `_render_ally_card()`.
+* **UI Elements**, in the order they appear:
+  1. **Build-stage banner** — `'Content Maturity'`, one of *In progress*, *Not yet built*, *Empty*, *No data*. Placed above the scores deliberately: a rolled-over template scores near 100% and must not read as an accessibility result. There is deliberately no *Built*/*Complete* state — module leads add content just-in-time throughout the course, so a file count can only show a course has started, never that it is finished.
+  2. **Three score tiles** — `'Ally Overall'`, `'Ally Files'`, `'Ally WYSIWYG'`, each captioned with the item count behind it.
+  3. **Surface-gap caption** — shown when files and pages differ by 15 points or more, naming which side the work sits on.
+  4. **"Fix these first"** — the module's non-zero issue rows from `ally_issues`, sorted severity then item count, each with a plain-English label, a fix-location tag and advice from `processing.ALLY_CHECKS`. Deep-links to the course in Blackboard.
+  5. **Status strip** — students, course shells, whether Ally is enabled, and when Ally last scanned the course (per course, not per export).
+  6. **Trend** — overall score across stored snapshots, shown only when the course has moved more than once.
+* **Data Origin**: `ally_courses` / `ally_issues` for the current academic year, rolled up in `processing.aggregate_ally_to_modules()`; issue detail read from `st.session_state["df_ally_issues"]`.
+* **Score bands** (`ALLY_BANDS`, matching Blackboard's own wording): **Perfect** ($=100\%$) `#047857`; **High** ($\ge 67\%$) `#10B981`; **Medium** ($\ge 34\%$) `#F59E0B`; **Low** `#EF4444`.
+* **Issue severity**: `:1` severe, `:2` major, `:3` minor. `LibraryReference` carries no severity and is never counted as a defect.
+* **Removed in v1.16.0**: the single credibility-weighted score, the asymptotic-credibility caption and the "fewer than 5 files" caveat. Item counts and the build-stage banner answer the same question directly, and the old model disagreed with the score module leads see in Blackboard.
+* **Code Reference**: [views/module_report.py](file:///c:/Users/fs1hpc/Documents/GitHub/Digital-Learning-Review/views/module_report.py)
 
 ### 5. Module Checklist Section
 * **Purpose**: Shows the audit checklist fields and allows elevated users to submit updates.

@@ -120,9 +120,25 @@ them, so this boundary is a convention that nothing enforces.
 | :--- | :--- | :--- |
 | `main_vle_audit_aut`, `main_vle_audit_spr` | this portal (frozen snapshot) | — |
 | `sits_assessment_2026_27` | this portal | AI-Audit reads |
-| `users`, `roles`, `audit_*`, `comment_bank`, `blackboard_links`, `ally_scores` | this portal | AI-Audit must not touch |
+| `users`, `roles`, `audit_*`, `comment_bank`, `blackboard_links` | this portal | AI-Audit must not touch |
+| `ally_courses`, `ally_issues`, `ally_content`, `ally_scores` | this portal | AI-Audit must not touch |
 | `ai_audit_queue` | **AI-Audit** | this portal reads |
 | `ai_audit_responses` | **AI-Audit** | this portal reads |
+
+**Ally tables.** `ally_courses` holds one row per Blackboard course per
+snapshot — a module can run more than one course shell, so rolling up to
+`module_code` happens on read in `processing.aggregate_ally_to_modules()`.
+`ally_issues` and `ally_content` are long rather than wide so that a new
+Anthology check needs no migration, and only non-zero counts are stored.
+`academic_year` is a column rather than part of a table name, unlike
+`sits_assessment_2026_27`, so a new year drops in without schema work.
+
+`ally_scores` is the **legacy projection**, rebuilt from `ally_courses` on each
+import purely so that anything not yet migrated keeps working. Retire it once
+nothing reads it. Its historic contents were the **2025-26** academic year
+stored under column names implying otherwise — `measured` was Ally's files
+score and `weighted` its overall score, because the old importer matched
+columns by fuzzy name. The v1.16.0 import purges it.
 
 Points that have already caused bugs:
 

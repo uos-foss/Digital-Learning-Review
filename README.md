@@ -9,7 +9,8 @@ Deployed at
 [fossdigital.shef.ac.uk/digital-learning-review](https://fossdigital.shef.ac.uk/digital-learning-review/).
 
 **What it is measured against:**
-- Ally accessibility scores across modules.
+- Ally accessibility: scores for uploaded files and for pages built in
+  Blackboard, plus the specific issues found in each module.
 - Compliance with the VLE audit checklist.
 
 ## 🛠️ Tech Stack
@@ -29,7 +30,7 @@ administrator triggers a full sync — it is not touched during a page load.
 | Source | Contents | Updated |
 | :--- | :--- | :--- |
 | SITS | Module list, teaching periods, assessment strategy | Annually |
-| Ally | Accessibility scores and file counts, with history | Monthly |
+| Ally | Accessibility scores, content counts and per-check issue counts, with history | Institutional report, imported periodically |
 | Leganto | Modules missing a reading list | Monthly |
 | Blackboard | Module VLE links | CSV import in the Admin Panel |
 | Audits | Advisor findings per module | Saved in the app |
