@@ -144,6 +144,68 @@ def init_db():
         """)
         cursor.execute("DROP TABLE ally_scores_old")
 
+    # The Anthology Ally institutional export, at its native grain. One row per
+    # Blackboard course per snapshot - a module can carry more than one course
+    # shell (separate cohorts), so aggregation to module_code happens on read.
+    #
+    # academic_year is a column rather than baked into the table name the way
+    # sits_assessment_2026_27 is, so a new year needs no migration.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ally_courses (
+            course_id TEXT,
+            snapshot_date TEXT,
+            academic_year TEXT,
+            module_code TEXT,
+            course_code TEXT,
+            course_name TEXT,
+            course_url TEXT,
+            department_name TEXT,
+            students INTEGER,
+            ally_enabled INTEGER,
+            last_checked_on TEXT,
+            deleted_on TEXT,
+            total_files INTEGER,
+            total_wysiwyg INTEGER,
+            overall_score REAL,
+            files_score REAL,
+            wysiwyg_score REAL,
+            PRIMARY KEY (course_id, snapshot_date)
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ally_courses_mod
+        ON ally_courses (module_code, academic_year, snapshot_date)
+    """)
+
+    # The issue census, long rather than wide: Ally ships 39 check columns today
+    # and adds more over time, and a long table absorbs a new check without a
+    # migration. Only non-zero counts are stored.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ally_issues (
+            course_id TEXT,
+            snapshot_date TEXT,
+            check_name TEXT,
+            severity INTEGER,
+            items INTEGER,
+            PRIMARY KEY (course_id, snapshot_date, check_name)
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ally_issues_snap
+        ON ally_issues (snapshot_date, check_name)
+    """)
+
+    # The content-type census, same shape and for the same reason.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ally_content (
+            course_id TEXT,
+            snapshot_date TEXT,
+            content_type TEXT,
+            items INTEGER,
+            PRIMARY KEY (course_id, snapshot_date, content_type)
+        )
+    """)
+
     # Create leganto_nolist table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS leganto_nolist (
@@ -591,6 +653,246 @@ def get_ai_declarations():
         for c in ['timestamp', 'module_code', 'assessment_title', 'user_id']
     })
     return df[~key.duplicated(keep='first')].reset_index(drop=True)
+
+# --- Ally institutional report -------------------------------------------
+#
+# These read the export at its native Blackboard-course grain and leave the
+# rollup to module level to processing.aggregate_ally_to_modules(), so the
+# weighting rules stay in one testable, I/O-free place.
+
+def get_ally_academic_years():
+    """Academic years present in ally_courses, newest first."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'ally_courses'):
+            return []
+        rows = conn.execute(
+            "SELECT DISTINCT academic_year FROM ally_courses "
+            "WHERE academic_year IS NOT NULL AND academic_year != '' "
+            "ORDER BY academic_year DESC"
+        ).fetchall()
+    return [r[0] for r in rows]
+
+def get_ally_courses_latest(academic_year=None):
+    """One row per Blackboard course, at that course's latest snapshot.
+
+    Snapshots are stored only when a course actually changes, so different
+    courses sit at different snapshot_dates and a single MAX over the whole
+    table would drop everything that has not moved recently.
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'ally_courses'):
+            return pd.DataFrame()
+        if academic_year:
+            sql = """
+                SELECT c.* FROM ally_courses c
+                JOIN (
+                    SELECT course_id, MAX(snapshot_date) AS ms
+                    FROM ally_courses WHERE academic_year = ? GROUP BY course_id
+                ) m ON c.course_id = m.course_id AND c.snapshot_date = m.ms
+                WHERE c.academic_year = ?
+            """
+            return pd.read_sql_query(sql, conn, params=(academic_year, academic_year))
+        sql = """
+            SELECT c.* FROM ally_courses c
+            JOIN (
+                SELECT course_id, MAX(snapshot_date) AS ms
+                FROM ally_courses GROUP BY course_id
+            ) m ON c.course_id = m.course_id AND c.snapshot_date = m.ms
+        """
+        return pd.read_sql_query(sql, conn)
+
+def _latest_child(table, value_col, academic_year=None):
+    """Rows from ally_issues / ally_content for each course's latest snapshot,
+    carrying module_code and academic_year across from ally_courses."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, table) or not table_exists(conn, 'ally_courses'):
+            return pd.DataFrame()
+        year_filter = "WHERE c.academic_year = ?" if academic_year else ""
+        sql = f"""
+            SELECT c.module_code, c.academic_year, c.course_id, c.snapshot_date,
+                   t.{value_col}, t.items{', t.severity' if table == 'ally_issues' else ''}
+            FROM ally_courses c
+            JOIN (
+                SELECT course_id, MAX(snapshot_date) AS ms
+                FROM ally_courses {"WHERE academic_year = ?" if academic_year else ""}
+                GROUP BY course_id
+            ) m ON c.course_id = m.course_id AND c.snapshot_date = m.ms
+            JOIN {table} t
+              ON t.course_id = c.course_id AND t.snapshot_date = c.snapshot_date
+            {year_filter}
+        """
+        params = (academic_year, academic_year) if academic_year else ()
+        return pd.read_sql_query(sql, conn, params=params)
+
+def get_ally_issues_latest(academic_year=None):
+    """Long issue rows for each course's latest snapshot, keyed to module_code."""
+    return _latest_child('ally_issues', 'check_name', academic_year)
+
+def get_ally_content_latest(academic_year=None):
+    """Long content-type rows for each course's latest snapshot."""
+    return _latest_child('ally_content', 'content_type', academic_year)
+
+def get_ally_history(module_code=None, academic_year=None):
+    """Every stored snapshot at course grain, for trend charts."""
+    clauses, params = [], []
+    if module_code:
+        clauses.append("module_code = ?")
+        params.append(str(module_code).strip().upper())
+    if academic_year:
+        clauses.append("academic_year = ?")
+        params.append(academic_year)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'ally_courses'):
+            return pd.DataFrame()
+        return pd.read_sql_query(
+            f"SELECT * FROM ally_courses {where} ORDER BY snapshot_date", conn,
+            params=tuple(params))
+
+# The fields that decide whether a course has actually moved since its last
+# stored snapshot. Ally re-reports unchanged courses in every weekly export,
+# so without this the series fills with ~900 identical rows a week.
+_ALLY_CHANGE_COLS = ['last_checked_on', 'total_files', 'total_wysiwyg',
+                     'overall_score', 'files_score', 'wysiwyg_score',
+                     'students', 'ally_enabled', 'deleted_on']
+
+def save_ally_snapshot(df_courses, df_issues, df_content, force_all=False):
+    """Writes one Ally export into ally_courses / ally_issues / ally_content.
+
+    Courses whose measurements are identical to their most recent stored
+    snapshot are skipped unless force_all, so the snapshot series holds genuine
+    observations only. Returns a dict of counts for the import report.
+    """
+    if df_courses is None or df_courses.empty:
+        return {'courses_written': 0, 'courses_unchanged': 0, 'issues': 0, 'content': 0}
+
+    df_courses = df_courses.copy()
+
+    with get_db_connection() as conn:
+        prev = pd.read_sql_query("""
+            SELECT c.* FROM ally_courses c
+            JOIN (SELECT course_id, MAX(snapshot_date) AS ms
+                  FROM ally_courses GROUP BY course_id) m
+              ON c.course_id = m.course_id AND c.snapshot_date = m.ms
+        """, conn) if table_exists(conn, 'ally_courses') else pd.DataFrame()
+
+    unchanged = 0
+    if not force_all and not prev.empty:
+        merged = df_courses.merge(
+            prev[['course_id'] + _ALLY_CHANGE_COLS],
+            on='course_id', how='left', suffixes=('', '_prev'))
+        same = pd.Series(True, index=merged.index)
+        for col in _ALLY_CHANGE_COLS:
+            a = merged[col].astype(str).fillna('')
+            b = merged[f'{col}_prev'].astype(str).fillna('')
+            same &= (a == b)
+        same &= merged['last_checked_on_prev'].notna()
+        unchanged = int(same.sum())
+        df_courses = df_courses[~same.values].copy()
+
+    if df_courses.empty:
+        return {'courses_written': 0, 'courses_unchanged': unchanged, 'issues': 0, 'content': 0}
+
+    keep = set(zip(df_courses['course_id'], df_courses['snapshot_date']))
+
+    def _filter_child(df):
+        if df is None or df.empty:
+            return pd.DataFrame()
+        mask = [k in keep for k in zip(df['course_id'], df['snapshot_date'])]
+        return df[mask].copy()
+
+    issues = _filter_child(df_issues)
+    content = _filter_child(df_content)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany("""
+            INSERT INTO ally_courses (
+                course_id, snapshot_date, academic_year, module_code, course_code,
+                course_name, course_url, department_name, students, ally_enabled,
+                last_checked_on, deleted_on, total_files, total_wysiwyg,
+                overall_score, files_score, wysiwyg_score)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(course_id, snapshot_date) DO UPDATE SET
+                academic_year=excluded.academic_year, module_code=excluded.module_code,
+                course_code=excluded.course_code, course_name=excluded.course_name,
+                course_url=excluded.course_url, department_name=excluded.department_name,
+                students=excluded.students, ally_enabled=excluded.ally_enabled,
+                last_checked_on=excluded.last_checked_on, deleted_on=excluded.deleted_on,
+                total_files=excluded.total_files, total_wysiwyg=excluded.total_wysiwyg,
+                overall_score=excluded.overall_score, files_score=excluded.files_score,
+                wysiwyg_score=excluded.wysiwyg_score
+        """, df_courses[[
+            'course_id', 'snapshot_date', 'academic_year', 'module_code', 'course_code',
+            'course_name', 'course_url', 'department_name', 'students', 'ally_enabled',
+            'last_checked_on', 'deleted_on', 'total_files', 'total_wysiwyg',
+            'overall_score', 'files_score', 'wysiwyg_score']].itertuples(index=False, name=None))
+
+        if not issues.empty:
+            cursor.executemany("""
+                INSERT INTO ally_issues (course_id, snapshot_date, check_name, severity, items)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(course_id, snapshot_date, check_name) DO UPDATE SET
+                    severity=excluded.severity, items=excluded.items
+            """, issues[['course_id', 'snapshot_date', 'check_name', 'severity', 'items']]
+                .itertuples(index=False, name=None))
+
+        if not content.empty:
+            cursor.executemany("""
+                INSERT INTO ally_content (course_id, snapshot_date, content_type, items)
+                VALUES (?,?,?,?)
+                ON CONFLICT(course_id, snapshot_date, content_type) DO UPDATE SET
+                    items=excluded.items
+            """, content[['course_id', 'snapshot_date', 'content_type', 'items']]
+                .itertuples(index=False, name=None))
+        conn.commit()
+
+    logging.info("Ally snapshot written: %d courses (%d unchanged), %d issue rows, %d content rows",
+                 len(df_courses), unchanged, len(issues), len(content))
+    return {'courses_written': len(df_courses), 'courses_unchanged': unchanged,
+            'issues': len(issues), 'content': len(content)}
+
+def refresh_ally_scores_projection(academic_year=None):
+    """Rewrites the legacy ally_scores table from ally_courses.
+
+    ally_scores is kept only so views that have not yet moved onto the new
+    tables keep working. measured/weighted no longer mean what they did before
+    the institutional export landed - they are Ally's own files and overall
+    scores. Retire this once every view reads ally_courses.
+    """
+    df = get_ally_courses_latest(academic_year)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ally_scores")
+        if df.empty:
+            conn.commit()
+            return 0
+        agg = (df.groupby(['module_code', 'snapshot_date'], as_index=False)
+                 .agg(measured=('files_score', 'mean'),
+                      weighted=('overall_score', 'mean'),
+                      files=('total_files', 'sum')))
+        cursor.executemany(
+            "INSERT OR REPLACE INTO ally_scores (module_code, snapshot_date, measured, weighted, files)"
+            " VALUES (?,?,?,?,?)",
+            agg[['module_code', 'snapshot_date', 'measured', 'weighted', 'files']]
+               .itertuples(index=False, name=None))
+        conn.commit()
+    return len(agg)
+
+def purge_legacy_ally_scores():
+    """Empties ally_scores of everything not derived from ally_courses.
+
+    Deliberately not wired into init_db(): that runs on import, and a row
+    deleter that fires whenever anything touches the shared database is a trap.
+    The Admin Panel calls this behind an explicit confirmation.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        before = cursor.execute("SELECT COUNT(*) FROM ally_scores").fetchone()[0]
+        cursor.execute("DELETE FROM ally_scores")
+        conn.commit()
+    logging.info("Purged %d legacy ally_scores rows.", before)
+    return before
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
     """Saves or updates a single audit response."""
