@@ -41,6 +41,37 @@ the table (`if_exists='replace'`) silently reverts role and status edits, and
 would undo the scrypt password migration. Roles do sync wholesale; those are
 genuinely sheet-managed.
 
+## Ally accessibility data
+
+`ally_courses` / `ally_issues` / `ally_content` (course grain — a Blackboard
+course shell, not a SITS module) are the source of truth, populated by the
+importer in the Admin Panel from Anthology's institutional report export.
+`ally_scores` is a legacy projection rebuilt from `ally_courses` for views not
+yet migrated; do not write to it directly. Multiple Blackboard shells can share
+one module code (different cohorts) — aggregate to module grain on read via
+`processing.aggregate_ally_to_modules()`, never at import time.
+
+- **Only `CURRENT_ACADEMIC_YEAR` (`processing.py`) is ingested and shown.** A
+  prior import silently stored a mislabeled prior-year snapshot that displayed
+  against the current year's module list for months before anyone noticed. Do
+  not backfill or surface other years without a deliberate decision to do so.
+- **Content maturity has exactly two positive states: `Not yet built` and
+  `In progress`.** There is deliberately no `Built`/`Complete` state —
+  `classify_content_maturity()` in `processing.py` only measures file counts,
+  and module leads build just-in-time throughout the course (often up to the
+  final assessment), so a file count can show a course has started but never
+  that it is finished. A three-state version with a `Built` tier existed
+  earlier and was removed on that reasoning; do not reintroduce it.
+- **Ally's own scores are shown unmodified.** An earlier credibility-weighting
+  model (shrinking scores toward a prior at low file counts) was removed — it
+  distorted the majority of modules at typical file counts, only ever pushed
+  scores down, and disagreed with the score module leads see in Blackboard
+  itself. Content maturity gates which courses count toward averages/rankings
+  instead of a score adjustment.
+- `diagnostics/check_ally_export.py <csv> <academic_year>` sanity-checks a new
+  export (scope, grain, score invariants, SITS reconciliation) before trusting
+  an import — run it against any new Ally export.
+
 ## Conventions
 
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
@@ -62,6 +93,10 @@ genuinely sheet-managed.
   holders**, and `st.switch_page` raises on an unregistered page. Any button
   jumping there needs a `can_audit` guard, not just a permission check inside
   the destination.
+- **Date formatting**: User-facing dates always display as `DD-MM-YYYY`
+  (e.g., "06-08-2026") using `strftime('%d-%m-%Y')`. Internal storage and
+  database columns use ISO format (`YYYY-MM-DD HH:MM:SS`) for sortability.
+  Timestamps shown to users follow `DD-MM-YYYY HH:MM:SS` when time is included.
 
 ## Auth
 

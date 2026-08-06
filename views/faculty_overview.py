@@ -5,6 +5,10 @@ from processing import (aggregate_faculty_stats, calculate_compliance_gap, calcu
                         get_school_comparison, resolve_semester_df, summarise_ai_declarations,
                         FACULTY_SCHOOLS)
 from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
+from views.ally_widgets import (
+    scoreable, render_maturity_banner, render_maturity_breakdown,
+    render_surface_split, render_issue_profile, build_accessibility_risk_list,
+)
 
 def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("🏛️ Faculty Overview")
@@ -21,15 +25,29 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     
     stats = aggregate_faculty_stats(df_aut, df_spr)
     
+    def _ally_metric(value, scored, total):
+        """Ally averages cover modules with content beyond their template only,
+        so the count is part of the number - '92% of 41' is honest where a
+        bare '92%' is not."""
+        if value is None:
+            return "—", f"No modules with content yet ({total} modules in scope)."
+        return f"{value:.1%}", f"Across {scored} module(s) with content beyond the template."
+
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Autumn Modules", stats.get('Autumn Module Count', 0))
     with col2:
-        st.metric("Autumn Avg Ally", f"{stats.get('Autumn Avg Ally', 0):.1%}")
+        val, note = _ally_metric(stats.get('Autumn Avg Ally'),
+                                 stats.get('Autumn Scored Modules', 0),
+                                 stats.get('Autumn Module Count', 0))
+        st.metric("Autumn Avg Ally", val, help=note)
     with col3:
         st.metric("Spring Modules", stats.get('Spring Module Count', 0))
     with col4:
-        st.metric("Spring Avg Ally", f"{stats.get('Spring Avg Ally', 0):.1%}")
+        val, note = _ally_metric(stats.get('Spring Avg Ally'),
+                                 stats.get('Spring Scored Modules', 0),
+                                 stats.get('Spring Module Count', 0))
+        st.metric("Spring Avg Ally", val, help=note)
     with col5:
         st.metric("Audits Completed", len(checklist_sums))
 
@@ -132,74 +150,184 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             )
 
     elif selected_view == "📊 Ally Analytics":
-        st.subheader(f"Ally Score Distribution ({semester})")
-        if not active_df.empty and 'Ally 25/26 All' in active_df.columns:
-            # Drop empty scores for accurate statistical bucketing
-            scores_series = active_df['Ally 25/26 All'].dropna()
-            if not scores_series.empty:
-                # Create 10% bracket bins from 0.0 to 1.0
-                bins = [i/10.0 for i in range(11)]
+        st.subheader(f"Faculty Accessibility Profile ({semester})")
+        render_maturity_banner(active_df)
+
+        df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
+        faculty_codes = set(active_df['New module code'].dropna().astype(str).str.strip().str.upper()) \
+            if not active_df.empty else set()
+
+        ally_tabs = st.tabs([
+            "🔧 Issue league table", "🏗️ Build-out tracker", "📄 Files vs pages",
+            "🏫 By school", "📈 Score distribution", "🩺 Coverage",
+        ])
+
+        with ally_tabs[0]:
+            st.markdown("##### The faculty's accessibility workload, largest first")
+            st.caption(
+                "Measured in content items affected, not modules. This is the list a "
+                "faculty accessibility plan should be built from: the top few checks "
+                "account for most of the work, and each has a single fix."
+            )
+            profile = render_issue_profile(df_issues, faculty_codes, top_n=15,
+                                           key="faculty_issue_profile")
+            if profile is not None and not profile.empty:
+                by_surface = profile.groupby('surface')['items'].sum()
+                s1, s2, s3 = st.columns(3)
+                s1.metric("Fixable in the editor", f"{int(by_surface.get('editor', 0)):,}",
+                          help="Module leads can clear these in Blackboard in minutes.")
+                s2.metric("Fixable via Ally feedback", f"{int(by_surface.get('image', 0)):,}",
+                          help="Image descriptions, answerable in the browser.")
+                s3.metric("Needs the file re-authored", f"{int(by_surface.get('file', 0)):,}",
+                          help="Documents must be corrected at source and re-uploaded.")
+
+        with ally_tabs[1]:
+            st.markdown("##### How much of the faculty's provision has content yet")
+            render_maturity_breakdown(active_df)
+            if not active_df.empty and 'Content Maturity' in active_df.columns:
+                by_school = active_df.copy()
+                by_school['School'] = by_school['New module code'].astype(str).str[:3]
+                pivot = (by_school.pivot_table(index='School', columns='Content Maturity',
+                                               values='New module code', aggfunc='count',
+                                               fill_value=0))
+                st.markdown("**By school**")
+                st.dataframe(pivot, width="stretch")
+                st.caption(
+                    "Early in the year this is the faculty accessibility story. A school "
+                    "whose courses are still templates in week 3 needs a conversation "
+                    "about building them, not about alt text."
+                )
+
+        with ally_tabs[2]:
+            st.markdown("##### Uploaded documents against pages built in Blackboard")
+            if not active_df.empty:
+                split_df = active_df.copy()
+                split_df['School'] = split_df['New module code'].astype(str).str[:3]
+                render_surface_split(split_df, group_column='School')
+            else:
+                st.info("No data for this semester.")
+
+        with ally_tabs[3]:
+            st.markdown("##### Severity load by school")
+            if active_df.empty:
+                st.info("No data for this semester.")
+            else:
+                per_school = active_df.copy()
+                per_school['School'] = per_school['New module code'].astype(str).str[:3]
+                built_only = scoreable(per_school)
+                if built_only.empty:
+                    st.info("No courses with content yet, so there is no severity load to show.")
+                else:
+                    summary = built_only.groupby('School').agg(
+                        Modules=('New module code', 'count'),
+                        Students=('Ally Students', 'sum'),
+                        Severe=('Ally Severe', 'sum'),
+                        Major=('Ally Major', 'sum'),
+                        Minor=('Ally Minor', 'sum'),
+                    ).reset_index()
+                    summary['Major per module'] = (summary['Major'] / summary['Modules']).round(1)
+                    summary['Avg Ally'] = built_only.groupby('School')['Ally Overall'].mean().values
+                    st.dataframe(
+                        summary,
+                        column_config={
+                            'Avg Ally': st.column_config.NumberColumn("Avg Ally", format="%.1f%%"),
+                            'Students': st.column_config.NumberColumn("Students", format="%d"),
+                        },
+                        width="stretch", hide_index=True)
+                    st.bar_chart(summary, x='School', y='Major per module', height=280,
+                                 color='#F59E0B')
+                    st.caption("Major issues per module with content beyond its template. "
+                               "This normalises for school size, so a small school with a "
+                               "heavy load is still visible.")
+
+        with ally_tabs[4]:
+            st.markdown("##### Where modules with content sit on the scale")
+            scores_series = pd.to_numeric(
+                scoreable(active_df).get('Ally Overall'), errors='coerce').dropna() \
+                if not active_df.empty else pd.Series(dtype=float)
+            if scores_series.empty:
+                st.info(
+                    "No modules with content yet to distribute. This chart fills in as "
+                    "module leads upload materials."
+                )
+            else:
+                bins = [i / 10.0 for i in range(11)]
                 labels = [f"{i*10}-{(i+1)*10}%" for i in range(10)]
-                
-                # Compute counts per bin
                 binned = pd.cut(scores_series, bins=bins, labels=labels, include_lowest=True)
                 dist_df = binned.value_counts().sort_index().reset_index()
                 dist_df.columns = ['Score Bracket', 'Module Count']
-                
-                st.caption("Frequency distribution of overall accessibility scores across the active semester.")
                 st.bar_chart(dist_df, x='Score Bracket', y='Module Count')
-                
-                # Drill Down Section
-                with st.expander("🔍 Inspect Modules in Specific Bracket"):
-                    # Reverse labels so high scores appear first in dropdown
+
+                with st.expander("🔍 Inspect modules in a specific bracket"):
                     drill_options = ["Choose a bracket..."] + list(reversed(labels))
-                    selected_bracket = st.selectbox("Filter list by score range:", drill_options, key="hist_drill_down")
-                    
+                    selected_bracket = st.selectbox("Filter list by score range:",
+                                                    drill_options, key="fac_hist_drill_down")
                     if selected_bracket != "Choose a bracket...":
-                        # Isolate relevant rows safely
-                        drill_source = active_df[active_df['Ally 25/26 All'].notna()].copy()
-                        drill_source['Bracket'] = pd.cut(drill_source['Ally 25/26 All'], bins=bins, labels=labels, include_lowest=True)
-                        
-                        bracket_matches = drill_source[drill_source['Bracket'] == selected_bracket]
-                        
-                        if not bracket_matches.empty:
-                            st.success(f"Found {len(bracket_matches)} modules in the {selected_bracket} range.")
-                            
-                            # Format score nicely for display
-                            display_df = bracket_matches.copy()
-                            display_df['Score'] = display_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}")
-                            
-                            cols = ['New module code', 'Module name', 'Mod. lead', 'Score']
-                            existing_cols = [c for c in cols if c in display_df.columns]
-                            
-                            # [STABILITY FIX]: Streamlit 1.50+ strictly enforces monotonic indices for Interactive Selection.
-                            # Resetting guaranteed sequential indices allows active routing to ignite.
-                            safe_display_df = display_df[existing_cols].sort_values('Score', ascending=False).reset_index(drop=True)
-                            
-                            selection_drill = st.dataframe(
-                                safe_display_df,
-                                width="stretch",
-                                hide_index=True,
-                                on_select="rerun",
-                                selection_mode="single-row",
-                                key="analytics_drill_dataframe"
-                            )
-                            
-                            # Action Handler for Row Clicks
-                            if selection_drill.selection.rows:
-                                row_idx = selection_drill.selection.rows[0]
-                                clicked_code = safe_display_df.iloc[row_idx]['New module code']
-                                
-                                st.success(f"🔍 Selected Module: **{clicked_code}**")
-                                if st.button(f"📋 View Report Card for {clicked_code}", width="stretch"):
-                                    st.session_state.selected_module_code = clicked_code
-                                    st.switch_page(st.session_state.pg_module)
+                        drill_source = scoreable(active_df).copy()
+                        drill_source = drill_source[drill_source['Ally Overall'].notna()]
+                        drill_source['Bracket'] = pd.cut(drill_source['Ally Overall'],
+                                                         bins=bins, labels=labels,
+                                                         include_lowest=True)
+                        matches = drill_source[drill_source['Bracket'] == selected_bracket]
+                        if matches.empty:
+                            st.info(f"No modules in the {selected_bracket} range.")
                         else:
-                            st.info(f"No modules found in the {selected_bracket} range.")
+                            st.success(f"Found {len(matches)} modules in {selected_bracket}.")
+                            show = matches.copy()
+                            show['Score'] = show['Ally Overall'].apply(lambda x: f"{x:.1%}")
+                            cols = [c for c in ['New module code', 'Module name', 'Mod. lead',
+                                                'Score', 'Ally Severe', 'Ally Major']
+                                    if c in show.columns]
+                            safe_df = show[cols].reset_index(drop=True)
+                            selection = st.dataframe(
+                                safe_df, width="stretch", hide_index=True,
+                                on_select="rerun", selection_mode="single-row",
+                                key="faculty_ally_drill_dataframe")
+                            if selection.selection.rows:
+                                idx = selection.selection.rows[0]
+                                clicked_code = safe_df.iloc[idx]['New module code']
+                                st.success(f"🔍 Selected Module: **{clicked_code}**")
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    if st.button("📊 Jump to Report Card", width="stretch",
+                                                 type="primary", key="fac_btn_drill_rc_jump"):
+                                        st.session_state.selected_module_code = clicked_code
+                                        st.switch_page(st.session_state.pg_module)
+                                with c2:
+                                    if can_audit and st.button("✅ Open Audit Portal",
+                                                               width="stretch",
+                                                               key="fac_btn_drill_cl_jump"):
+                                        st.session_state.selected_module_code = clicked_code
+                                        st.switch_page(st.session_state.pg_audit)
+
+        with ally_tabs[5]:
+            st.markdown("##### Is the data telling us the truth?")
+            df_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
+            if df_courses.empty:
+                st.info("No Ally courses loaded. Import the institutional report from the "
+                        "Admin Panel.")
             else:
-                st.warning("No numerical Ally scores found to distribute.")
-        else:
-            st.warning(f"No data found for {semester}.")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Courses tracked", f"{len(df_courses):,}")
+                disabled = int((pd.to_numeric(df_courses['ally_enabled'],
+                                              errors='coerce').fillna(1) == 0).sum())
+                c2.metric("Ally switched off", f"{disabled:,}",
+                          help="Students get no alternative formats on these courses and "
+                               "the module lead sees no feedback.")
+                deleted = int((df_courses['deleted_on'].astype(str).str.strip() != "").sum())
+                c3.metric("Observed deleted", f"{deleted:,}")
+
+                checked = pd.to_datetime(df_courses['last_checked_on'], errors='coerce')
+                if checked.notna().any():
+                    stale = int((checked.max() - checked).dt.days.gt(30).sum())
+                    c4.metric("Not scanned in 30+ days", f"{stale:,}",
+                              help="Ally rescans courses on its own schedule, so some rows "
+                                   "in any export are months old.")
+                    st.caption(
+                        f"Most recent Ally scan in this data: "
+                        f"{checked.max().strftime('%d-%m-%Y')}. Scores describe the course "
+                        "as Ally last saw it, not as it stands right now."
+                    )
 
     elif selected_view == "✅ Compliance Gap":
         st.subheader(f"Compliance Gap Analysis ({semester})")
@@ -265,7 +393,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         # Static selector anchors the UI interaction
         lens = st.radio(
             "Choose inspection criteria:",
-            ["⚠️ Low Accessibility (<70%)", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
+            ["⚠️ Accessibility Risk", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
             horizontal=True,
             label_visibility="collapsed",
             key="priority_lens_selector"
@@ -283,23 +411,9 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         else:
             source_data = active_df.copy()
             
-            if lens == "⚠️ Low Accessibility (<70%)":
-                filtered_df = source_data[source_data['Ally 25/26 All'] < 0.7].sort_values('Ally 25/26 All')
-                if not filtered_df.empty:
-                    render_status = f"🎯 Found {len(filtered_df)} modules requiring Accessibility remediation (<70%)."
-                    render_status_type = "warning"
-                    
-                    filtered_df['DisplayValue'] = filtered_df['Ally 25/26 All'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
-                    
-                    display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                    render_df = filtered_df[display_cols].copy()
-                    render_configs = {
-                        "New module code": "Code", "Module name": "Module Name",
-                        "Mod. lead": "Lead", "DisplayValue": st.column_config.TextColumn("Overall Score")
-                    }
-                else:
-                    render_status = "No modules below the 70% Ally threshold!"
-                    render_status_type = "success"
+            if lens == "⚠️ Accessibility Risk":
+                render_df, render_configs, render_status, render_status_type = \
+                    build_accessibility_risk_list(source_data)
 
             elif lens == "🔍 Critical Compliance Gaps":
                 counts, max_items = calculate_module_compliance(
