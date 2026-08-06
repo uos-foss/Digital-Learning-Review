@@ -113,6 +113,8 @@ def _render_ally_card(selected_code, active_row):
 
         # 1. Maturity first. A template scoring 99% is not an accessibility result.
         colour, icon, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
+        last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
+        note += f" · Last scanned {last_scanned_date}"
         st.markdown(
             f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
                         padding:8px 12px;border-radius:4px;margin-bottom:12px;">
@@ -148,16 +150,6 @@ def _render_ally_card(selected_code, active_row):
         # 3. The worklist. This is what turns a score into something an auditor
         #    can hand to a module lead.
         _render_ally_issues(selected_code, active_row)
-
-        # 4. Status strip.
-        s1, s2, s3, s4 = st.columns(4)
-        s1.metric("Students", f"{students}")
-        s2.metric("Course shells", f"{shells}",
-                  help="Separate Blackboard sites under this module code, "
-                       "usually different cohorts. Scores combine all of them.")
-        s3.metric("Ally enabled", "Yes" if active_row.get('Ally Enabled', True) else "No")
-        s4.metric("Last scanned", pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—",
-                  help="When Ally last looked at this course, not when the export was taken.")
 
         if not active_row.get('Ally Enabled', True):
             st.warning("⚠️ Ally is switched off for this course, so students get no "
