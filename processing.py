@@ -1,15 +1,131 @@
 import pandas as pd
 import logging
+import re
 
 # Schools that make up this faculty. Module codes are prefixed with these.
 FACULTY_SCHOOLS = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
 
+# The year the portal is reporting on. Ally holds every year Blackboard has
+# ever had, so reads have to say which one they want. Bump this at rollover,
+# alongside the sits_assessment_* table name.
+CURRENT_ACADEMIC_YEAR = "2026-27"
+
 # Cut-offs for the School Comparison status badge. Placeholders until we have
 # seen real faculty-wide data - retune here rather than in the view.
+#
+# The 2026-27 Ally data cannot calibrate the 'ally' band yet: with most courses
+# still holding their rollover template, built ones average around 99% and every
+# school lands green regardless of where the cut sits. Retune once the year has
+# been authored - on the last fully taught year the schools spanned 82-93%
+# overall, so 75/50 would still have separated nothing. Files score and issues
+# per module discriminate far better and are the better basis when we do.
 SCHOOL_STATUS_THRESHOLDS = {
     "ally": {"green": 75, "yellow": 50},
     "vle_compliance": {"green": 80, "yellow": 65},
 }
+
+# --- Ally institutional report -------------------------------------------
+
+# Ally suffixes each issue column with a severity: Foo:1 severe, Foo:2 major,
+# Foo:3 minor. LibraryReference carries no suffix - it flags library-sourced
+# content rather than a defect, so it is stored but never counted as an issue.
+ALLY_SEVERITY_LABELS = {1: "Severe", 2: "Major", 3: "Minor"}
+
+# Where a problem actually gets fixed, which is what an auditor needs to know
+# before advising anyone:
+#   editor - the module lead fixes it in the Blackboard content editor, minutes
+#   image  - answerable in the browser via Ally instructor feedback
+#   file   - the source document must be re-authored and re-uploaded
+ALLY_CHECKS = {
+    # Severe
+    "Parsable":      ("Document cannot be read by assistive technology", "file",
+                      "The file is corrupt or unreadable. Re-export it from the source application and re-upload."),
+    "Scanned":       ("Scanned image of text, with no real text layer", "file",
+                      "A screen reader sees a picture, not words. Re-create from the original document, or run OCR."),
+    "Security":      ("Document security settings block screen readers", "file",
+                      "Remove the copy/extract restrictions in the PDF and re-upload."),
+    "ImageSeizure":  ("Image may trigger seizures", "image",
+                      "Flashing or rapidly striped image. Remove or replace it."),
+    # Major
+    "Tagged":        ("PDF is not tagged for reading order", "file",
+                      "Export to PDF from Word or PowerPoint with 'Document structure tags' enabled, rather than printing to PDF."),
+    "AlternativeText": ("Images in the document have no alternative text", "file",
+                        "Add alt text to each image in the source document and re-upload."),
+    "Contrast":      ("Text contrast is too low to read comfortably", "file",
+                      "Darken text or lighten backgrounds in the source document to at least 4.5:1."),
+    "TableHeaders":  ("Tables have no header row", "file",
+                      "Mark the top row as a header row in the source document so screen readers can announce columns."),
+    "HeadingsPresence": ("Document has no headings", "file",
+                         "Apply real heading styles in the source document rather than bold or large text."),
+    "Ocred":         ("Scanned document has been OCRed but not checked", "file",
+                      "Review the OCR output for accuracy, or re-create the document from its original source."),
+    "ImageContrast": ("Image contrast is too low", "image",
+                      "Replace with a higher-contrast version."),
+    "ImageDescription": ("Image has no description", "image",
+                         "Add a description via Ally's instructor feedback, or mark it decorative."),
+    "ImageDecorative": ("Image not marked decorative or described", "image",
+                        "Decide whether the image carries meaning; describe it or mark it decorative."),
+    "HtmlImageAlt":  ("Image on a page has no alt text", "editor",
+                      "Edit the page and add alternative text to the image."),
+    "HtmlObjectAlt": ("Embedded object has no alternative text", "editor",
+                      "Add a text alternative, or a link to an accessible version."),
+    "HtmlHeadingsPresence": ("Page has no headings", "editor",
+                             "Use the editor's heading styles to structure the page."),
+    "HtmlHeadingsStart": ("Page headings do not start at the top level", "editor",
+                          "Start the page with a Heading 1 and work down."),
+    "HtmlEmptyHeading": ("Page has an empty heading", "editor",
+                         "Remove the empty heading or give it text."),
+    "HtmlColorContrast": ("Text contrast on the page is too low", "editor",
+                          "Use the default text colours rather than custom light ones."),
+    "HtmlBrokenLink": ("Page contains a broken link", "editor",
+                       "Update or remove the link."),
+    "HtmlCaption":   ("Video on the page has no captions", "editor",
+                      "Add captions, or link to a captioned copy."),
+    "HtmlLabel":     ("Form field on the page has no label", "editor",
+                      "Give each field a visible label."),
+    "HtmlTdHasHeader": ("Table cells are not associated with headers", "editor",
+                        "Rebuild the table with a proper header row."),
+    "HtmlEmptyTableHeader": ("Table has an empty header cell", "editor",
+                             "Give every header cell text."),
+    # Minor
+    "Title":         ("Document has no title", "file",
+                      "Set the document title in the source file's properties."),
+    "LanguagePresence": ("Document language is not set", "file",
+                         "Set the document language in the source application so screen readers use the right voice."),
+    "LanguageCorrect": ("Document language looks wrong", "file",
+                        "Correct the language setting in the source document."),
+    "HeadingsSequential": ("Heading levels skip a level", "file",
+                           "Use headings in order without jumping from H1 to H3."),
+    "HeadingsStartAtOne": ("Headings do not start at level 1", "file",
+                           "Begin the document with a level 1 heading."),
+    "HeadingsHigherLevel": ("A heading sits above the document's top level", "file",
+                            "Reorder the heading levels so the document starts at level 1."),
+    "ImageOcr":      ("Image contains text that has not been OCRed", "image",
+                      "Provide the text in the page, or describe the image."),
+    "HtmlTitle":     ("Page has no title", "editor", "Give the page a descriptive title."),
+    "HtmlHasLang":   ("Page language is not set", "editor", "Set the page language."),
+    "HtmlHeadingOrder": ("Page heading levels skip a level", "editor",
+                         "Use headings in order without skipping levels."),
+    "HtmlList":      ("List is not marked up as a list", "editor",
+                      "Use the editor's bullet or number list buttons rather than typing dashes."),
+    "HtmlDefinitionList": ("Definition list is malformed", "editor",
+                           "Rebuild the list using the editor's list tools."),
+    "HtmlLinkName":  ("Link text does not say where it goes", "editor",
+                      "Replace 'click here' with text describing the destination."),
+    "HtmlImageRedundantAlt": ("Alt text repeats nearby text", "editor",
+                              "Shorten or remove the duplicated alt text."),
+    # Not a defect
+    "LibraryReference": ("Library-sourced content", "file",
+                         "Informational only - content supplied by the Library."),
+}
+
+def ally_term_to_academic_year(term_name):
+    """'Academic Year 2026-2027' -> '2026-27'. Returns '' if unparseable."""
+    m = re.search(r'(\d{4})\s*[-~/]\s*(\d{2,4})', str(term_name))
+    if not m:
+        return ""
+    start, end = m.group(1), m.group(2)
+    return f"{start}-{end[-2:]}"
 
 def resolve_semester_df(df_aut, df_spr, semester):
     """
@@ -36,20 +152,33 @@ def resolve_semester_df(df_aut, df_spr, semester):
 def aggregate_faculty_stats(df_aut, df_spr):
     """
     Calculates summary statistics at the faculty level.
+
+    Ally averages cover only courses with content beyond their rolled-over
+    template. Including the rest would report the faculty at ~99% every autumn,
+    because Ally scores an untouched template almost perfectly - see
+    classify_content_maturity.
     """
     stats = {}
-    
-    # Example: Average Ally Score (using 25/26 All as the latest)
-    col_name = 'Ally 25/26 All'
-    
-    if not df_aut.empty and col_name in df_aut.columns:
-        stats['Autumn Avg Ally'] = df_aut[col_name].mean()
+    col_name = 'Ally Overall'
+
+    def _avg(df):
+        if df.empty or col_name not in df.columns:
+            return None, 0
+        if 'Content Maturity' in df.columns:
+            scored = df[df['Content Maturity'] == "In progress"]
+        else:
+            scored = df
+        values = pd.to_numeric(scored[col_name], errors='coerce').dropna()
+        return (float(values.mean()) if not values.empty else None), len(scored)
+
+    if not df_aut.empty:
+        stats['Autumn Avg Ally'], stats['Autumn Scored Modules'] = _avg(df_aut)
         stats['Autumn Module Count'] = len(df_aut)
-        
-    if not df_spr.empty and col_name in df_spr.columns:
-        stats['Spring Avg Ally'] = df_spr[col_name].mean()
+
+    if not df_spr.empty:
+        stats['Spring Avg Ally'], stats['Spring Scored Modules'] = _avg(df_spr)
         stats['Spring Module Count'] = len(df_spr)
-        
+
     return stats
 
 def get_module_history(df_aut, df_spr, module_code):
@@ -249,6 +378,362 @@ def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=No
     result['declared'] = len(per_module)
     return result
 
+def parse_ally_export(df, academic_year, snapshot_date):
+    """
+    Turns one Anthology Ally institutional export into the three frames that
+    database.save_ally_snapshot() writes.
+
+    The export is every Blackboard course the institution has ever had - 13k
+    rows spanning a decade - so it is filtered to one academic year and to this
+    faculty before anything else happens. Both counts are reported rather than
+    dropped quietly, because a mis-scoped export otherwise looks like a
+    successful import of the wrong year.
+
+    The issue and content blocks are melted to long format. Ally adds new
+    checks between releases, and a long table absorbs one without a migration.
+    Only non-zero counts are kept: at 39 checks over ~900 courses a week, the
+    zeros would be 95% of the rows.
+
+    Kept I/O-free - the caller reads the CSV and writes the database.
+
+    Returns {'courses', 'issues', 'content': DataFrames, 'rows_in',
+    'dropped_other_years', 'dropped_out_of_faculty', 'years_seen': list}.
+    """
+    result = {'courses': pd.DataFrame(), 'issues': pd.DataFrame(),
+              'content': pd.DataFrame(), 'rows_in': 0, 'dropped_other_years': 0,
+              'dropped_out_of_faculty': 0, 'years_seen': []}
+    if df is None or df.empty:
+        return result
+
+    df = df.copy()
+    result['rows_in'] = len(df)
+
+    required = ['Course code', 'Course id', 'Overall score']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "This does not look like an Ally institutional export - missing "
+            + ", ".join(missing))
+
+    # 1. Academic year. Term name is the trustworthy source, but Ally leaves it
+    #    blank on some rows even for current-year courses - the year is still
+    #    readable out of the free-text Course name in those cases (e.g.
+    #    "(AUTUMN 2026-27)"), so fall back to that rather than dropping a course
+    #    that is actually in scope.
+    df['academic_year'] = df.get('Term name', "").map(ally_term_to_academic_year)
+    blank_term = df['academic_year'] == ""
+    if blank_term.any() and 'Course name' in df.columns:
+        df.loc[blank_term, 'academic_year'] = (
+            df.loc[blank_term, 'Course name'].map(ally_term_to_academic_year))
+    result['years_seen'] = sorted([y for y in df['academic_year'].unique() if y], reverse=True)
+    keep_year = df['academic_year'] == academic_year
+    result['dropped_other_years'] = int((~keep_year).sum())
+    df = df[keep_year]
+    if df.empty:
+        return result
+
+    # 2. Module code, by the convention the rest of the app already uses:
+    #    EDC001.A.288719 -> EDC001. The letter is a Blackboard shell
+    #    discriminator, not a SITS occurrence.
+    df['module_code'] = (df['Course code'].astype(str)
+                         .str.split('.').str[0].str.strip().str.upper())
+    df = df[df['module_code'] != ""]
+
+    # 3. Faculty scope from the code prefix. Department name in this export is
+    #    unusable as a key - it carries pre-restructure names and multi-valued
+    #    entries like "Sheffield University Management School; Ultra Courses" -
+    #    so it is stored for reference and never joined on.
+    in_faculty = df['module_code'].str[:3].isin(FACULTY_SCHOOLS)
+    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
+    df = df[in_faculty]
+    if df.empty:
+        return result
+
+    # 4. Split the wide census blocks. Everything from the first severity-
+    #    suffixed column onward is the issue block (LibraryReference sits
+    #    inside it without a suffix); what lies between WYSIWYG score and that
+    #    point is the content-type block. Slicing positionally rather than by a
+    #    fixed list means a new Blackboard content type or a new Ally check
+    #    lands in the right place on its own.
+    cols = list(df.columns)
+    issue_start = next((i for i, c in enumerate(cols) if ':' in str(c)), len(cols))
+    try:
+        content_start = cols.index('WYSIWYG score') + 1
+    except ValueError:
+        content_start = issue_start
+    content_cols = [c for c in cols[content_start:issue_start]]
+    issue_cols = [c for c in cols[issue_start:] if c not in ('academic_year', 'module_code')]
+
+    def _num(col, default=0):
+        if col not in df.columns:
+            return pd.Series(default, index=df.index)
+        return pd.to_numeric(df[col], errors='coerce').fillna(default)
+
+    def _iso(col):
+        """Ally writes these day-first, but exports that have been through a
+        spreadsheet come back ISO. Accept both and normalise, so snapshot rows
+        stay comparable and sortable."""
+        if col not in df.columns:
+            return pd.Series("", index=df.index)
+        try:
+            parsed = pd.to_datetime(df[col], format='mixed', dayfirst=True, errors='coerce')
+        except (ValueError, TypeError):
+            parsed = pd.to_datetime(df[col], errors='coerce')
+        return parsed.dt.strftime('%Y-%m-%d %H:%M').fillna("")
+
+    courses = pd.DataFrame({
+        'course_id': df['Course id'].astype(str).str.strip(),
+        'snapshot_date': snapshot_date,
+        'academic_year': academic_year,
+        'module_code': df['module_code'],
+        'course_code': df['Course code'].astype(str).str.strip(),
+        'course_name': df.get('Course name', "").astype(str).str.strip(),
+        'course_url': df.get('Course url', "").astype(str).str.strip(),
+        'department_name': df.get('Department name', "").astype(str).str.strip(),
+        'students': _num('Number of students').astype(int),
+        'ally_enabled': df.get('Ally enabled', True).astype(str).str.strip().str.upper()
+                          .isin(['TRUE', '1', 'YES']).astype(int),
+        'last_checked_on': _iso('Last checked on'),
+        'deleted_on': _iso('Observed deleted on'),
+        'total_files': _num('Total files').astype(int),
+        'total_wysiwyg': _num('Total WYSIWYG').astype(int),
+        'overall_score': _num('Overall score', float('nan')),
+        'files_score': _num('Files score', float('nan')),
+        'wysiwyg_score': _num('WYSIWYG score', float('nan')),
+    })
+    # One export can list the same course twice; the later row wins.
+    courses = courses.drop_duplicates(subset=['course_id'], keep='last').reset_index(drop=True)
+
+    def _melt(value_cols, name_col):
+        if not value_cols:
+            return pd.DataFrame(columns=['course_id', 'snapshot_date', name_col, 'items'])
+        block = df[value_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+        block.insert(0, 'course_id', df['Course id'].astype(str).str.strip())
+        long = block.melt(id_vars='course_id', var_name=name_col, value_name='items')
+        long = long[long['items'] > 0].copy()
+        long['items'] = long['items'].astype(int)
+        long['snapshot_date'] = snapshot_date
+        return long.drop_duplicates(subset=['course_id', name_col], keep='last')
+
+    issues = _melt(issue_cols, 'check_name')
+    if not issues.empty:
+        split = issues['check_name'].astype(str).str.split(':', n=1, expand=True)
+        issues['check_name'] = split[0].str.strip()
+        issues['severity'] = (pd.to_numeric(split[1], errors='coerce')
+                              if split.shape[1] > 1 else None)
+    else:
+        issues['severity'] = pd.Series(dtype='float')
+
+    content = _melt(content_cols, 'content_type')
+
+    valid = set(courses['course_id'])
+    result['courses'] = courses
+    result['issues'] = issues[issues['course_id'].isin(valid)][
+        ['course_id', 'snapshot_date', 'check_name', 'severity', 'items']].reset_index(drop=True)
+    result['content'] = content[content['course_id'].isin(valid)][
+        ['course_id', 'snapshot_date', 'content_type', 'items']].reset_index(drop=True)
+    return result
+
+# Uploaded-file count separates a rolled-over template from a course somebody
+# has started populating, and it separates them cleanly. In 2025-26 - a fully
+# taught year - only 4 of 1034 courses held 5 files or fewer, and the 10th
+# percentile was 16. In 2026-27 as at August, 860 of 928 held 5 or fewer.
+# Editor pages do not discriminate: the template ships ~25 of them either way.
+ALLY_TEMPLATE_MAX_FILES = 5
+
+def classify_content_maturity(total_files, total_wysiwyg, students=None):
+    """
+    Whether a Blackboard course still looks like its rolled-over template.
+
+    There is deliberately no "Built" or "Complete" state. Module leads build
+    just-in-time throughout the year - a module can legitimately gain content
+    every week right up to its final assessment - so no file count at any
+    point during the year can say a course is finished, only that it has
+    started. Treating a high file count as "Built" would be a claim the data
+    cannot support and would stop being true the moment the next file lands.
+
+    Freshly rolled-over courses hold only their template - typically two files
+    and a couple of dozen editor pages - and Ally scores that template at close
+    to 100%. Presenting that as an accessibility result would be wrong for the
+    first weeks of every year, which is the actual job of this function: gate
+    the score, not grade the course.
+
+    Deliberately based on content alone. Enrolment is far too noisy before term
+    starts - in August only 101 of 928 courses had a single student, populated
+    ones included - so it is left to the views to use as an impact weight
+    instead. `students` is accepted and ignored so callers need not care.
+    """
+    files = int(total_files or 0)
+    wysiwyg = int(total_wysiwyg or 0)
+
+    if files == 0 and wysiwyg == 0:
+        return "Empty"
+    if files <= ALLY_TEMPLATE_MAX_FILES:
+        return "Not yet built"
+    return "In progress"
+
+def aggregate_ally_to_modules(df_courses):
+    """
+    Rolls Blackboard courses up to modules.
+
+    Almost every module has one course shell, but a handful run separate cohort
+    shells under one code - typically an empty template beside the live taught
+    course. Averaging those flatters the module, so scores are re-weighted by
+    the number of content items behind them rather than by shell.
+
+    Kept I/O-free: callers pass in database.get_ally_courses_latest().
+    """
+    columns = ['module_code', 'overall_score', 'files_score', 'wysiwyg_score',
+               'total_files', 'total_wysiwyg', 'total_items', 'students',
+               'shell_count', 'ally_enabled', 'last_checked_on', 'course_url',
+               'content_maturity', 'snapshot_date']
+    if df_courses is None or df_courses.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_courses.copy()
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    for col in ['total_files', 'total_wysiwyg', 'students']:
+        df[col] = pd.to_numeric(df.get(col), errors='coerce').fillna(0)
+    for col in ['overall_score', 'files_score', 'wysiwyg_score']:
+        df[col] = pd.to_numeric(df.get(col), errors='coerce')
+    df['total_items'] = df['total_files'] + df['total_wysiwyg']
+    df['ally_enabled'] = pd.to_numeric(df.get('ally_enabled', 1), errors='coerce').fillna(1)
+
+    # Weighted-average numerator/denominator per row, so the per-module ratio
+    # falls out of a single groupby().sum() rather than a Python loop over each
+    # module calling back into pandas per group - at faculty scale (~900
+    # modules) that loop cost several seconds on every cache refresh. A row
+    # whose score is missing contributes a zero weight, which is exactly what
+    # excluding it from the original weighted average did.
+    def _num_den(score_col, weight_col):
+        weight = df[weight_col].where(df[score_col].notna(), 0.0)
+        return df[score_col].fillna(0.0) * weight, weight
+
+    ov_num, ov_den = _num_den('overall_score', 'total_items')
+    fs_num, fs_den = _num_den('files_score', 'total_files')
+    ws_num, ws_den = _num_den('wysiwyg_score', 'total_wysiwyg')
+
+    tmp = pd.DataFrame({
+        'module_code': df['module_code'],
+        'overall_num': ov_num, 'overall_den': ov_den,
+        'files_num': fs_num, 'files_den': fs_den,
+        'wys_num': ws_num, 'wys_den': ws_den,
+        'total_files': df['total_files'], 'total_wysiwyg': df['total_wysiwyg'],
+        'total_items': df['total_items'], 'students': df['students'],
+        'ally_enabled': df['ally_enabled'],
+    })
+
+    agg = tmp.groupby('module_code', sort=True).agg(
+        overall_num=('overall_num', 'sum'), overall_den=('overall_den', 'sum'),
+        files_num=('files_num', 'sum'), files_den=('files_den', 'sum'),
+        wys_num=('wys_num', 'sum'), wys_den=('wys_den', 'sum'),
+        total_files=('total_files', 'sum'), total_wysiwyg=('total_wysiwyg', 'sum'),
+        total_items=('total_items', 'sum'), students=('students', 'sum'),
+        shell_count=('total_files', 'size'),
+        # A module counts as Ally-disabled if any of its shells is.
+        ally_enabled=('ally_enabled', 'min'),
+    )
+    agg['overall_score'] = (agg['overall_num'] / agg['overall_den']).where(agg['overall_den'] > 0)
+    agg['files_score'] = (agg['files_num'] / agg['files_den']).where(agg['files_den'] > 0)
+    agg['wysiwyg_score'] = (agg['wys_num'] / agg['wys_den']).where(agg['wys_den'] > 0)
+
+    # The shell a student is most likely to be looking at: most enrolled, then
+    # most content. Used for the link and the freshness date.
+    primary = (df.sort_values(['students', 'total_items'], ascending=False)
+                 .groupby('module_code', sort=True).first())
+
+    out = agg.reset_index()
+    out['last_checked_on'] = primary['last_checked_on'].reindex(out['module_code']).fillna("").astype(str).values
+    out['course_url'] = primary['course_url'].reindex(out['module_code']).fillna("").astype(str).values
+    out['snapshot_date'] = primary['snapshot_date'].reindex(out['module_code']).fillna("").astype(str).values
+    out['ally_enabled'] = out['ally_enabled'].fillna(1).astype(int)
+    for col in ['total_files', 'total_wysiwyg', 'total_items', 'students', 'shell_count']:
+        out[col] = out[col].astype(int)
+    out['content_maturity'] = out.apply(
+        lambda r: classify_content_maturity(r['total_files'], r['total_wysiwyg'], r['students']),
+        axis=1)
+    return out[columns]
+
+def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
+    """
+    Rolls long issue rows up by check, newest-first by weight of the problem.
+
+    `items` is the number of content items affected, so summing it across
+    modules gives the size of the job rather than a count of modules with a
+    complaint. LibraryReference is excluded - it marks library-sourced content,
+    not a defect.
+
+    Kept I/O-free: callers pass in database.get_ally_issues_latest().
+    """
+    columns = ['check_name', 'label', 'severity', 'severity_label', 'surface',
+               'advice', 'items', 'modules']
+    if df_issues is None or df_issues.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_issues.copy()
+    df = df[df['check_name'] != 'LibraryReference']
+    if module_codes is not None:
+        scope = {str(c).strip().upper() for c in module_codes if str(c).strip()}
+        df = df[df['module_code'].astype(str).str.strip().str.upper().isin(scope)]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df['items'] = pd.to_numeric(df['items'], errors='coerce').fillna(0)
+    grouped = (df.groupby('check_name', as_index=False)
+                 .agg(severity=('severity', 'min'),
+                      items=('items', 'sum'),
+                      modules=('module_code', 'nunique')))
+    grouped['label'] = grouped['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[0])
+    grouped['surface'] = grouped['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[1])
+    grouped['advice'] = grouped['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[2])
+    grouped['severity_label'] = grouped['severity'].map(
+        lambda s: ALLY_SEVERITY_LABELS.get(int(s), "Other") if pd.notna(s) else "Other")
+    grouped['items'] = grouped['items'].astype(int)
+
+    grouped = grouped.sort_values(['severity', 'items'], ascending=[True, False])
+    if top_n:
+        grouped = grouped.head(top_n)
+    return grouped[columns].reset_index(drop=True)
+
+def count_ally_issues_by_module(df_issues):
+    """Per-module severe/major/minor totals, for the derived actionable items."""
+    columns = ['module_code', 'severe', 'major', 'minor']
+    if df_issues is None or df_issues.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_issues.copy()
+    df = df[df['check_name'] != 'LibraryReference']
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    df['items'] = pd.to_numeric(df['items'], errors='coerce').fillna(0)
+    df['severity'] = pd.to_numeric(df['severity'], errors='coerce')
+
+    out = df.pivot_table(index='module_code', columns='severity', values='items',
+                         aggfunc='sum', fill_value=0)
+    out = out.rename(columns={1.0: 'severe', 2.0: 'major', 3.0: 'minor'})
+    for col in ['severe', 'major', 'minor']:
+        if col not in out.columns:
+            out[col] = 0
+    return out.reset_index()[columns].astype({'severe': int, 'major': int, 'minor': int})
+
+def reconcile_ally_modules(ally_codes, sits_codes):
+    """
+    Which Ally courses and SITS modules failed to meet each other.
+
+    Roughly a twentieth of the Ally rows are programme-level or community
+    shells that SITS has never heard of, and a handful of SITS modules have no
+    Blackboard course at all. Both used to vanish at import; neither should.
+    """
+    # Not `ally_codes or []` - these arrive as Series as often as lists, and a
+    # Series has no truth value.
+    ally = {str(c).strip().upper() for c in (ally_codes if ally_codes is not None else []) if str(c).strip()}
+    sits = {str(c).strip().upper() for c in (sits_codes if sits_codes is not None else []) if str(c).strip()}
+    return {'matched': sorted(ally & sits),
+            'ally_only': sorted(ally - sits),
+            'sits_only': sorted(sits - ally)}
+
 def sanitize_row_data(row_data):
     """
     Defensively formats row data before writing back to Google Sheets.
@@ -405,7 +890,23 @@ def get_school_comparison(active_df, checklist_sums):
     if df.empty:
         return pd.DataFrame(columns=columns), empty_totals
 
-    has_ally = 'Ally 25/26 All' in df.columns
+    has_ally = 'Ally Overall' in df.columns
+
+    def _ally_pct(frame):
+        """Mean Ally score over built courses only, as a percentage.
+
+        Courses still holding their rolled-over template score close to 100% on
+        a couple of dozen template items. Averaging those in would band every
+        school green through the autumn, which is exactly the reading this
+        column exists to prevent.
+        """
+        if not has_ally or frame.empty:
+            return None
+        scored = frame
+        if 'Content Maturity' in frame.columns:
+            scored = frame[frame['Content Maturity'] == "In progress"]
+        values = pd.to_numeric(scored['Ally Overall'], errors='coerce').dropna()
+        return float(values.mean()) * 100 if not values.empty else None
 
     rows = []
     # Faculty totals are accumulated from the same per-module figures the
@@ -437,11 +938,7 @@ def get_school_comparison(active_df, checklist_sums):
         faculty_passed += passed
         faculty_scored += scored
 
-        avg_ally = None
-        if has_ally:
-            ally_mean = school_df['Ally 25/26 All'].mean()
-            if pd.notna(ally_mean):
-                avg_ally = float(ally_mean) * 100
+        avg_ally = _ally_pct(school_df)
 
         compliance = (passed / scored * 100) if scored else None
         audited_pct = (audited_count / module_count * 100) if module_count else 0.0
@@ -475,11 +972,7 @@ def get_school_comparison(active_df, checklist_sums):
 
     total_modules = int(result['Modules'].sum())
     total_audited = int(result['Audited'].sum())
-    faculty_ally = None
-    if has_ally:
-        ally_mean = df['Ally 25/26 All'].mean()
-        if pd.notna(ally_mean):
-            faculty_ally = float(ally_mean) * 100
+    faculty_ally = _ally_pct(df)
 
     totals = {
         'Modules': total_modules,
