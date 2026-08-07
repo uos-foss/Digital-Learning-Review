@@ -177,6 +177,16 @@ def load_audit_data():
         ally_issue_map = (issue_counts.set_index('module_code').to_dict(orient='index')
                           if not issue_counts.empty else {})
 
+        # Leganto reading-list status/items, for courses that DO have a list.
+        # Separate from the leganto_nolist 'missing' flag below - a module
+        # absent here (not in either export) keeps today's generic wording.
+        from database import get_leganto_lists_latest
+        from processing import aggregate_leganto_to_modules
+
+        leganto_lists_modules = aggregate_leganto_to_modules(get_leganto_lists_latest(CURRENT_ACADEMIC_YEAR))
+        leganto_lists_map = (leganto_lists_modules.set_index('module_code').to_dict(orient='index')
+                             if not leganto_lists_modules.empty else {})
+
         # Combine legacy tables to build reference lookups
         legacy_dfs = [df for df in [legacy_aut, legacy_spr] if not df.empty]
         if legacy_dfs:
@@ -264,6 +274,14 @@ def load_audit_data():
             else:
                 leganto_missing = code in leganto_local_set
 
+            # Reading-list status/items for modules that DO have a list. Blank
+            # status means the module isn't in this export at all - not the
+            # same as 'Leganto Missing' above, which is a separate, explicit
+            # export of modules confirmed to have no list.
+            leganto_list = leganto_lists_map.get(code, {})
+            leganto_list_status = leganto_list.get('status', '')
+            leganto_list_items = int(leganto_list.get('total_items', 0) or 0)
+
             # Get Blackboard URL (prefer blackboard_links table, fallback to legacy)
             blackboard_url = blackboard_links_map.get(code, ref_fields.get('URL', ''))
 
@@ -301,7 +319,9 @@ def load_audit_data():
                 'Ally Weighted': overall_score,
                 'Ally 25/26 All': overall_score,
                 'Leganto Missing': leganto_missing,
-                
+                'Leganto List Status': leganto_list_status,
+                'Leganto List Items': leganto_list_items,
+
                 # Include other legacy audit columns as reference
                 'Available to students?': ref_fields.get('Available to students?', ''),
                 'Draft': ref_fields.get('Draft', ''),

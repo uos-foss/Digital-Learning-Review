@@ -72,6 +72,43 @@ one module code (different cohorts) — aggregate to module grain on read via
   export (scope, grain, score invariants, SITS reconciliation) before trusting
   an import — run it against any new Ally export.
 
+## Leganto reading-list data
+
+There are **two separate, disjoint Leganto exports** — don't conflate them:
+
+- `leganto_nolist` — modules confirmed to have **no** reading list at all.
+  Surfaced everywhere as the `Leganto Missing` boolean. Imported through the
+  generic CSV-to-table hub in the Admin Panel.
+- `leganto_lists` — course-grain status/items for modules that **do** have a
+  list (Draft vs Published, citation count). Source of truth for the
+  `Leganto List Status` / `Leganto List Items` fields. Populated by the
+  dedicated importer (`_render_leganto_import()` in `views/admin_panel.py`),
+  via `processing.parse_leganto_lists_export()` and
+  `database.save_leganto_snapshot()` — same shape as the Ally pipeline below.
+  A module absent from *both* exports just gets blank status, not `Missing`.
+
+Same aggregation rule as Ally: a module can have more than one course
+occurrence, so roll up to module grain on read via
+`processing.aggregate_leganto_to_modules()`, never at import time.
+
+- **The export has no per-row academic year column.** Unlike Ally's `Term
+  name`, the year is an explicit operator choice at import time
+  (`_render_leganto_import()`'s year selector), not read from the file. The
+  importer only warns when the tag looks inconsistent with the course names
+  in the file — it never infers or enforces a year on its own.
+- **`leganto_lists`'s primary key includes `academic_year`**
+  (`course_code, snapshot_date, academic_year`), unlike `ally_courses`. Two
+  different years can legitimately produce identical-looking rows for the
+  same course on the same snapshot date — e.g. a reference import of a prior
+  year's export ahead of the real current-year one — and without
+  `academic_year` in the key those rows silently collide and overwrite each
+  other. `save_leganto_snapshot()`'s change-detection (skip-if-unchanged)
+  is likewise scoped per `academic_year`, not just per `course_code`, for the
+  same reason. Preserve this if the table is ever touched again.
+- `database.purge_leganto_lists(academic_year)` deletes one year's rows only
+  — the way to drop a reference/test import once the real export for that
+  year lands, without touching other years.
+
 ## Conventions
 
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once

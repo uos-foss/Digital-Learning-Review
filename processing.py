@@ -534,6 +534,98 @@ def parse_ally_export(df, academic_year, snapshot_date):
         ['course_id', 'snapshot_date', 'content_type', 'items']].reset_index(drop=True)
     return result
 
+# --- Leganto reading lists -------------------------------------------------
+
+def _leganto_status(draft_lists, published_lists, list_info=""):
+    """Draft/Published/Mixed from list counts, falling back to the export's
+    own 'No List Expected' marker when a course has no list at all."""
+    draft_lists = int(draft_lists or 0)
+    published_lists = int(published_lists or 0)
+    if draft_lists > 0 and published_lists > 0:
+        return "Mixed"
+    if published_lists > 0:
+        return "Published"
+    if draft_lists > 0:
+        return "Draft"
+    if str(list_info or "").strip():
+        return "No List Expected"
+    return ""
+
+def parse_leganto_lists_export(df, academic_year, snapshot_date):
+    """
+    Turns the Leganto 'has a list' export into the frame
+    database.save_leganto_snapshot() writes.
+
+    Columns are `School, Course Code, Course Name, Course Term, Course List
+    Info, Draft, Published, Draft, Published` - pandas resolves the repeated
+    headers to `Draft, Published, Draft.1, Published.1`. The first pair is a
+    count of lists in that state (normally 0/1, occasionally more where a
+    course carries several lists); the second is the summed item count for
+    lists in that state.
+
+    Kept I/O-free - the caller reads the CSV and writes the database.
+
+    Returns {'lists': DataFrame, 'rows_in', 'dropped_out_of_faculty'}.
+    """
+    result = {'lists': pd.DataFrame(), 'rows_in': 0, 'dropped_out_of_faculty': 0}
+    if df is None or df.empty:
+        return result
+
+    df = df.copy()
+    result['rows_in'] = len(df)
+
+    required = ['Course Code', 'Draft', 'Published', 'Draft.1', 'Published.1']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "This does not look like a Leganto reading-list export - missing "
+            + ", ".join(missing))
+
+    # Module code, by the same convention as the Ally import:
+    # ALA101.A.276710 -> ALA101.
+    df['module_code'] = (df['Course Code'].astype(str)
+                         .str.split('.').str[0].str.strip().str.upper())
+    df = df[df['module_code'] != ""]
+
+    in_faculty = df['module_code'].str[:3].isin(FACULTY_SCHOOLS)
+    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
+    df = df[in_faculty]
+    if df.empty:
+        return result
+
+    def _num(col):
+        return pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+
+    draft_lists = _num('Draft')
+    published_lists = _num('Published')
+    draft_items = _num('Draft.1')
+    published_items = _num('Published.1')
+    list_info = df.get('Course List Info', "").astype(str).replace('nan', '').str.strip()
+
+    lists_df = pd.DataFrame({
+        'course_code': df['Course Code'].astype(str).str.strip(),
+        'snapshot_date': snapshot_date,
+        'academic_year': academic_year,
+        'module_code': df['module_code'],
+        'course_name': df.get('Course Name', "").astype(str).str.strip(),
+        'school': df.get('School', "").astype(str).str.strip(),
+        'course_term': df.get('Course Term', "").astype(str).str.strip(),
+        'list_info': list_info,
+        'draft_lists': draft_lists,
+        'published_lists': published_lists,
+        'draft_items': draft_items,
+        'published_items': published_items,
+    })
+    lists_df['status'] = [
+        _leganto_status(d, p, li) for d, p, li in
+        zip(lists_df['draft_lists'], lists_df['published_lists'], lists_df['list_info'])
+    ]
+    # One export can list the same course twice; the later row wins.
+    lists_df = lists_df.drop_duplicates(subset=['course_code'], keep='last').reset_index(drop=True)
+
+    result['lists'] = lists_df
+    return result
+
 # Uploaded-file count separates a rolled-over template from a course somebody
 # has started populating, and it separates them cleanly. In 2025-26 - a fully
 # taught year - only 4 of 1034 courses held 5 files or fewer, and the 10th
@@ -653,6 +745,40 @@ def aggregate_ally_to_modules(df_courses):
         lambda r: classify_content_maturity(r['total_files'], r['total_wysiwyg'], r['students']),
         axis=1)
     return out[columns]
+
+def aggregate_leganto_to_modules(df_lists):
+    """
+    Rolls Leganto course-grain list records up to modules.
+
+    A module can carry more than one course occurrence (different cohorts);
+    list and item counts are summed across them and the status is re-derived
+    from the summed counts, same rule as a single course row.
+
+    Kept I/O-free: callers pass in database.get_leganto_lists_latest().
+    """
+    columns = ['module_code', 'status', 'draft_lists', 'published_lists',
+               'draft_items', 'published_items', 'total_items', 'snapshot_date']
+    if df_lists is None or df_lists.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_lists.copy()
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    for col in ['draft_lists', 'published_lists', 'draft_items', 'published_items']:
+        df[col] = pd.to_numeric(df.get(col), errors='coerce').fillna(0).astype(int)
+
+    agg = df.groupby('module_code', sort=True).agg(
+        draft_lists=('draft_lists', 'sum'), published_lists=('published_lists', 'sum'),
+        draft_items=('draft_items', 'sum'), published_items=('published_items', 'sum'),
+        list_info=('list_info', lambda s: next((v for v in s if str(v).strip()), "")),
+        snapshot_date=('snapshot_date', 'max'),
+    ).reset_index()
+
+    agg['status'] = [
+        _leganto_status(d, p, li) for d, p, li in
+        zip(agg['draft_lists'], agg['published_lists'], agg['list_info'])
+    ]
+    agg['total_items'] = agg['draft_items'] + agg['published_items']
+    return agg[columns]
 
 def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
     """
