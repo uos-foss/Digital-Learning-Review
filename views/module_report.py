@@ -606,6 +606,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 })
         ally_profile = _ally_issue_profile(selected_code)
 
+        is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)
+
         # 1. Overview metadata + module health banner
         if active_row is not None:
             raw_mod_lead = str(active_row.get('Mod. lead', '')).strip()
@@ -638,6 +640,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 with c4:
                     st.markdown(f"**Checklist Status:**  \n{sa_status}", unsafe_allow_html=True)
 
+        if is_dla_or_admin:
+            st.caption("🔎 Auditor Mode — you can record observations for this module in the Audit Portal (see sidebar).")
+
         _render_health_banner(ally_profile, len(pending_items), leganto_missing, has_audit,
                               leganto_draft, leganto_items)
 
@@ -651,14 +656,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit,
                                  leganto_draft, leganto_items)
 
-        # 4. Checklist detail: DLA edit access, completed criteria, internal notes
-        is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)
-
-        if is_dla_or_admin:
-            st.info("ℹ️ **Auditor Mode**: You have permissions to audit this module. To make changes or record observations, please open the dedicated Audit Portal.")
-            if st.button("✏️ Open Audit Portal to Edit Checklist", use_container_width=True, key=f"ap_redir_{selected_code}"):
-                st.switch_page(st.session_state.pg_audit)
-
+        # 4. Checklist detail: completed criteria, internal notes
         with st.expander("View Completed Check Criteria", expanded=False):
             if not completed_items:
                 st.caption("No completed checklist criteria recorded yet.")
