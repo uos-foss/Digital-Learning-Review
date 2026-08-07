@@ -8,6 +8,7 @@ from database import (
     get_audit_responses,
     save_audit_response
 )
+from masquerade import is_masquerading
 
 def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
     user_caps = st.session_state.get("capabilities", [])
@@ -131,13 +132,17 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                 key=f"ap_auditor_notes_{selected_code}"
             )
 
+            masquerading = is_masquerading()
+            if masquerading:
+                st.info("🎭 Masquerade mode is view-only — switch back to your own account to save changes.")
+
             col_draft, col_submit = st.columns(2)
             with col_draft:
-                save_draft = st.form_submit_button("💾 Save Draft", use_container_width=True)
+                save_draft = st.form_submit_button("💾 Save Draft", use_container_width=True, disabled=masquerading)
             with col_submit:
-                save_submit = st.form_submit_button("✅ Submit Audit", use_container_width=True)
+                save_submit = st.form_submit_button("✅ Submit Audit", use_container_width=True, disabled=masquerading)
 
-            if save_draft or save_submit:
+            if (save_draft or save_submit) and not masquerading:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 username_upper = str(st.session_state.get("username", "")).strip().upper()
                 try:
