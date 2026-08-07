@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import datetime
 import logging
 import json
@@ -61,31 +62,53 @@ def _ally_band(score):
     return ALLY_BANDS[-1][1:]
 
 
-def _score_tile(label, score, sub):
-    """One of the three surface scores, or a muted tile when nothing applies."""
-    if score is None or pd.isna(score):
-        return f"""
-        <div style="text-align:center;border-radius:10px;padding:10px 8px;
-                    background-color:#6B728010;border:1px solid #6B728033;">
-            <span style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;
-                         letter-spacing:.8px;display:block;">{label}</span>
-            <h2 style="margin:0;color:#6B7280;font-size:24px;font-weight:800;">--</h2>
-            <span style="font-size:11px;color:#6B7280;">{sub}</span>
-        </div>"""
-    colour, level, _ = _ally_band(float(score))
-    return f"""
-    <div style="text-align:center;border-radius:10px;padding:10px 8px;
-                background-color:{colour}10;border:1px solid {colour}33;">
-        <span style="font-size:10px;font-weight:700;color:{colour};text-transform:uppercase;
-                     letter-spacing:.8px;display:block;">{label}</span>
-        <h2 style="margin:0;color:{colour};font-size:28px;font-weight:800;">{float(score):.1%}</h2>
-        <span style="font-size:11px;color:#6B7280;">{sub}</span>
-    </div>"""
+def _score_gauge(label, score, sub, is_template=False):
+    """One of the three surface scores, as a Plotly gauge indicator.
 
+    Hand-rolled SVG gauges kept misaligning inside Streamlit's markdown
+    sanitizer (track/value arcs and labels drifting out of sync across
+    reruns) - go.Indicator is a proven, purpose-built gauge renderer instead
+    of fighting that.
 
-def _render_ally_card(selected_code, active_row):
+    is_template flags a course that's still its rolled-over template - the
+    score itself is Ally's real, unmodified figure (no credibility weighting,
+    see module docstring below), but the gauge renders grey rather than in
+    its score-band colour, since the maturity banner above already explains
+    why and colouring it as a real result would overstate it.
     """
-    The module's accessibility profile.
+    has_score = score is not None and pd.notna(score)
+    colour = "#6B7280" if (is_template or not has_score) else _ally_band(float(score))[0]
+    value = float(score) * 100 if has_score else 0
+    r, g, b = int(colour[1:3], 16), int(colour[3:5], 16), int(colour[5:7], 16)
+    bgcolour = f"rgba({r},{g},{b},0.12)"
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        number={'suffix': "%", 'font': {'size': 26, 'color': colour}} if has_score
+               else {'valueformat': '', 'suffix': "--", 'font': {'size': 26, 'color': colour}},
+        title={'text': label, 'font': {'size': 12, 'color': colour}},
+        gauge={
+            'axis': {'range': [0, 100], 'visible': False},
+            'bar': {'color': colour, 'thickness': 1},
+            'bgcolor': bgcolour,
+            'borderwidth': 0,
+            'shape': "angular",
+        },
+    ))
+    fig.update_layout(
+        height=140,
+        margin=dict(l=20, r=20, t=40, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        font={'color': '#6B7280'},
+    )
+    return fig, has_score, sub
+
+
+def _render_ally_card(selected_code, active_row, ally_profile):
+    """
+    The module's accessibility profile: scores, trend, and the issues behind
+    them, all in one place.
 
     Shows Ally's three scores as Ally reports them. The portal used to display
     a single locally credibility-weighted figure instead, which pulled thin
@@ -94,12 +117,14 @@ def _render_ally_card(selected_code, active_row):
     here to judge? - is now answered directly by the item counts and the
     content maturity banner.
 
-    The outstanding-issues worklist used to live inside this card. It now
-    lives in the page-level unified worklist instead, alongside checklist and
-    Leganto gaps, so an auditor sees one ranked list rather than three.
+    The issue list used to live in a page-level worklist shared with
+    checklist and Leganto gaps. It now lives here instead, so the
+    Accessibility column is self-contained - everything Ally in one place,
+    rather than split between a score card and a separate outstanding-items
+    section.
     """
-    with st.container(border=True):
-        st.subheader("🔍 Ally Accessibility",
+    with st.container():
+        st.subheader("Accessibility Report",
                      help="Ally's own scores for this course, from the most recent "
                           "institutional export. Files and editor pages are scored "
                           "separately because they are fixed in completely different ways.")
@@ -124,39 +149,42 @@ def _render_ally_card(selected_code, active_row):
                 "code — the Admin Panel's Ally import reports both.")
             return
 
-        # 1. Maturity first. A template scoring 99% is not an accessibility result.
-        colour, icon, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
+        # 1. Maturity banner - only for states that need explaining. "In
+        # progress" is the common case and is already obvious from the
+        # gauges being non-zero, so it doesn't get its own banner; "Not yet
+        # built"/"Empty" do, since a high score there would otherwise read as
+        # real accessibility compliance rather than an unbuilt template.
         last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
-        note += f" · Last scanned {last_scanned_date}"
-        st.markdown(
-            f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
-                        padding:8px 12px;border-radius:4px;margin-bottom:12px;">
-                <b style="color:{colour};">{icon} {maturity}</b>
-                <span style="color:#6B7280;font-size:13px;"> — {note}</span>
-            </div>""", unsafe_allow_html=True)
+        if maturity != "In progress":
+            colour, icon, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
+            display_maturity = "Not started" if maturity == "Not yet built" else maturity
+            note += f" · Last scanned {last_scanned_date}"
+            st.markdown(
+                f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
+                            padding:8px 12px;border-radius:4px;margin-bottom:12px;">
+                    <b style="color:{colour};">{icon} {display_maturity}</b>
+                    <span style="color:#6B7280;font-size:13px;"> — {note}</span>
+                </div>""", unsafe_allow_html=True)
 
         # 2. The three scores, each with the volume of content behind it.
+        # Greyed out for a template/empty course - the number is real (Ally's
+        # own, unmodified) but isn't an accessibility result worth reading in
+        # colour yet.
+        is_template = maturity in ("Not yet built", "Empty")
         c1, c2, c3 = st.columns(3)
-        c1.markdown(_score_tile("Overall", overall, f"{n_files + n_wysiwyg} items"),
+        for col, tile_label, tile_score, tile_sub, tile_key in (
+            (c1, "Overall", overall, f"{n_files + n_wysiwyg} items", "overall"),
+            (c2, "Files", files_score, f"{n_files} file{'' if n_files == 1 else 's'}", "files"),
+            (c3, "Ultra Documents", wysiwyg_score,
+             f"{n_wysiwyg} document{'' if n_wysiwyg == 1 else 's'}", "wysiwyg"),
+        ):
+            fig, _, sub_text = _score_gauge(tile_label, tile_score, tile_sub, is_template)
+            with col:
+                st.plotly_chart(fig, use_container_width=True,
+                                config={'displayModeBar': False}, key=f"gauge_{selected_code}_{tile_key}")
+                st.markdown(
+                    f"<div style='text-align:center;font-size:11px;color:#6B7280;margin-top:-16px;'>{sub_text}</div>",
                     unsafe_allow_html=True)
-        c2.markdown(_score_tile("Files", files_score,
-                                f"{n_files} file{'' if n_files == 1 else 's'}"),
-                    unsafe_allow_html=True)
-        c3.markdown(_score_tile("Ultra Documents", wysiwyg_score,
-                                f"{n_wysiwyg} document{'' if n_wysiwyg == 1 else 's'}"),
-                    unsafe_allow_html=True)
-
-        if (files_score is not None and wysiwyg_score is not None
-                and pd.notna(files_score) and pd.notna(wysiwyg_score)):
-            gap = float(wysiwyg_score) - float(files_score)
-            if abs(gap) >= 0.15:
-                worse, better = ("uploaded files", "Ultra Documents") if gap > 0 \
-                    else ("Ultra Documents", "uploaded files")
-                st.caption(
-                    f"The {worse} score {abs(gap):.0%} lower than the {better}. "
-                    + ("Fixing documents means re-authoring and re-uploading them."
-                       if gap > 0 else
-                       "Ultra Document problems are fixable directly in the Blackboard editor."))
 
         if not active_row.get('Ally Enabled', True):
             st.warning("⚠️ Ally is switched off for this course, so students get no "
@@ -173,6 +201,9 @@ def _render_ally_card(selected_code, active_row):
             "Need help? "
             "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
             "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
+
+        st.markdown("---")
+        _render_ally_issues(ally_profile, active_row, is_template)
 
 
 def _ally_issue_profile(selected_code):
@@ -257,17 +288,18 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
 
 
 def _render_ally_issue_card(row):
-    """One Ally issue type, as used inside the unified worklist."""
+    """One Ally issue type, in the same card shape as checklist items."""
     icon, where = SURFACE_WORDS.get(row['surface'], ("📄", ""))
     colour = TIER_COLOUR.get(row['severity_label'], "#6B7280")
     st.markdown(
-        f"""<div style="padding:6px 0;border-bottom:1px solid #E5E7EB;">
+        f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05; padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid {colour}0D; border-right: 1px solid {colour}0D; border-bottom: 1px solid {colour}0D;">
             <span style="background:{colour}1A;color:{colour};font-size:10px;
                          font-weight:700;padding:2px 6px;border-radius:4px;
                          text-transform:uppercase;">{row['severity_label']}</span>
-            <b style="margin-left:6px;">{row['label']}</b>
-            <span style="color:#6B7280;"> — {row['items']} item(s)</span><br>
-            <span style="font-size:13px;color:#4B5563;">{icon} {where}. {row['advice']}</span>
+            <h4 style="margin: 6px 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{row['label']}</h4>
+            <div style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">
+                {row['items']} item(s) · {icon} {where}. {row['advice']}
+            </div>
         </div>""", unsafe_allow_html=True)
 
 
@@ -299,39 +331,84 @@ def _render_pending_item_card(item):
 
     st.markdown(f"""
     <div style="border-left: 4px solid #F59E0B; background-color: rgba(245, 158, 11, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(245, 158, 11, 0.05); border-right: 1px solid rgba(245, 158, 11, 0.05); border-bottom: 1px solid rgba(245, 158, 11, 0.05);">
-        <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
+        <span style="background:{TIER_COLOUR['Major']}1A;color:{TIER_COLOUR['Major']};font-size:10px;
+                     font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Major</span>
+        <h4 style="margin: 6px 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
         <div style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">{body}</div>
     </div>
     """, unsafe_allow_html=True)
 
 
-def _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit,
-                              leganto_draft=False, leganto_items=0):
+def _render_ally_issues(ally_profile, active_row, is_template=False):
     """
-    One severity-ranked worklist across Ally, the checklist, and Leganto.
+    Ally's accessibility issues, ranked by severity.
 
-    Replaces three separate lists (an Ally-only expander, a checklist-only
-    "Actions & Recommendations" expander, and a one-line Leganto mention) with
-    a single ranked list, so an auditor sees what actually needs doing without
-    cross-referencing three sections by hand. Checklist items and a missing
-    Leganto list don't carry their own severity today, so they sit at a fixed
-    "Major" tier alongside Ally's own major-severity issues - no schema
-    change, revisit if per-item severity is ever added to the checklist.
+    Lives inside the Accessibility column, directly below the score tiles -
+    scores and the issues behind them are one picture, not two separate page
+    sections a reader has to reconcile by hand.
+
+    is_template distinguishes "genuinely clean" from "nothing scanned yet" -
+    a zero-issue template hasn't been checked for anything, so a green
+    success tick there would overstate it the same way an unqualified high
+    score would.
     """
     severe = ally_profile[ally_profile['severity_label'] == 'Severe'] if not ally_profile.empty else ally_profile
-    major_ally = ally_profile[ally_profile['severity_label'] == 'Major'] if not ally_profile.empty else ally_profile
+    major = ally_profile[ally_profile['severity_label'] == 'Major'] if not ally_profile.empty else ally_profile
     minor = (ally_profile[ally_profile['severity_label'].isin(['Minor', 'Other'])]
              if not ally_profile.empty else ally_profile)
 
-    major_checklist = list(pending_items)
+    total = len(severe) + len(major) + len(minor)
+    if total == 0:
+        if is_template:
+            st.caption("This course still holds only its rolled-over template, so there's "
+                       "nothing to report yet.")
+        else:
+            st.success("✅ No accessibility issues reported.")
+        return
+
+    st.markdown(f"#### Accessibility Issues ({total})")
+
+    if len(severe):
+        st.markdown("**Severe**")
+        for _, row in severe.iterrows():
+            _render_ally_issue_card(row)
+
+    if len(major):
+        st.markdown("**Major**")
+        for _, row in major.iterrows():
+            _render_ally_issue_card(row)
+
+    if len(minor):
+        st.markdown("**Minor**")
+        for _, row in minor.iterrows():
+            _render_ally_issue_card(row)
+
+    url = str(active_row.get('URL', '') or '') if active_row is not None else ''
+    if url:
+        st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
+
+
+def _render_module_checks(pending_items, completed_items, leganto_missing, leganto_draft,
+                           leganto_items, has_audit):
+    """
+    Checklist and Leganto readiness, outstanding items first then completed.
+
+    Everything that isn't Ally accessibility - the module-lead-facing
+    checklist plus the Leganto reading-list gap/status - lives in this one
+    column so "what's left to sort out on this module" and "what's already
+    done" read together instead of across two page-halves.
+    """
+    st.subheader("Module Checks and Readiness")
+
+    pending = list(pending_items)
     if leganto_missing:
-        major_checklist.append({
+        pending.append({
             'type': 'boolean',
             'label': 'Leganto Reading List Missing',
             'description': "This module doesn't have a reading list connected in Leganto yet."
         })
     elif leganto_draft:
-        major_checklist.append({
+        pending.append({
             'type': 'boolean',
             'label': 'Leganto Reading List Not Published',
             'description': (f"This module's Leganto list has {leganto_items} item"
@@ -339,36 +416,37 @@ def _render_unified_worklist(active_row, ally_profile, pending_items, leganto_mi
                              "- not visible to students yet.")
         })
 
-    total = len(severe) + len(major_ally) + len(major_checklist) + len(minor)
-    if total == 0:
-        st.success("✅ Nothing outstanding right now — no accessibility issues and no open checklist items.")
-        return
-
-    with st.expander(f"Outstanding items ({total})", expanded=bool(len(severe))):
+    st.markdown(f"#### Outstanding ({len(pending)})")
+    if not pending:
+        st.success("✅ Nothing outstanding right now.")
+    else:
         if not has_audit:
             st.caption("This module hasn't had a Digital Learning Advisor audit yet, so checklist "
                        "items are shown as outstanding until one is completed.")
+        for item in pending:
+            _render_pending_item_card(item)
 
-        if len(severe):
-            st.markdown("**Severe**")
-            for _, row in severe.iterrows():
-                _render_ally_issue_card(row)
-
-        if len(major_ally) or major_checklist:
-            st.markdown("**Major**")
-            for _, row in major_ally.iterrows():
-                _render_ally_issue_card(row)
-            for item in major_checklist:
-                _render_pending_item_card(item)
-
-        if len(minor):
-            st.markdown("**Minor**")
-            for _, row in minor.iterrows():
-                _render_ally_issue_card(row)
-
-        url = str(active_row.get('URL', '') or '') if active_row is not None else ''
-        if url and (len(severe) or len(major_ally) or len(minor)):
-            st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
+    st.markdown(f"#### Completed ({len(completed_items)})")
+    if not completed_items:
+        st.caption("No completed checklist criteria recorded yet.")
+    else:
+        for item in completed_items:
+            if item['type'] == 'boolean':
+                st.markdown(f"""
+                <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.05); border-right: 1px solid rgba(16, 185, 129, 0.05); border-bottom: 1px solid rgba(16, 185, 129, 0.05);">
+                    <span style="background:#10B9811A;color:#047857;font-size:10px;
+                                 font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Complete</span>
+                    <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['label']}</h4>
+                </div>
+                """, unsafe_allow_html=True)
+            elif item['type'] == 'tag':
+                st.markdown(f"""
+                <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.05); border-right: 1px solid rgba(16, 185, 129, 0.05); border-bottom: 1px solid rgba(16, 185, 129, 0.05);">
+                    <span style="background:#10B9811A;color:#047857;font-size:10px;
+                                 font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Complete</span>
+                    <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['category']} Compliant: {item['comment']}</h4>
+                </div>
+                """, unsafe_allow_html=True)
 
 
 def _compute_checklist_items(selected_code, checklist_sums, active_fields):
@@ -626,19 +704,18 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
             sa_status = checklist_sums.get(selected_code, {}).get('Status', "❌ No Submission")
 
-            with st.container(border=True):
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    st.markdown(f"**Module Lead:**  \n{mod_lead}", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"**Level:**  \n{ug_pg}", unsafe_allow_html=True)
-                with c3:
-                    if url:
-                        st.markdown(f"**VLE Link:**  \n[Open Module Site]({url})", unsafe_allow_html=True)
-                    else:
-                        st.markdown("**VLE Link:**  \n<span style='color: #9CA3AF;'>--</span>", unsafe_allow_html=True)
-                with c4:
-                    st.markdown(f"**Checklist Status:**  \n{sa_status}", unsafe_allow_html=True)
+            vle_value = (f"<a href='{url}' target='_blank' style='color:#2563EB;'>Open Module Site</a>"
+                         if url else "<span style='color:#9CA3AF;'>--</span>")
+
+            st.markdown(
+                f"""<div style="border:1px solid rgba(49,51,63,0.2);border-radius:8px;
+                            padding:10px 16px;margin-bottom:8px;display:flex;flex-wrap:wrap;
+                            gap:6px 28px;align-items:baseline;">
+                    <span><b>Module Lead:</b> {mod_lead}</span>
+                    <span><b>Level:</b> {ug_pg}</span>
+                    <span><b>VLE Link:</b> {vle_value}</span>
+                    <span><b>Checklist Status:</b> {sa_status}</span>
+                </div>""", unsafe_allow_html=True)
 
         if is_dla_or_admin:
             st.caption("🔎 Auditor Mode — you can record observations for this module in the Audit Portal (see sidebar).")
@@ -648,32 +725,18 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         st.markdown(" ")
 
-        # 2. Ally accessibility profile
-        _render_ally_card(selected_code, active_row)
-        st.markdown("---")
+        # 2. Two source-scoped columns: everything Ally on the left,
+        # everything checklist/Leganto (outstanding and completed together)
+        # on the right. gap="large" gives real visual separation - the
+        # default gap alone reads as one continuous block on wide screens.
+        col_accessibility, col_checks = st.columns(2, gap="large")
 
-        # 3. One outstanding-items worklist across Ally, the checklist, and Leganto
-        _render_unified_worklist(active_row, ally_profile, pending_items, leganto_missing, has_audit,
-                                 leganto_draft, leganto_items)
+        with col_accessibility:
+            _render_ally_card(selected_code, active_row, ally_profile)
 
-        # 4. Checklist detail: completed criteria, internal notes
-        with st.expander("View Completed Check Criteria", expanded=False):
-            if not completed_items:
-                st.caption("No completed checklist criteria recorded yet.")
-            else:
-                for item in completed_items:
-                    if item['type'] == 'boolean':
-                        st.markdown(f"""
-                        <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.01); padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.02); border-right: 1px solid rgba(16, 185, 129, 0.02); border-bottom: 1px solid rgba(16, 185, 129, 0.02);">
-                            <span style="color: #047857; font-weight: 600; font-size: 14px;">✅ {item['label']}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    elif item['type'] == 'tag':
-                        st.markdown(f"""
-                        <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.01); padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.02); border-right: 1px solid rgba(16, 185, 129, 0.02); border-bottom: 1px solid rgba(16, 185, 129, 0.02);">
-                            <span style="color: #047857; font-weight: 600; font-size: 14px;">✅ {item['category']} Compliant: {item['comment']}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
+        with col_checks:
+            _render_module_checks(pending_items, completed_items, leganto_missing, leganto_draft,
+                                  leganto_items, has_audit)
 
         # Render confidential internal notes if user is an auditor
         if is_dla_or_admin and has_audit:
