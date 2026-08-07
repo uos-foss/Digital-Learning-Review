@@ -14,7 +14,6 @@ import streamlit as st
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = PROJECT_ROOT / "docs"
-ASSETS_DIR = PROJECT_ROOT / "assets"
 
 
 def _render_doc(filename: str):
@@ -50,23 +49,3 @@ def view_changelog():
 def view_developer_guide():
     st.title("💻 Developer Guide")
     _render_doc("developer-guide.md")
-
-
-def view_contribute():
-    st.title("🤝 How to Contribute")
-    st.write("Learn how to collaborate, update, and extend the Digital Learning Review project.")
-
-    import streamlit.components.v1 as components
-
-    html_path = ASSETS_DIR / "contribute.html"
-    if html_path.exists():
-        try:
-            html_content = html_path.read_text(encoding="utf-8")
-
-            # Render full-width responsive container
-            # Height of 650px fits a standard 16:9 slide nicely
-            components.html(html_content, height=650, scrolling=True)
-        except Exception as e:
-            st.error(f"Failed to load the slide deck: {e}")
-    else:
-        st.warning(f"The HTML slide deck is currently missing. Expected it at `{html_path}`.")

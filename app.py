@@ -21,10 +21,11 @@ from processing import CURRENT_ACADEMIC_YEAR
 from views.faculty_overview import view_faculty_overview
 from views.school_dashboard import view_school_dashboard
 from views.module_report import view_module_report
-from views.docs import view_help, view_changelog, view_developer_guide, view_contribute
+from views.docs import view_help, view_changelog, view_developer_guide
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
 from views.audit_portal import view_audit_portal
+from masquerade import is_masquerading, stop_masquerade, clear_masquerade_state
 # background sync daemon is disabled as we moved to SQLite primary database
 # from background_tasks import start_scheduler
 # start_scheduler()
@@ -564,22 +565,20 @@ def page_module_report():
 def page_resources_and_support():
     tabs_list = ["💡 Help & Support", "💬 App Feedback", "📋 Release Changelog"]
     if is_dla_or_admin:
-        tabs_list.extend(["💻 Developer Guide", "🤝 How to Contribute"])
-        
+        tabs_list.append("💻 Developer Guide")
+
     tabs = st.tabs(tabs_list)
-    
+
     with tabs[0]:
         view_help()
     with tabs[1]:
         view_feedback()
     with tabs[2]:
         view_changelog()
-        
+
     if is_dla_or_admin:
         with tabs[3]:
             view_developer_guide()
-        with tabs[4]:
-            view_contribute()
 
 def page_admin():
     view_admin_panel(df_aut, df_spr, checklist_sums, df_assess)
@@ -618,7 +617,18 @@ nav = st.navigation(pages_list, position="hidden")
 # --- CUSTOM SIDEBAR LAYOUT ---
 with st.sidebar:
     st.title("FoSS Digital Learning Review Portal")
-    
+
+    if is_masquerading():
+        st.warning(
+            f"🎭 Viewing as **{st.session_state.username}** "
+            f"({st.session_state.user_role}, {st.session_state.saved_school}) — "
+            f"changes are disabled.",
+            icon="🎭"
+        )
+        if st.button("↩️ Return to my account", key="exit_masquerade_btn", use_container_width=True):
+            stop_masquerade()
+        st.divider()
+
     # Semester Selector placed at the top (above main navigation)
     st.radio(
         "Select Semester", 
@@ -647,6 +657,7 @@ with st.sidebar:
     st.divider()
     
     def handle_logout():
+        clear_masquerade_state()
         st.session_state.logged_in = False
         st.session_state.saved_school = "All"
         st.session_state.username = ""
