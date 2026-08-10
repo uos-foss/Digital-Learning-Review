@@ -6,9 +6,10 @@ someone who has not worked on this system before.
 If you are reading this during an incident, start at **Before you start**, then
 jump to the scenario that matches.
 
-> **Note on remote names.** Examples below use `gdrive-crypt:` — the encrypted
-> remote. If the encryption layer has not been set up yet, substitute `gdrive:`
-> and the paths are otherwise identical.
+> **Note on remote names.** Examples below use `gdrive:`. The backup database is
+> **not encrypted** — it is a plain `.gz` file, readable by anyone with access to
+> the Drive location. If a `gdrive-crypt:` remote is ever added, the paths below
+> are otherwise identical.
 
 ---
 
@@ -21,7 +22,6 @@ touching anything.
 | :--- | :--- | :--- |
 | SSH + sudo on the VM | University IT | Nothing else is possible |
 | Access to the backup Drive location | `Server_Backups/sqlite` | See *If the backups are unreachable* |
-| The rclone crypt password | Institutional password manager | **Backups are unreadable. Stop.** |
 | The `.env` contents | Password manager, or the config archive in the backup | Rebuild from `.env.example`; expect an afternoon |
 | GitHub access to `uos-foss/Digital-Learning-Review` | Public repo — clone needs no auth | — |
 
@@ -40,7 +40,7 @@ damage you want to roll back.
 ### 1. Identify the backup you want
 
 ```bash
-sudo rclone lsl gdrive-crypt:Server_Backups/sqlite/shared-audit-data/ | sort -k4
+sudo rclone lsl gdrive:Server_Backups/sqlite/shared-audit-data/ | sort -k4
 ```
 
 Filenames carry the timestamp of the run: `opt_shared-audit-data_audit_cache_YYYYMMDD_HHMMSS.db.gz`.
@@ -49,9 +49,9 @@ Pick the newest one from *before* the damage — not simply the newest.
 
 ### 2. Stop every container sharing the database
 
-This is the step people get wrong. **Four other applications mount the same
-volume.** Restoring while any of them holds an open connection will corrupt the
-file you just restored.
+This is the step people get wrong. **One other application, AI-Audit, mounts the
+same volume.** Restoring while it holds an open connection will corrupt the file
+you just restored.
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Mounts}}' | grep shared-audit-data
@@ -63,8 +63,7 @@ Stop each project found, from its own directory:
 sudo docker compose -f /opt/Digital-Learning-Review/docker-compose.yml down
 ```
 
-Repeat for `/opt/GPL-assessment-criteria-new`, `/opt/EDC-assessment-portal`, and
-`/opt/student-feedback-data`. Then confirm nothing is left:
+Repeat for `/opt/AI-Audit`. Then confirm nothing is left:
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Mounts}}' | grep shared-audit-data
@@ -83,7 +82,7 @@ sudo cp -a /opt/shared-audit-data/audit_cache.db /opt/shared-audit-data/audit_ca
 ### 4. Fetch and unpack
 
 ```bash
-sudo rclone copy gdrive-crypt:Server_Backups/sqlite/shared-audit-data/opt_shared-audit-data_audit_cache_YYYYMMDD_HHMMSS.db.gz /tmp/restore/
+sudo rclone copy gdrive:Server_Backups/sqlite/shared-audit-data/opt_shared-audit-data_audit_cache_YYYYMMDD_HHMMSS.db.gz /tmp/restore/
 ```
 
 ```bash
@@ -126,7 +125,7 @@ sudo mv /tmp/restore/opt_shared-audit-data_audit_cache_YYYYMMDD_HHMMSS.db /opt/s
 sudo docker compose -f /opt/Digital-Learning-Review/docker-compose.yml up -d
 ```
 
-Then bring the sibling applications back up the same way.
+Then bring AI-Audit back up the same way.
 
 Go to **Verification**.
 
@@ -282,7 +281,7 @@ legitimately have no password hash. Deleting those rows as "cleanup" revokes
 their access. An empty hash never matches any input, so it is not a bypass.
 
 **Restoring over a live WAL database corrupts it.** Always stop every container
-on the shared volume first — all five applications, not just this one.
+on the shared volume first — AI-Audit as well, not just this one.
 
 **`app.log` must exist as a file before `docker compose up`.** Otherwise Docker
 creates a directory at that path.
