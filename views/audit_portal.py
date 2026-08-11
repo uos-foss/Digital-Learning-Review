@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import logging
-from processing import get_module_mapping
+from processing import get_module_mapping, FACULTY_SCHOOLS
 from database import (
     get_active_audit_fields,
     get_audit_responses,
@@ -22,9 +22,42 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
     module_mapping = get_module_mapping(df_aut, df_spr)
     combined_options = sorted([f"{code} - {name}" for code, name in module_mapping.items()])
 
+    schools_list = list(FACULTY_SCHOOLS)
+
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
+
     if only_own_school:
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {st.session_state.saved_school}</span>"
+        st.markdown(f"### VLE Audit Portal{school_context_badge}", unsafe_allow_html=True)
         combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
+    else:
+        st.markdown("### VLE Audit Portal")
+        # Optional multi-tenant school filter to focus without siloing
+        if st.session_state.saved_school != "All":
+            filter_by_school = st.checkbox(f"Focus on my school ({st.session_state.saved_school})", value=True, key="ap_focus_school")
+            if filter_by_school:
+                combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
+            else:
+                selected_school = st.selectbox(
+                    "Select School to Focus",
+                    ["All Schools"] + schools_list,
+                    index=0,
+                    key="ap_school_select",
+                    help="Switch to another school's module list."
+                )
+                if selected_school != "All Schools":
+                    combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
+        else:
+            # Fallback for "All Schools" users (e.g. FACULTY) to filter module list by school
+            selected_school = st.selectbox(
+                "Filter by School",
+                ["All Schools"] + schools_list,
+                index=0,
+                key="ap_school_select_all",
+                help="Filter the module selection list by a specific school."
+            )
+            if selected_school != "All Schools":
+                combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
 
     if 'selected_module_code' not in st.session_state:
         st.session_state.selected_module_code = ""
@@ -42,7 +75,6 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
         else:
             st.session_state.selected_module_code = ""
 
-    st.markdown("### VLE Audit Portal")
     st.selectbox(
         "Select Module to Audit",
         options=[""] + combined_options,
