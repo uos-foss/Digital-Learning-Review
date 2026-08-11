@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import datetime
 import logging
-import json
 import re
 from processing import (
     get_module_mapping,
@@ -13,6 +12,7 @@ from processing import (
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
     SECTION_STATES,
+    derive_module_findings,
 )
 from database import (
     get_active_audit_fields,
@@ -20,7 +20,6 @@ from database import (
     save_audit_response,
     get_comment_bank,
     update_module_lead_sqlite,
-    parse_custom_observations,
     get_ally_history,
 )
 
@@ -427,8 +426,7 @@ def _render_ally_issues(ally_profile, active_row, is_template=False):
         st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
 
 
-def _render_module_checks(pending_items, completed_items, leganto_missing, leganto_draft,
-                           leganto_items, has_audit, active_row=None):
+def _render_module_checks(pending_items, completed_items, has_audit, active_row=None):
     """
     Checklist, Leganto and Blackboard template readiness, outstanding items
     first then completed.
@@ -439,38 +437,27 @@ def _render_module_checks(pending_items, completed_items, leganto_missing, legan
     module" and "what's already done" read together instead of across two
     page-halves.
 
-    The template block is reported separately from the checklist rather than
-    folded into it: those states are observations from an export, and a
+    pending_items/completed_items already carry both checklist and Leganto
+    findings - both come from processing.derive_module_findings(), the single
+    place that decides what counts as outstanding for every source, so this
+    function only renders, it does not classify.
+
+    The template block is reported separately from the generic worklist rather
+    than folded into it: those states are observations from an export, and a
     checklist item still means something a Digital Learning Advisor recorded.
     """
     st.subheader("Module Checks and Readiness")
 
     _render_template_sections(active_row)
 
-    pending = list(pending_items)
-    if leganto_missing:
-        pending.append({
-            'type': 'boolean',
-            'label': 'Leganto Reading List Missing',
-            'description': "This module doesn't have a reading list connected in Leganto yet."
-        })
-    elif leganto_draft:
-        pending.append({
-            'type': 'boolean',
-            'label': 'Leganto Reading List Not Published',
-            'description': (f"This module's Leganto list has {leganto_items} item"
-                             f"{'s' if leganto_items != 1 else ''} but is still in Draft "
-                             "- not visible to students yet.")
-        })
-
-    st.markdown(f"#### Outstanding ({len(pending)})")
-    if not pending:
+    st.markdown(f"#### Outstanding ({len(pending_items)})")
+    if not pending_items:
         st.success("✅ Nothing outstanding right now.")
     else:
         if not has_audit:
             st.caption("This module hasn't had a Digital Learning Advisor audit yet, so checklist "
                        "items are shown as outstanding until one is completed.")
-        for item in pending:
+        for item in pending_items:
             _render_pending_item_card(item)
 
     st.markdown(f"#### Completed ({len(completed_items)})")
@@ -592,98 +579,6 @@ def _render_template_sections(active_row):
                 'Last changed': _fmt_report_date(v.get('last_modified')) or "—",
             } for k, v in others]
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-def _compute_checklist_items(selected_code, checklist_sums, active_fields):
-    """
-    Classify each active audit field into pending/completed, read-only.
-
-    Runs whether or not the module has been audited yet, so an unaudited
-    module correctly shows every field as outstanding in the unified worklist
-    rather than the checklist section going blank. Leganto is handled by the
-    caller, not here - it isn't one of the active audit fields.
-
-    Returns (pending_items, completed_items, has_audit, last_updated_str, responses).
-    """
-    pending_items = []
-    completed_items = []
-
-    has_audit = selected_code in checklist_sums
-    last_updated_str = "Never"
-    responses = {}
-
-    if has_audit:
-        sum_entry = checklist_sums[selected_code]
-        responses = sum_entry.get('Responses', {})
-        last_updated_str = f"{sum_entry.get('Timestamp', 'Never')} by {sum_entry.get('Auditor', 'Unknown')}"
-
-    if active_fields:
-        comment_bank = get_comment_bank()
-        compliant_tag_ids = {c['id'] for c in comment_bank
-                             if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
-        cb_lookup = {c['id']: c for c in comment_bank}
-
-        for field in active_fields:
-            fid = field['id']
-            label = field['label']
-            action_label = field.get('action_label') or label
-            desc = field['description']
-            ftype = field['field_type']
-            val = responses.get(fid, None)
-
-            if ftype == 'boolean' or ftype == 'yes/no':
-                if ftype == 'boolean':
-                    is_compliant = (str(val).upper() == 'TRUE')
-                else:
-                    is_compliant = (str(val).upper() == 'YES')
-
-                if is_compliant:
-                    completed_items.append({'type': 'boolean', 'label': label, 'description': desc})
-                else:
-                    pending_items.append({'type': 'boolean', 'label': action_label, 'description': desc})
-            elif ftype == 'text' and val:
-                try:
-                    data = json.loads(val)
-                    if isinstance(data, dict):
-                        tags = data.get("tags", [])
-                        custom = data.get("custom", "")
-
-                        for tag_id in tags:
-                            tag_info = cb_lookup.get(tag_id)
-                            if tag_info:
-                                is_compliant = tag_id in compliant_tag_ids
-                                target = completed_items if is_compliant else pending_items
-                                target.append({
-                                    'type': 'tag',
-                                    'category': tag_info.get('category', 'General'),
-                                    'comment': tag_info.get('comment', ''),
-                                    'advice': tag_info.get('advice', ''),
-                                    'resource_url': tag_info.get('resource_url', ''),
-                                    'resource_text': tag_info.get('resource_text', '')
-                                })
-                            else:
-                                pending_items.append({'type': 'legacy_tag', 'comment': str(tag_id)})
-
-                        custom_obs_list = parse_custom_observations(custom)
-                        for obs in custom_obs_list:
-                            pending_items.append({
-                                'type': 'custom',
-                                'category': label,
-                                'label': obs.get('observation', ''),
-                                'description': obs.get('action', '')
-                            })
-                except Exception:
-                    if str(val).strip():
-                        custom_obs_list = parse_custom_observations(val)
-                        for obs in custom_obs_list:
-                            pending_items.append({
-                                'type': 'custom',
-                                'category': label,
-                                'label': obs.get('observation', ''),
-                                'description': obs.get('action', '')
-                            })
-
-    return pending_items, completed_items, has_audit, last_updated_str, responses
 
 
 def title_case_name(name: str) -> str:
@@ -809,24 +704,46 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         leganto_items = int(active_row.get('Leganto List Items', 0) or 0) if active_row is not None else 0
         leganto_draft = leganto_status in ('Draft', 'Mixed')
 
-        # Checklist and Ally data are both needed by the health banner and the
-        # unified worklist, so compute them before rendering anything.
+        # Checklist, Leganto, Ally and readiness findings all come from one
+        # place - processing.derive_module_findings() - so the worklist below,
+        # the health banner's counts, and the Actionable Items badge on School
+        # Dashboard / Faculty Overview can no longer disagree about what a
+        # module has outstanding.
         active_fields = get_active_audit_fields()
-        pending_items, completed_items, has_audit, last_updated_str, responses = \
-            _compute_checklist_items(selected_code, checklist_sums, active_fields)
-        if not leganto_missing:
-            if leganto_status == 'Published':
-                completed_items.append({
-                    'type': 'boolean',
-                    'label': 'Leganto Reading List: Published',
-                    'description': f"Published in Leganto with {leganto_items} item{'s' if leganto_items != 1 else ''}."
-                })
-            elif not leganto_draft:
-                completed_items.append({
-                    'type': 'boolean',
-                    'label': 'Leganto Reading List: OK / Connected',
-                    'description': 'The module has a reading list connected in Leganto.'
-                })
+        comment_bank = get_comment_bank()
+
+        # checklist_sums now carries an entry for every module with ANY
+        # outstanding finding - including data-only ones (Leganto, Ally,
+        # readiness) that no human has looked at. 'in checklist_sums' alone
+        # can no longer mean "has been audited"; a genuine audit trail always
+        # carries a real auditor username, where a data-only entry is stamped
+        # 'System' (see app.py::load_checklist_data()).
+        sum_entry = checklist_sums.get(selected_code)
+        has_audit = bool(sum_entry) and sum_entry.get('Auditor') not in (None, '', 'System')
+        if sum_entry:
+            responses = sum_entry.get('Responses', {})
+            last_updated_str = (f"{sum_entry.get('Timestamp', 'Never')} by {sum_entry.get('Auditor', 'Unknown')}"
+                                if has_audit else "Never")
+        else:
+            responses = {}
+            last_updated_str = "Never"
+
+        findings = derive_module_findings(active_row, responses, active_fields, comment_bank)
+
+        # The generic worklist column only ever showed checklist and Leganto
+        # findings - Ally and template readiness already have their own
+        # richer, source-specific displays (the accessibility card, the
+        # Blackboard Template block) and are not duplicated here.
+        pending_items = [f for f in findings if f['source'] in ('checklist', 'leganto') and f['state'] == 'pending']
+        completed_items = [f for f in findings if f['source'] in ('checklist', 'leganto') and f['state'] == 'completed']
+
+        # The banner's "N checklist items outstanding" bullet is checklist-only
+        # - Ally, Leganto and template readiness each already have their own
+        # dedicated bullet, computed directly from active_row/ally_profile so
+        # nothing here needs to be filtered out of a combined count.
+        checklist_pending_count = len(
+            [f for f in findings if f['source'] == 'checklist' and f['state'] == 'pending'])
+
         ally_profile = _ally_issue_profile(selected_code)
 
         is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)
@@ -865,7 +782,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         if is_dla_or_admin:
             st.caption("🔎 Auditor Mode — you can record observations for this module in the Audit Portal (see sidebar).")
 
-        _render_health_banner(ally_profile, len(pending_items), leganto_missing, has_audit,
+        _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
                               leganto_draft, leganto_items, active_row)
 
         st.markdown(" ")
@@ -880,8 +797,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             _render_ally_card(selected_code, active_row, ally_profile)
 
         with col_checks:
-            _render_module_checks(pending_items, completed_items, leganto_missing, leganto_draft,
-                                  leganto_items, has_audit, active_row)
+            _render_module_checks(pending_items, completed_items, has_audit, active_row)
 
         # Render confidential internal notes if user is an auditor
         if is_dla_or_admin and has_audit:

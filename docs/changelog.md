@@ -1,6 +1,29 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.17.0 (Current) — *Module Readiness from the Template Alignment Report*
+### 🚀 Version 1.18.0 (Current) — *One source of truth for "what's outstanding"*
+*11 August 2026*
+
+* **The Actionable Items badge and the module report page can no longer
+  disagree.** Both used to compute "what's outstanding on this module"
+  independently, and they didn't always agree: the badge on School Dashboard
+  and Faculty Overview never counted a Leganto reading list stuck in Draft,
+  never counted template readiness at all, and undercounted some legacy
+  free-text audit observations the module report page showed as cards. A
+  module could show 9 outstanding items on its own page and 0 on the
+  dashboard used to prioritise across the school. There is now one function,
+  `processing.derive_module_findings()`, that every consumer reads from.
+* **Expect Actionable Items numbers to change, mostly upward.** This is the
+  direct, intended consequence of the fix above — modules that were quietly
+  undercounted (Leganto Draft, template readiness) now correctly show more
+  outstanding items. A never-audited module's checklist fields still don't
+  count toward the badge until the module has been opened in the Audit
+  Portal at least once — that was already the badge's behaviour and this
+  release does not change it, only closes the specific gaps above.
+* **A module report's "not yet audited" messaging is more reliable.** A
+  module flagged only by data (Leganto, Ally, template readiness) with no
+  human audit trail no longer misreports as audited.
+
+### 🚀 Version 1.17.0 — *Module Readiness from the Template Alignment Report*
 *11 August 2026*
 
 * **The Blackboard template is now measured, not just audited by hand.** The
