@@ -12,6 +12,7 @@ from processing import (
     summarise_ally_issues,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
+    SECTION_STATES,
 )
 from database import (
     get_active_audit_fields,
@@ -54,6 +55,16 @@ SURFACE_WORDS = {
     'editor': ("✏️", "Fix in the Blackboard editor"),
     'image': ("🖼️", "Fix in the browser via Ally feedback"),
     'file': ("📄", "Re-author and re-upload the file"),
+}
+
+# Template section states by tier. 'action' is amber rather than red on purpose:
+# a section drafted and left hidden is the most actionable thing on the page,
+# but it means somebody has done the work, so it must not read as a failing.
+STATE_TIER_COLOUR = {
+    'ok': "#10B981",
+    'action': "#F59E0B",
+    'attention': "#6B7280",
+    'fault': "#EF4444",
 }
 
 
@@ -275,11 +286,19 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
     # "Non-Compliant" banding, which reads as a verdict on the lead.
     if active_row is not None:
         outstanding = active_row.get('Lead Sections Outstanding') or []
+        drafted = active_row.get('Drafted Sections') or []
         blocking = active_row.get('Template Blocking') or []
         if len(outstanding):
             total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
             bullets.append(f"{len(outstanding)} of {total} module template section"
                            f"{'s' if total != 1 else ''} not yet visible to students")
+        # Called out separately: the work exists, it just needs releasing, and
+        # that is a far smaller ask than the bullet above implies on its own.
+        if len(drafted):
+            n = len(drafted)
+            bullets.append(f"{n} of those {'has' if n == 1 else 'have'} been "
+                           f"worked on and only needs making visible "
+                           f"({', '.join(drafted)})")
         if len(blocking):
             n = len(blocking)
             bullets.append(f"{n} template section{'s' if n != 1 else ''} "
@@ -541,13 +560,9 @@ def _render_template_sections(active_row):
         if not state:
             continue
         label = TEMPLATE_SECTIONS.get(key, (key,))[0]
-        status = state.get('status', '')
-        if status == 'Visible':
-            colour, badge = "#10B981", "Visible"
-        elif status in ('Deleted', 'Missing'):
-            colour, badge = "#EF4444", status
-        else:
-            colour, badge = "#F59E0B", status or "Unknown"
+        badge, tier, action = SECTION_STATES.get(
+            state.get('state', 'unknown'), SECTION_STATES['unknown'])
+        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
         st.markdown(
             f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05;
                         padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
@@ -556,7 +571,8 @@ def _render_template_sections(active_row):
                              text-transform:uppercase;">{badge}</span>
                 <h4 style="margin:6px 0 4px 0;color:#1F2937;font-size:15px;
                            font-weight:600;">{label}</h4>
-                <p style="margin:0;color:#6B7280;font-size:12px;">
+                <p style="margin:0 0 4px 0;color:#374151;font-size:12px;">{action}</p>
+                <p style="margin:0;color:#9CA3AF;font-size:11px;">
                     {_readiness_evidence_words(state, created)}</p>
             </div>""", unsafe_allow_html=True)
 

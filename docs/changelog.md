@@ -16,6 +16,14 @@ Recent updates and releases for the Digital Learning Review portal.
   module lead. Those three are shown in full on the module report with a plain
   sentence on what the data does and does not show; the other eleven are
   collapsed behind an expander so a deleted or missing one is still findable.
+* **"Hidden" and "not started" are not the same thing.** A section that has been
+  worked on and left hidden is reported as exactly that — the content exists,
+  no student can see it, and making it visible is all that is outstanding.
+  Across the faculty that is 34 sections in 25 modules, and it is the cheapest
+  win in the dataset: a one-click fix, and a completely different conversation
+  from asking a lead to write their module outline from scratch. School
+  dashboards flag those modules; the module report says which section and what
+  to do about it.
 * **A date is not evidence on its own.** Template pushes and rollovers stamp a
   fresh last-modified date onto hundreds of courses at once. Those bulk dates
   are detected and reported as such rather than being read as a module lead

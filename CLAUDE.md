@@ -127,6 +127,22 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   stored and shown verbatim for continuity with the faculty report but restate
   the visible-section count — 43 of the 45 courses in the first excerpt sat on
   exactly 78.6% / "Needs Review", the untouched post-rollover default.
+- **Status and edit evidence are separate questions, and both are needed.**
+  Status says whether a student can see the section; evidence says who moved it.
+  `classify_section_state()` combines them into the `SECTION_STATES` model, and
+  the combinations are not variations on a theme:
+  - `drafted_hidden` — worked on and *still hidden*. 34 sections across 25
+    modules in the 2026-27 export. The work exists and no student can see it, so
+    the remedy is one click. A status-only reading calls this "not started",
+    which is both wrong and insulting to whoever did the work.
+  - `visible_unattributed` — visible, but the only date is a bulk push or the
+    course creation date. Counted as ready, because students really can see it,
+    but it is *not* evidence anyone prepared it and auto-complete must never
+    key off it. Only 2 sections today — but if a template revision ever ships
+    these three visible by default, this becomes the mass default and every
+    module reads "3 of 3 ready" with no work done. Two checks in
+    `diagnostics/check_readiness_export.py` guard that: the attribution share
+    alarm, and the most-hidden-sections drift check.
 - **`TEMPLATE_SECTIONS` maps each section to the `audit_fields.id` it answers.**
   That mapping is the point: the data pre-answers the existing checklist rather
   than sitting beside it as a rival score. Keep it in step with `audit_fields`.

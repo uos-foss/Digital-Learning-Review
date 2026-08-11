@@ -1085,6 +1085,82 @@ def classify_edit_evidence(last_modified, created_date, is_bulk):
         return 'bulk'
     return 'lead_edit'
 
+# What a section's status and its edit evidence mean *together*. Neither answers
+# the question alone, and the combinations are not variations on a theme - they
+# call for different conversations:
+#
+#   label   - the student-facing fact, which is what the badge says
+#   tier    - ok | attention | action | fault, for colour and ordering
+#   action  - what an advisor would actually say about it
+#
+# 'drafted_hidden' is the one worth knowing about. In the 2026-27 export 34
+# lead-owned sections had a genuine per-module edit date and were still hidden:
+# the work exists and no student can see it. That is a one-click fix and nothing
+# like "this has not been started", which is what a status-only reading of
+# Hidden would have called it.
+#
+# 'visible_unattributed' is the mirror case: visible, but the only date on it is
+# a bulk push or the course creation date, so nothing records anyone preparing
+# it on this module. Students can see it, which is what matters for readiness -
+# but it is not the same evidence as 'visible_edited', and Phase 4 must not
+# auto-complete on it.
+#
+# In the 2026-27 export only 2 lead-owned sections were visible_unattributed
+# (both bulk), and none were visible with the course-creation date. That will
+# not hold. The moment a template revision ships these three sections visible
+# by default, or an availability change lands without touching last_modified,
+# visible_unattributed becomes the mass default - and a module would read
+# "3 of 3 ready" with no work done, exactly as the 11 institutional sections
+# read today. It stays counted as ready because students really can see it,
+# but check_readiness_export.py alarms when its share climbs, and auto-complete
+# must key off visible_edited alone.
+SECTION_STATES = {
+    'visible_edited': (
+        "Visible to students", 'ok',
+        "Visible and prepared on this module. Nothing outstanding."),
+    'visible_unattributed': (
+        "Visible to students", 'ok',
+        "Visible to students, but nothing records anyone preparing it on this "
+        "module - it may still hold template placeholder text."),
+    'drafted_hidden': (
+        "Hidden from students", 'action',
+        "This has been worked on but is still hidden, so no student can see it. "
+        "Making it visible is all that is outstanding."),
+    'not_started': (
+        "Not started", 'attention',
+        "Still hidden and with no sign of being edited, so it is still the "
+        "default template section."),
+    'deleted': (
+        "Deleted", 'fault',
+        "This section has been removed from the course. If that was not "
+        "deliberate it has to be restored."),
+    'missing': (
+        "Missing", 'fault',
+        "This section is absent from the course shell - a course-creation "
+        "fault for the Digital Learning Team rather than the module lead."),
+    'unknown': (
+        "Unknown", 'attention',
+        "The report carries no usable status for this section."),
+}
+
+def classify_section_state(status, evidence):
+    """Status and edit evidence combined into one state - see SECTION_STATES.
+
+    Kept separate from classify_edit_evidence() because that answers "who moved
+    it" and status answers "can a student see it". Both are needed: a section
+    can be genuinely worked on and still invisible.
+    """
+    status = str(status or "").strip()
+    if status == 'Missing':
+        return 'missing'
+    if status == 'Deleted':
+        return 'deleted'
+    if status == 'Visible':
+        return 'visible_edited' if evidence == 'lead_edit' else 'visible_unattributed'
+    if status == 'Hidden':
+        return 'drafted_hidden' if evidence == 'lead_edit' else 'not_started'
+    return 'unknown'
+
 def aggregate_readiness_to_modules(df_courses, df_sections):
     """
     Rolls Blackboard courses up to modules for the template alignment report.
@@ -1104,9 +1180,10 @@ def aggregate_readiness_to_modules(df_courses, df_sections):
     columns = ['module_code', 'completeness_score', 'alignment_status',
                'expected_sections', 'visible_sections', 'hidden_sections',
                'deleted_sections', 'missing_sections', 'lead_sections_total',
-               'lead_sections_ready', 'lead_sections_outstanding',
-               'blocking_sections', 'section_states', 'shell_count',
-               'template_version', 'snapshot_date']
+               'lead_sections_ready', 'lead_sections_drafted',
+               'lead_sections_not_started', 'lead_sections_outstanding',
+               'drafted_sections', 'blocking_sections', 'section_states',
+               'shell_count', 'template_version', 'snapshot_date']
     if df_courses is None or df_courses.empty:
         return pd.DataFrame(columns=columns)
 
@@ -1141,13 +1218,12 @@ def aggregate_readiness_to_modules(df_courses, df_sections):
     agg['section_states'] = agg['module_code'].map(section_states).apply(
         lambda v: v if isinstance(v, dict) else {})
 
-    def _lead_ready(states):
-        return sum(1 for k in LEAD_OWNED_SECTIONS
-                   if states.get(k, {}).get('status') == 'Visible')
+    def _lead_in_state(states, wanted):
+        return [k for k in LEAD_OWNED_SECTIONS
+                if states.get(k, {}).get('state') in wanted]
 
-    def _lead_outstanding(states):
-        return [TEMPLATE_SECTIONS.get(k, (k,))[0] for k in LEAD_OWNED_SECTIONS
-                if k in states and states[k].get('status') != 'Visible']
+    def _labels(keys):
+        return [TEMPLATE_SECTIONS.get(k, (k,))[0] for k in keys]
 
     def _blocking(states):
         # Deleted and Missing sections are structural faults rather than
@@ -1157,9 +1233,22 @@ def aggregate_readiness_to_modules(df_courses, df_sections):
                 for k, v in states.items()
                 if v.get('status') in ('Deleted', 'Missing')]
 
+    ready_states = ('visible_edited', 'visible_unattributed')
     agg['lead_sections_total'] = len(LEAD_OWNED_SECTIONS)
-    agg['lead_sections_ready'] = agg['section_states'].apply(_lead_ready)
-    agg['lead_sections_outstanding'] = agg['section_states'].apply(_lead_outstanding)
+    agg['lead_sections_ready'] = agg['section_states'].apply(
+        lambda s: len(_lead_in_state(s, ready_states)))
+    # Worked on and still hidden. Counted apart from "not started" because the
+    # remedy is different and much smaller: the content exists, it just needs
+    # making visible.
+    agg['lead_sections_drafted'] = agg['section_states'].apply(
+        lambda s: len(_lead_in_state(s, ('drafted_hidden',))))
+    agg['lead_sections_not_started'] = agg['section_states'].apply(
+        lambda s: len(_lead_in_state(s, ('not_started',))))
+    agg['lead_sections_outstanding'] = agg['section_states'].apply(
+        lambda s: _labels(_lead_in_state(s, ('drafted_hidden', 'not_started',
+                                             'deleted', 'missing', 'unknown'))))
+    agg['drafted_sections'] = agg['section_states'].apply(
+        lambda s: _labels(_lead_in_state(s, ('drafted_hidden',))))
     agg['blocking_sections'] = agg['section_states'].apply(_blocking)
     return agg[columns]
 
@@ -1204,11 +1293,13 @@ def _readiness_section_states(df_courses, df_sections):
         status = rank_to_status.get(row.rank, "")
         school = row.module_code[:3]
         is_bulk = (school, row.last_modified) in bulk_dates
+        evidence = classify_edit_evidence(
+            row.last_modified, created.get(row.module_code, ""), is_bulk)
         states.setdefault(row.module_code, {})[row.section_key] = {
             'status': status,
             'last_modified': row.last_modified,
-            'evidence': classify_edit_evidence(
-                row.last_modified, created.get(row.module_code, ""), is_bulk),
+            'evidence': evidence,
+            'state': classify_section_state(status, evidence),
         }
     return states
 

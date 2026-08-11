@@ -23,6 +23,7 @@ from processing import (  # noqa: E402
     parse_readiness_export, aggregate_readiness_to_modules, detect_bulk_edit_dates,
     reconcile_ally_modules, FACULTY_SCHOOLS, TEMPLATE_SECTIONS, LEAD_OWNED_SECTIONS,
     READINESS_BULK_EDIT_SHARE, READINESS_BULK_EDIT_MIN_MODULES, READINESS_SECTION_RANK,
+    SECTION_STATES,
 )
 
 FAILURES = []
@@ -210,13 +211,35 @@ def main(path, academic_year):
     print(f"  modules with a deleted or missing section: {len(blocking)}")
     for row in blocking.head(6).itertuples(index=False):
         print(f"    {row.module_code}: {'; '.join(row.blocking_sections)}")
-    evidence = {}
+    evidence, state_counts = {}, {}
     for states in modules['section_states']:
         for key in LEAD_OWNED_SECTIONS:
             if key in states:
                 e = states[key]['evidence']
                 evidence[e] = evidence.get(e, 0) + 1
+                st = states[key]['state']
+                state_counts[st] = state_counts.get(st, 0) + 1
     print(f"  lead-section edit evidence: {evidence}")
+    print("  lead-section states:")
+    total_states = sum(state_counts.values()) or 1
+    for key, (label, tier, _) in SECTION_STATES.items():
+        n = state_counts.get(key, 0)
+        if n:
+            print(f"    {key:<22} {n:>5}  ({n / total_states:>5.1%})  [{tier}] {label}")
+
+    drafted = int(modules['lead_sections_drafted'].sum())
+    print(f"  worked on but still hidden: {drafted} sections across "
+          f"{int((modules['lead_sections_drafted'] > 0).sum())} modules")
+
+    # If these sections ever ship visible by default, every module reads as
+    # ready with no work done. That is the same trap the 11 institutional
+    # sections are already in, and it would arrive silently.
+    unattributed = state_counts.get('visible_unattributed', 0)
+    check("visible lead sections are attributable, not a new default",
+          unattributed <= 0.10 * total_states,
+          f"{unattributed} of {total_states} visible with no per-module edit"
+          + ("  <- has the template changed to ship these visible? "
+             "recheck LEAD_OWNED_SECTIONS" if unattributed > 0.10 * total_states else ""))
     print()
 
     print("Reconciliation against SITS")

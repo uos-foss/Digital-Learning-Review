@@ -305,6 +305,7 @@ def load_audit_data():
             readiness = readiness_map.get(code, {})
             readiness_score = pd.to_numeric(readiness.get('completeness_score'), errors='coerce')
             lead_outstanding = readiness.get('lead_sections_outstanding') or []
+            drafted_sections = readiness.get('drafted_sections') or []
             blocking = readiness.get('blocking_sections') or []
 
             # Get Blackboard URL (prefer blackboard_links table, fallback to legacy)
@@ -354,7 +355,12 @@ def load_audit_data():
                 'Lead Sections Ready': (None if not readiness
                                         else int(readiness.get('lead_sections_ready', 0) or 0)),
                 'Lead Sections Total': int(readiness.get('lead_sections_total', 0) or 0),
+                # Worked on but still hidden - counted apart from 'not started'
+                # because the remedy is only to make it visible.
+                'Lead Sections Drafted': int(readiness.get('lead_sections_drafted', 0) or 0),
+                'Lead Sections Not Started': int(readiness.get('lead_sections_not_started', 0) or 0),
                 'Lead Sections Outstanding': list(lead_outstanding),
+                'Drafted Sections': list(drafted_sections),
                 'Template Blocking': list(blocking),
                 'Template Sections': readiness.get('section_states') or {},
                 'Readiness Snapshot': readiness.get('snapshot_date', ''),

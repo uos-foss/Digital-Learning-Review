@@ -193,17 +193,24 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             return "— No data"
                         total = int(r.get('Lead Sections Total') or 0)
                         blocking = r.get('Template Blocking') or []
+                        drafted = int(r.get('Lead Sections Drafted') or 0)
                         mark = "✅" if total and ready == total else "📋"
                         if len(blocking):
                             mark = "⚠️"
-                        return f"{mark} {int(ready)} of {total}"
+                        cell = f"{mark} {int(ready)} of {total}"
+                        # Surfaced here because it is the cheapest win in the
+                        # school: the content exists and only needs unhiding.
+                        if drafted:
+                            cell += f" · 👁 {drafted} to unhide"
+                        return cell
                     display_df['Template'] = display_df.apply(_template_display, axis=1)
                     cols.append('Template')
                     configs['Template'] = st.column_config.TextColumn(
                         "Template Sections",
                         help="Module-lead-owned Blackboard template sections visible to "
-                             "students. ⚠️ marks a section deleted from or missing in the "
-                             "course shell.")
+                             "students. 👁 marks sections already worked on but still "
+                             "hidden — those only need making visible. ⚠️ marks a section "
+                             "deleted from or missing in the course shell.")
 
 
                 clean_display_df = display_df[cols].reset_index(drop=True)
