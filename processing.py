@@ -1,6 +1,7 @@
 import pandas as pd
 import logging
 import re
+import json
 
 # Schools that make up this faculty. Module codes are prefixed with these.
 FACULTY_SCHOOLS = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
@@ -303,6 +304,62 @@ def calculate_module_compliance(df_responses, active_fields):
     counts = df.groupby('module_code')['compliant'].sum().reset_index()
     counts.columns = ['module_code', 'Compliant Items']
     return counts, max_items
+
+def parse_custom_observations(custom):
+    """
+    Parses a 'text'-type audit field's stored value, which can be:
+    1. A JSON list of dicts: [{"observation": "...", "action": "..."}]
+    2. A legacy template string: "**Observation:** ... \n\n**Action:** ..."
+    3. A legacy plain text string.
+    Returns a list of dicts: [{"observation": "...", "action": "..."}]
+
+    Pure string/JSON parsing, no I/O - moved here from database.py, which
+    re-exports it so nothing importing it from there breaks.
+    """
+    if not custom:
+        return []
+
+    if isinstance(custom, list):
+        parsed = []
+        for item in custom:
+            if isinstance(item, dict):
+                obs = str(item.get("observation", "")).strip()
+                act = str(item.get("action", "")).strip()
+                if obs or act:
+                    parsed.append({"observation": obs, "action": act})
+        return parsed
+
+    if isinstance(custom, str):
+        custom_str = custom.strip()
+
+        if (custom_str.startswith("[") and custom_str.endswith("]")) or (custom_str.startswith("{") and custom_str.endswith("}")):
+            try:
+                data = json.loads(custom_str)
+                if isinstance(data, list):
+                    return parse_custom_observations(data)
+                if isinstance(data, dict):
+                    if "observation" in data or "action" in data:
+                        obs = str(data.get("observation", "")).strip()
+                        act = str(data.get("action", "")).strip()
+                        if obs or act:
+                            return [{"observation": obs, "action": act}]
+            except Exception:
+                pass
+
+        if not custom_str or custom_str in ("**Observation:**", "**Observation:** \n\n**Action:**", "**Observation:**\n\n**Action:**"):
+            return []
+
+        obs_match = re.search(r'\*\*Observation:\*\*\s*(.*?)(?=\*\*Action:\*\*|$)', custom_str, re.DOTALL | re.IGNORECASE)
+        action_match = re.search(r'\*\*Action:\*\*\s*(.*)', custom_str, re.DOTALL | re.IGNORECASE)
+
+        obs = obs_match.group(1).strip() if obs_match else ""
+        act = action_match.group(1).strip() if action_match else ""
+
+        if not obs and not act:
+            return [{"observation": custom_str, "action": ""}]
+        return [{"observation": obs, "action": act}]
+
+    return []
 
 def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=None):
     """
@@ -1630,5 +1687,197 @@ def get_school_comparison(active_df, checklist_sums):
         'Avg Ally': faculty_ally,
         'VLE Compliance': (faculty_passed / faculty_scored * 100) if faculty_scored else None,
     }
+
+    return result, totals
+
+# --- Unified module findings ------------------------------------------------
+#
+# "What's outstanding on this module" used to be computed independently in
+# three places - app.py's Actionable Items badge, module_report.py's checklist
+# worklist, and module_report.py's health banner - each covering a different
+# subset of sources by hand. They disagreed: the Actionable Items badge never
+# counted a Leganto list stuck in Draft, never counted template readiness at
+# all, and undercounted legacy free-text custom observations that the module
+# report page showed as cards. This is the one place that decides "is this a
+# pending or completed finding" for every source; every consumer reads from it
+# instead of recomputing its own answer.
+#
+# Item dicts use the exact shape views/module_report.py's card renderers
+# already expect (type: 'boolean'/'tag'/'legacy_tag'/'custom', with the keys
+# each type needs), plus 'source' and 'state' as the only new keys - so nothing
+# downstream needed new rendering code, only a new place to get the list from.
+
+def derive_module_findings(active_row, responses, active_fields, comment_bank):
+    """
+    Every checklist, Leganto, Ally and template-readiness finding for one
+    module, as one flat list of {'source', 'state', 'type', ...} dicts.
+
+    'source' is 'checklist' | 'leganto' | 'ally' | 'readiness'.
+    'state' is 'pending' | 'completed'.
+
+    active_row: the module's row from df_aut/df_spr (or an equivalent dict) -
+    needs 'Leganto Missing', 'Leganto List Status', 'Leganto List Items',
+    'Ally Severe', 'Ally Enabled', 'Template Sections'. Missing keys degrade
+    gracefully to "nothing from that source" rather than raising, since a
+    module can legitimately be absent from any one of these datasets.
+    responses: {field_id: value} for this module, from audit_responses.
+    active_fields, comment_bank: from get_active_audit_fields() /
+    get_comment_bank() - passed in rather than fetched here to keep this
+    I/O-free and callable once per module without re-querying each time.
+
+    Only Ally and readiness findings are never rendered as generic cards -
+    both already have their own richer, source-specific display (the Ally
+    issue breakdown, the Blackboard Template section block) - but they are
+    still produced here so every consumer that only wants the *count* agrees
+    with what those richer views show, which previously nothing guaranteed.
+    """
+    findings = []
+
+    # --- checklist: one finding per active audit field -----------------
+    if active_fields:
+        compliant_tag_ids = {c['id'] for c in (comment_bank or [])
+                             if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
+        cb_lookup = {c['id']: c for c in (comment_bank or [])}
+
+        for field in active_fields:
+            fid = field['id']
+            label = field['label']
+            action_label = field.get('action_label') or label
+            desc = field['description']
+            ftype = field['field_type']
+            val = (responses or {}).get(fid, None)
+
+            if ftype in ('boolean', 'yes/no'):
+                is_compliant = (str(val).upper() == 'TRUE' if ftype == 'boolean'
+                               else str(val).upper() == 'YES')
+                findings.append({
+                    'source': 'checklist',
+                    'state': 'completed' if is_compliant else 'pending',
+                    'type': 'boolean',
+                    'label': label if is_compliant else action_label,
+                    'description': desc,
+                })
+            elif ftype == 'text' and val:
+                custom_val = val
+                tags = []
+                try:
+                    data = json.loads(val)
+                    if isinstance(data, dict):
+                        tags = data.get("tags", [])
+                        custom_val = data.get("custom", "")
+                except Exception:
+                    pass  # legacy plain-text value - falls through to parse_custom_observations below
+
+                for tag_id in tags:
+                    tag_info = cb_lookup.get(tag_id)
+                    if tag_info:
+                        is_compliant = tag_id in compliant_tag_ids
+                        findings.append({
+                            'source': 'checklist',
+                            'state': 'completed' if is_compliant else 'pending',
+                            'type': 'tag',
+                            'category': tag_info.get('category', 'General'),
+                            'comment': tag_info.get('comment', ''),
+                            'advice': tag_info.get('advice', ''),
+                            'resource_url': tag_info.get('resource_url', ''),
+                            'resource_text': tag_info.get('resource_text', ''),
+                        })
+                    else:
+                        findings.append({
+                            'source': 'checklist', 'state': 'pending',
+                            'type': 'legacy_tag', 'comment': str(tag_id),
+                        })
+
+                for obs in parse_custom_observations(custom_val):
+                    findings.append({
+                        'source': 'checklist', 'state': 'pending',
+                        'type': 'custom', 'category': label,
+                        'label': obs.get('observation', ''),
+                        'description': obs.get('action', ''),
+                    })
+
+    # --- leganto: at most one finding, missing/draft/published/connected -
+    row = active_row if active_row is not None else {}
+    leganto_missing = bool(row.get('Leganto Missing'))
+    leganto_status = str(row.get('Leganto List Status', '') or '').strip()
+    leganto_items = int(row.get('Leganto List Items', 0) or 0)
+    leganto_draft = leganto_status in ('Draft', 'Mixed')
+
+    if leganto_missing:
+        findings.append({
+            'source': 'leganto', 'state': 'pending', 'type': 'boolean',
+            'label': 'Leganto Reading List Missing',
+            'description': "This module doesn't have a reading list connected in Leganto yet.",
+        })
+    elif leganto_draft:
+        findings.append({
+            'source': 'leganto', 'state': 'pending', 'type': 'boolean',
+            'label': 'Leganto Reading List Not Published',
+            'description': (f"This module's Leganto list has {leganto_items} item"
+                            f"{'s' if leganto_items != 1 else ''} but is still in Draft "
+                            "- not visible to students yet."),
+        })
+    elif leganto_status == 'Published':
+        findings.append({
+            'source': 'leganto', 'state': 'completed', 'type': 'boolean',
+            'label': 'Leganto Reading List: Published',
+            'description': f"Published in Leganto with {leganto_items} item{'s' if leganto_items != 1 else ''}.",
+        })
+    else:
+        findings.append({
+            'source': 'leganto', 'state': 'completed', 'type': 'boolean',
+            'label': 'Leganto Reading List: OK / Connected',
+            'description': 'The module has a reading list connected in Leganto.',
+        })
+
+    # --- ally: two binary flags, matching the accessibility card's own
+    # severe/disabled signal. Emitted only when true - nothing consumes an
+    # "Ally is fine" completed finding, since the accessibility card already
+    # shows that state richly.
+    if int(row.get('Ally Severe', 0) or 0) > 0:
+        findings.append({
+            'source': 'ally', 'state': 'pending', 'type': 'boolean',
+            'label': 'Severe accessibility issue found by Ally',
+            'description': 'See the Accessibility Issues card for detail and advice.',
+        })
+    if row.get('Ally Enabled') is False:
+        findings.append({
+            'source': 'ally', 'state': 'pending', 'type': 'boolean',
+            'label': 'Ally is switched off for this course',
+            'description': 'Accessibility scanning is disabled, so no score is available.',
+        })
+
+    # --- readiness: one finding per lead-owned section (ready or not), plus
+    # any institutional section that is deleted or missing. Institutional
+    # sections that are simply hidden are not findings at all - see
+    # TEMPLATE_SECTIONS and SECTION_STATES for why.
+    section_states = row.get('Template Sections') or {}
+    ready_states = ('visible_edited', 'visible_unattributed')
+    for key, sec in section_states.items():
+        info = TEMPLATE_SECTIONS.get(key)
+        if info is None:
+            continue
+        section_label, owner, audit_field_id = info
+        state_key = sec.get('state', 'unknown')
+        badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
+
+        if owner == 'lead':
+            findings.append({
+                'source': 'readiness',
+                'state': 'completed' if state_key in ready_states else 'pending',
+                'type': 'boolean',
+                'label': f"{section_label}: {badge}",
+                'description': action,
+                'audit_field_id': audit_field_id,
+            })
+        elif state_key in ('deleted', 'missing'):
+            findings.append({
+                'source': 'readiness', 'state': 'pending', 'type': 'boolean',
+                'label': f"{section_label}: {badge}",
+                'description': action,
+                'audit_field_id': audit_field_id,
+            })
+
+    return findings
 
     return result, totals

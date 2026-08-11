@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.17.0"
+__version__ = "1.18.0"
 
 from processing import CURRENT_ACADEMIC_YEAR
 
@@ -423,105 +423,105 @@ def load_audit_data():
 
 @st.cache_data(ttl=10)
 def load_checklist_data():
+    """
+    Per-module audit status, plus 'Actionable Items' - the outstanding-item
+    count shown as a badge on School Dashboard and Faculty Overview.
+
+    That count is produced by processing.derive_module_findings(), the same
+    function the module report page uses to build its own worklist and health
+    banner, so the badge and the page can no longer disagree about what a
+    module has outstanding. Previously each computed its own answer by hand:
+    the badge never counted a Leganto list stuck in Draft, never counted
+    template readiness at all, and undercounted legacy free-text custom
+    observations the module report page showed as cards.
+    """
     logging.info("📥 Fetching dynamic audit checklist data from SQLite...")
     try:
-        from database import get_db_connection, get_active_audit_fields, get_comment_bank, parse_custom_observations
+        from database import (get_db_connection, get_active_audit_fields, get_comment_bank,
+                              get_ally_courses_latest, get_ally_issues_latest,
+                              get_leganto_lists_latest, get_readiness_courses_latest,
+                              get_readiness_sections_latest)
+        from processing import (count_ally_issues_by_module, aggregate_leganto_to_modules,
+                                aggregate_readiness_to_modules, derive_module_findings)
+
         active_fields = get_active_audit_fields()
-        active_field_ids = {f['id'] for f in active_fields}
         comment_bank = get_comment_bank()
-        compliant_tag_ids = {c['id'] for c in comment_bank if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
-        
+
         with get_db_connection() as conn:
             if not table_exists(conn, "audit_responses"):
                 return {}
             df_resp = pd.read_sql_query("SELECT * FROM audit_responses", conn)
-            
-            # Fetch Leganto missing status from leganto_nolist table
-            df_leganto = pd.read_sql_query("SELECT * FROM leganto_nolist", conn) if table_exists(conn, "leganto_nolist") else pd.DataFrame()
+
+            df_leganto_nolist = (pd.read_sql_query("SELECT * FROM leganto_nolist", conn)
+                                 if table_exists(conn, "leganto_nolist") else pd.DataFrame())
             leganto_missing_set = set()
-            if not df_leganto.empty and 'module_code' in df_leganto.columns:
-                leganto_missing_set = {str(code).strip().upper() for code in df_leganto['module_code']}
+            if not df_leganto_nolist.empty and 'module_code' in df_leganto_nolist.columns:
+                leganto_missing_set = {str(code).strip().upper() for code in df_leganto_nolist['module_code']}
 
-        # Findings Ally can establish on its own. These are counted alongside
-        # the auditor's answers the same way a missing Leganto list already is;
-        # nothing is written to audit_responses, so an audit response still
-        # means something a person recorded.
-        from database import get_ally_courses_latest, get_ally_issues_latest
-        from processing import count_ally_issues_by_module
+        # Leganto list status/items - draft lists were never reaching this
+        # badge before, only the missing flag was.
+        leganto_lists_map = {}
+        try:
+            llm = aggregate_leganto_to_modules(get_leganto_lists_latest(CURRENT_ACADEMIC_YEAR))
+            if not llm.empty:
+                leganto_lists_map = llm.set_index('module_code').to_dict(orient='index')
+        except Exception as e:
+            logging.warning(f"Could not load Leganto list status: {e}")
 
-        ally_severe_set = set()
-        ally_disabled_set = set()
+        # Ally severity counts and enabled/disabled, at module grain - matches
+        # what the module report page's Ally card and 'Ally Severe'/'Ally
+        # Enabled' columns already show, rather than a separate computation.
+        ally_severe_map, ally_enabled_map = {}, {}
         try:
             issues = count_ally_issues_by_module(get_ally_issues_latest(CURRENT_ACADEMIC_YEAR))
             if not issues.empty:
-                ally_severe_set = set(issues.loc[issues['severe'] > 0, 'module_code'])
+                ally_severe_map = dict(zip(issues['module_code'], issues['severe']))
 
             df_courses = get_ally_courses_latest(CURRENT_ACADEMIC_YEAR)
             if not df_courses.empty and 'ally_enabled' in df_courses.columns:
-                off = df_courses[df_courses['ally_enabled'] == 0]
-                ally_disabled_set = {str(c).strip().upper() for c in off['module_code']}
+                # A module counts as disabled if any of its shells is - same
+                # rule as aggregate_ally_to_modules().
+                enabled = df_courses.groupby('module_code')['ally_enabled'].min()
+                ally_enabled_map = {code: bool(v) for code, v in enabled.items()}
         except Exception as e:
             logging.warning(f"Could not derive Ally findings: {e}")
 
-        def ally_findings(code):
-            """Derived actionable items for a module, and why."""
-            reasons = []
-            if code in ally_severe_set:
-                reasons.append("Severe accessibility issue found by Ally")
-            if code in ally_disabled_set:
-                reasons.append("Ally is switched off for this course")
-            return reasons
+        # Template readiness - previously not reaching this badge at all.
+        readiness_map = {}
+        try:
+            rc = get_readiness_courses_latest(CURRENT_ACADEMIC_YEAR)
+            rs = get_readiness_sections_latest(CURRENT_ACADEMIC_YEAR)
+            rm = aggregate_readiness_to_modules(rc, rs)
+            if not rm.empty:
+                readiness_map = rm.set_index('module_code').to_dict(orient='index')
+        except Exception as e:
+            logging.warning(f"Could not load readiness data: {e}")
 
-        if df_resp.empty:
-            df_resp = pd.DataFrame(columns=['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'])
-            
-        summaries = {}
-        grouped = df_resp.groupby('module_code') if not df_resp.empty else []
-        for m_code, group in grouped:
-            m_code = str(m_code).strip().upper()
-            responses = {}
-            timestamps = []
-            auditors = []
-            
-            for _, row in group.iterrows():
-                fid = row['field_id']
-                val = row['value']
-                responses[fid] = val
-                if row['timestamp']:
-                    timestamps.append(row['timestamp'])
-                if row['auditor_username']:
-                    auditors.append(row['auditor_username'])
-                    
-            import json
-            active_field_types = {f['id']: f['field_type'] for f in active_fields}
-            
-            actionable_items = 0
-            for fid in active_field_ids:
-                ftype = active_field_types.get(fid)
-                val = responses.get(fid)
-                if ftype == 'boolean':
-                    if str(val).upper() != 'TRUE':
-                        actionable_items += 1
-                elif ftype == 'yes/no':
-                    if str(val).upper() != 'YES':
-                        actionable_items += 1
-                elif ftype == 'text' and val:
-                    try:
-                        data = json.loads(val)
-                        if isinstance(data, dict):
-                            tags = data.get("tags", [])
-                            actionable_items += len([t for t in tags if t not in compliant_tag_ids])
-                            custom_list = parse_custom_observations(data.get("custom", ""))
-                            actionable_items += len(custom_list)
-                    except Exception:
-                        pass
-                        
-            # Incorporate Leganto missing status
-            if m_code in leganto_missing_set:
-                actionable_items += 1
+        def module_row(code):
+            """The subset of columns derive_module_findings() needs, in the
+            same shape app.py's own module records use."""
+            leg = leganto_lists_map.get(code, {})
+            rd = readiness_map.get(code, {})
+            return {
+                'Leganto Missing': code in leganto_missing_set,
+                'Leganto List Status': leg.get('status', ''),
+                'Leganto List Items': leg.get('total_items', 0),
+                'Ally Severe': ally_severe_map.get(code, 0),
+                'Ally Enabled': ally_enabled_map.get(code, True),
+                'Template Sections': rd.get('section_states', {}),
+            }
 
-            derived = ally_findings(m_code)
-            actionable_items += len(derived)
+        def summarise(m_code, responses, timestamps, auditors, count_checklist):
+            """One summary dict. count_checklist=False for modules with no
+            audit_responses row at all, so a never-audited module's checklist
+            fields do not suddenly count toward the badge the first time they
+            are read - that has always been the badge's behaviour, and this
+            refactor fixes concrete gaps (readiness, Leganto Draft, legacy
+            free-text observations) without also changing that."""
+            findings = derive_module_findings(
+                module_row(m_code), responses,
+                active_fields if count_checklist else [], comment_bank)
+            pending = [f for f in findings if f['state'] == 'pending']
 
             audit_status = responses.get('audit_status', '')
             if audit_status == 'submitted':
@@ -530,36 +530,44 @@ def load_checklist_data():
                 status = "📝 Draft"
             else:
                 status = "❌ Not Started"
-                
-            latest_ts = max(timestamps) if timestamps else "Unknown"
-            latest_auditor = auditors[-1] if auditors else "Unknown"
-            
-            # Pack fields for the display
-            summaries[m_code] = {
+
+            return {
                 'Status': status,
-                'Actionable Items': actionable_items,
-                'Derived Findings': derived,
-                'Timestamp': latest_ts,
-                'Auditor': latest_auditor,
+                'Actionable Items': len(pending),
+                'Derived Findings': [f['label'] for f in pending if f['source'] != 'checklist'],
+                'Timestamp': max(timestamps) if timestamps else "Unknown" if count_checklist else "Never",
+                'Auditor': (auditors[-1] if auditors else "Unknown") if count_checklist else "System",
                 'Responses': responses,
-                'Comments': responses.get('comments', '')
+                'Comments': responses.get('comments', ''),
             }
 
-        # Modules where the data has found something but nobody has audited yet
-        # still need to appear, or the finding is invisible until someone opens
-        # the module.
-        for m_code in leganto_missing_set | ally_severe_set | ally_disabled_set:
-            if m_code not in summaries:
-                derived = ally_findings(m_code)
-                summaries[m_code] = {
-                    'Status': "❌ Not Started",
-                    'Actionable Items': (1 if m_code in leganto_missing_set else 0) + len(derived),
-                    'Derived Findings': derived,
-                    'Timestamp': "Never",
-                    'Auditor': "System",
-                    'Responses': {},
-                    'Comments': ''
-                }
+        if df_resp.empty:
+            df_resp = pd.DataFrame(columns=['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'])
+
+        summaries = {}
+        grouped = df_resp.groupby('module_code') if not df_resp.empty else []
+        for m_code, group in grouped:
+            m_code = str(m_code).strip().upper()
+            responses, timestamps, auditors = {}, [], []
+            for _, row in group.iterrows():
+                responses[row['field_id']] = row['value']
+                if row['timestamp']:
+                    timestamps.append(row['timestamp'])
+                if row['auditor_username']:
+                    auditors.append(row['auditor_username'])
+            summaries[m_code] = summarise(m_code, responses, timestamps, auditors, count_checklist=True)
+
+        # Modules where the data alone has found something but nobody has
+        # audited yet still need to appear, or the finding is invisible until
+        # someone opens the module.
+        external_codes = (leganto_missing_set | set(leganto_lists_map)
+                          | set(ally_severe_map) | set(ally_enabled_map) | set(readiness_map))
+        for m_code in external_codes:
+            if m_code in summaries:
+                continue
+            entry = summarise(m_code, {}, [], [], count_checklist=False)
+            if entry['Actionable Items'] > 0:
+                summaries[m_code] = entry
 
         return summaries
     except Exception as e:

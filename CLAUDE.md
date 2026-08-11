@@ -179,6 +179,63 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   columns, re-asserts the 11/3 split, and prints the date distribution behind
   `READINESS_BULK_EDIT_SHARE`. Run it against any new export.
 
+## Unified module findings
+
+`processing.derive_module_findings(active_row, responses, active_fields,
+comment_bank)` is the **only** place that decides what a module has
+outstanding. Every source — checklist fields, Leganto, Ally, template
+readiness — is classified there, tagged `source` and `state`
+(`'pending'`/`'completed'`). Two consumers read from it:
+
+- `app.py::load_checklist_data()` sums every pending finding into
+  `Actionable Items`, the badge on School Dashboard / Faculty Overview.
+- `views/module_report.py::view_module_report()` filters the same list —
+  `source in ('checklist', 'leganto')` builds the generic worklist cards;
+  `source == 'checklist'` alone drives the health banner's "N checklist items
+  outstanding" wording, so it doesn't double-narrate against Ally/Leganto/
+  readiness's own dedicated bullets, which read `active_row`/`ally_profile`
+  directly and are unaffected by this.
+
+**Why this exists**: before it, the badge and the module report page each
+computed "what's outstanding" independently and disagreed. Concretely, the
+badge never counted a Leganto list stuck in Draft, never counted template
+readiness at all, and undercounted legacy free-text custom observations the
+module report page showed as cards — so a module could show 9 outstanding
+items on its own page and 0 on the dashboard that's meant to prioritise
+across the school. Do not reintroduce a second, hand-written "count what's
+pending" anywhere; add a new source to `derive_module_findings()` instead.
+
+**Ally and readiness findings are produced but never rendered generically** —
+both already have their own richer display (the accessibility card, the
+Blackboard Template block), so `view_module_report()` deliberately excludes
+those two sources from the generic pending/completed card list. They still
+count toward `Actionable Items`, which is the whole point: the badge now
+agrees with what those richer views show.
+
+**A never-audited module's checklist fields do not count toward
+`Actionable Items`** until the module has at least one row in
+`audit_responses` — `load_checklist_data()` calls
+`derive_module_findings(row, {}, active_fields=[], comment_bank)` (empty
+`active_fields`) for modules with no audit trail, so only Leganto/Ally/
+readiness findings reach the badge for them. This preserves the badge's prior
+behaviour deliberately: ~1,560 of ~1,570 modules have never been audited, and
+counting all 8 checklist fields as pending for every one of them would swamp
+the badge with a constant rather than a differentiated signal. The module
+report page still shows all 8 as pending cards for an unaudited module — that
+asymmetry (quiet badge, full worklist once you open the module) is
+deliberate, not a bug to fix by making them agree.
+
+**`has_audit` needs a real auditor, not just a dict entry.** Because
+`checklist_sums` now holds an entry for any module with a data-only pending
+finding, `selected_code in checklist_sums` no longer means "a person has
+audited this". Data-only entries are stamped `'Auditor': 'System'`; check
+`sum_entry.get('Auditor') not in (None, '', 'System')` instead — see
+`view_module_report()`.
+
+`parse_custom_observations()` lives in `processing.py`, not `database.py` — it
+is pure string/JSON parsing with no I/O. `database.py` imports and re-exports
+it so nothing importing it from there breaks.
+
 ## Conventions
 
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
