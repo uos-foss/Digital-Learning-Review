@@ -23,7 +23,7 @@ from views.school_dashboard import view_school_dashboard
 from views.module_report import view_module_report
 from views.docs import view_help, view_changelog, view_developer_guide
 from views.feedback import view_feedback
-from views.admin_panel import view_admin_panel
+from views.admin_panel import view_admin_panel, ADMIN_SECTIONS, DEFAULT_ADMIN_TAB, ADMIN_TAB_ICONS
 from views.audit_portal import view_audit_portal
 from masquerade import is_masquerading, stop_masquerade, clear_masquerade_state
 # background sync daemon is disabled as we moved to SQLite primary database
@@ -653,7 +653,31 @@ with st.sidebar:
     if is_admin:
         st.caption("Admin/Developer")
         st.page_link(pg_admin)
-            
+
+        if nav == pg_admin:
+            st.markdown(
+                '<style>'
+                'div[class*="st-key-admin_nav_"] button { justify-content: flex-start !important; }'
+                'div[class*="st-key-admin_nav_"] button span { text-align: left !important; }'
+                '</style>',
+                unsafe_allow_html=True
+            )
+            if "admin_active_tab" not in st.session_state:
+                st.session_state.admin_active_tab = DEFAULT_ADMIN_TAB
+            for section_label, tab_labels in ADMIN_SECTIONS.items():
+                st.caption(section_label.split(" ", 1)[1])
+                for tab_label in tab_labels:
+                    is_active_tab = st.session_state.admin_active_tab == tab_label
+                    if st.button(
+                        tab_label.split(" ", 1)[1],
+                        key=f"admin_nav_{tab_label}",
+                        icon=ADMIN_TAB_ICONS[tab_label],
+                        type="secondary" if is_active_tab else "tertiary",
+                        use_container_width=True,
+                    ):
+                        st.session_state.admin_active_tab = tab_label
+                        st.rerun()
+
     st.divider()
     
     def handle_logout():

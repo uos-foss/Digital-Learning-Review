@@ -35,6 +35,40 @@ from processing import (
 )
 from masquerade import start_masquerade
 
+# Admin Panel sub-navigation, grouped by risk/purpose. Rendered as a sidebar
+# tree in app.py (via st.session_state["admin_active_tab"]) rather than
+# in-page tabs — see app.py's sidebar block for the "Admin/Developer" section.
+ADMIN_SECTIONS = {
+    "📊 Monitoring & Insights": [
+        "📊 System Dashboard",
+        "💬 Feedback Explorer",
+        "📋 Log Viewer",
+    ],
+    "🗂️ Data Management": [
+        "👤 User Control",
+        "📋 Audit Field Manager",
+        "📂 Data Import/Export",
+        "🚫 Inactive Modules",
+    ],
+    "⚠️ Danger Zone": [
+        "⚙️ System Maintenance",
+    ],
+}
+DEFAULT_ADMIN_TAB = next(iter(ADMIN_SECTIONS.values()))[0]
+
+# Material icon for each tab's sidebar entry (app.py renders these as
+# st.page_link-style plain links, matching the rest of the site nav).
+ADMIN_TAB_ICONS = {
+    "📊 System Dashboard": ":material/bar_chart:",
+    "💬 Feedback Explorer": ":material/forum:",
+    "📋 Log Viewer": ":material/article:",
+    "👤 User Control": ":material/person:",
+    "📋 Audit Field Manager": ":material/checklist:",
+    "📂 Data Import/Export": ":material/import_export:",
+    "🚫 Inactive Modules": ":material/block:",
+    "⚙️ System Maintenance": ":material/warning:",
+}
+
 def parse_log_line(line):
     """
     Parses a single log line into a dictionary with Timestamp, Level, and Message.
@@ -496,30 +530,13 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     st.write("System diagnostics, app logging streams, checklist audit fields, user management, and manual data imports/exports.")
     
     st.markdown("---")
-    
-    # Sub-navigation using Segmented Control
-    admin_options = [
-        "📊 System Dashboard",
-        "💬 Feedback Explorer",
-        "📋 Log Viewer",
-        "👤 User Control",
-        "📋 Audit Field Manager",
-        "📂 Data Import/Export",
-        "🚫 Inactive Modules",
-        "⚙️ System Maintenance",
-        "🗄️ Database Explorer"
-    ]
-    
-    selected_tab = st.segmented_control(
-        "Admin Tabs:",
-        options=admin_options,
-        default=admin_options[0],
-        key="admin_tab_segmented_control",
-        label_visibility="collapsed"
-    )
-    
-    st.markdown("---")
-    
+
+    # Tab picked via the sidebar tree (app.py); default to the first tab
+    # of the first section on first visit.
+    if "admin_active_tab" not in st.session_state:
+        st.session_state.admin_active_tab = DEFAULT_ADMIN_TAB
+    selected_tab = st.session_state.admin_active_tab
+
     # ----------------------------------------------------
     # TAB 1: SYSTEM DASHBOARD
     # ----------------------------------------------------
@@ -1547,6 +1564,42 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 except Exception as ex:
                     st.error(f"Failed to parse or write CSV: {ex}")
 
+        st.markdown("---")
+        st.subheader("🔍 Browse Any Table")
+        st.write("Directly query and view the contents of your SQLite database tables.")
+
+        try:
+            with get_db_connection() as conn:
+                tables_df = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", conn)
+
+                if tables_df.empty:
+                    st.info("The local database has no tables yet. Run schema verification or data import.")
+                else:
+                    tables_list = tables_df['name'].tolist()
+                    selected_table = st.selectbox("Select Table to View:", tables_list, key="db_explorer_select_table")
+
+                    st.divider()
+                    st.markdown(f"##### **Table: `{selected_table}`**")
+
+                    table_data = pd.read_sql_query(f"SELECT * FROM {selected_table}", conn)
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Total Rows", len(table_data))
+                    with col2:
+                        st.metric("Total Columns", len(table_data.columns))
+
+                    st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+                    csv = table_data.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label=f"📥 Download '{selected_table}' as CSV",
+                        data=csv,
+                        file_name=f"{selected_table}_export.csv",
+                        mime="text/csv",
+                    )
+        except Exception as e:
+            st.error(f"Error querying SQLite database: {e}")
 
     # ----------------------------------------------------
     # TAB 7: INACTIVE MODULES MANAGER
@@ -1645,7 +1698,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             st.error(f"Error managing inactive modules: {e}")
 
     # ----------------------------------------------------
-    # TAB 7: SYSTEM MAINTENANCE
+    # TAB 8: SYSTEM MAINTENANCE
     # ----------------------------------------------------
     elif selected_tab == "⚙️ System Maintenance":
         st.subheader("System Maintenance & Diagnostics")
@@ -1729,43 +1782,3 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.rerun()
                 except Exception as e:
                     st.error(f"Failed to truncate logs: {e}")
-                    
-    # ----------------------------------------------------
-    # TAB 8: DATABASE EXPLORER
-    # ----------------------------------------------------
-    elif selected_tab == "🗄️ Database Explorer":
-        st.subheader("🗄️ SQLite Database Explorer")
-        st.write("Directly query and view the contents of your SQLite database tables.")
-        
-        try:
-            with get_db_connection() as conn:
-                tables_df = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", conn)
-                
-                if tables_df.empty:
-                    st.info("The local database has no tables yet. Run schema verification or data import.")
-                else:
-                    tables_list = tables_df['name'].tolist()
-                    selected_table = st.selectbox("Select Table to View:", tables_list, key="db_explorer_select_table")
-                    
-                    st.divider()
-                    st.markdown(f"##### **Table: `{selected_table}`**")
-                    
-                    table_data = pd.read_sql_query(f"SELECT * FROM {selected_table}", conn)
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Total Rows", len(table_data))
-                    with col2:
-                        st.metric("Total Columns", len(table_data.columns))
-                        
-                    st.dataframe(table_data, use_container_width=True, hide_index=True)
-                    
-                    csv = table_data.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label=f"📥 Download '{selected_table}' as CSV",
-                        data=csv,
-                        file_name=f"{selected_table}_export.csv",
-                        mime="text/csv",
-                    )
-        except Exception as e:
-            st.error(f"Error querying SQLite database: {e}")
