@@ -181,7 +181,31 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     display_df['Leganto'] = display_df.apply(_leganto_display, axis=1)
                     cols.append('Leganto')
                     configs['Leganto'] = "Leganto Status"
-                
+
+                # Template alignment, reported as the module-lead sections only.
+                # The vendor completeness score restates the visible-section
+                # count and sits on the same value for most of a school after a
+                # rollover, so it would sort nothing.
+                if 'Lead Sections Ready' in display_df.columns:
+                    def _template_display(r):
+                        ready = r.get('Lead Sections Ready')
+                        if ready is None or pd.isna(ready):
+                            return "— No data"
+                        total = int(r.get('Lead Sections Total') or 0)
+                        blocking = r.get('Template Blocking') or []
+                        mark = "✅" if total and ready == total else "📋"
+                        if len(blocking):
+                            mark = "⚠️"
+                        return f"{mark} {int(ready)} of {total}"
+                    display_df['Template'] = display_df.apply(_template_display, axis=1)
+                    cols.append('Template')
+                    configs['Template'] = st.column_config.TextColumn(
+                        "Template Sections",
+                        help="Module-lead-owned Blackboard template sections visible to "
+                             "students. ⚠️ marks a section deleted from or missing in the "
+                             "course shell.")
+
+
                 clean_display_df = display_df[cols].reset_index(drop=True)
                 
                 selection = st.dataframe(

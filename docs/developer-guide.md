@@ -122,6 +122,8 @@ them, so this boundary is a convention that nothing enforces.
 | `sits_assessment_2026_27` | this portal | AI-Audit reads |
 | `users`, `roles`, `audit_*`, `comment_bank`, `blackboard_links` | this portal | AI-Audit must not touch |
 | `ally_courses`, `ally_issues`, `ally_content`, `ally_scores` | this portal | AI-Audit must not touch |
+| `leganto_lists`, `leganto_nolist` | this portal | AI-Audit must not touch |
+| `readiness_courses`, `readiness_sections` | this portal | AI-Audit must not touch |
 | `ai_audit_queue` | **AI-Audit** | this portal reads |
 | `ai_audit_responses` | **AI-Audit** | this portal reads |
 
@@ -132,6 +134,15 @@ snapshot — a module can run more than one course shell, so rolling up to
 Anthology check needs no migration, and only non-zero counts are stored.
 `academic_year` is a column rather than part of a table name, unlike
 `sits_assessment_2026_27`, so a new year drops in without schema work.
+
+**Readiness tables.** `readiness_courses` holds one row per Blackboard course
+per snapshot from the faculty Template Alignment Report, with
+`readiness_sections` long beside it — one row per template section, so a revised
+template needs no migration. Both keys include `academic_year`, unlike
+`ally_courses`, so a reference import of a prior year cannot collide with the
+real one. Roll up to `module_code` on read in
+`processing.aggregate_readiness_to_modules()`. Only the three module-lead-owned
+sections carry triage signal; see `CLAUDE.md` for why.
 
 `ally_scores` is the **legacy projection**, rebuilt from `ally_courses` on each
 import purely so that anything not yet migrated keeps working. Retire it once

@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.16.0"
+__version__ = "1.17.0"
 
 from processing import CURRENT_ACADEMIC_YEAR
 
@@ -188,6 +188,20 @@ def load_audit_data():
         leganto_lists_map = (leganto_lists_modules.set_index('module_code').to_dict(orient='index')
                              if not leganto_lists_modules.empty else {})
 
+        # Module readiness, from the faculty Template Alignment Report. Same
+        # shape as Ally: course-grain in the database, rolled up to modules
+        # here, with the long section frame stashed for the detail view.
+        from database import get_readiness_courses_latest, get_readiness_sections_latest
+        from processing import aggregate_readiness_to_modules
+
+        df_readiness_courses = get_readiness_courses_latest(CURRENT_ACADEMIC_YEAR)
+        df_readiness_sections = get_readiness_sections_latest(CURRENT_ACADEMIC_YEAR)
+        st.session_state["df_readiness_sections"] = df_readiness_sections
+
+        readiness_modules = aggregate_readiness_to_modules(df_readiness_courses, df_readiness_sections)
+        readiness_map = (readiness_modules.set_index('module_code').to_dict(orient='index')
+                         if not readiness_modules.empty else {})
+
         # Combine legacy tables to build reference lookups
         legacy_dfs = [df for df in [legacy_aut, legacy_spr] if not df.empty]
         if legacy_dfs:
@@ -283,6 +297,16 @@ def load_audit_data():
             leganto_list_status = leganto_list.get('status', '')
             leganto_list_items = int(leganto_list.get('total_items', 0) or 0)
 
+            # Template alignment. 'Lead Sections Ready' is the part that
+            # discriminates: the vendor completeness score restates the visible
+            # section count, and after a rollover almost every module sits on the
+            # same one. Blank rather than zero where the module is absent from
+            # the report, so "not measured" never reads as "nothing done".
+            readiness = readiness_map.get(code, {})
+            readiness_score = pd.to_numeric(readiness.get('completeness_score'), errors='coerce')
+            lead_outstanding = readiness.get('lead_sections_outstanding') or []
+            blocking = readiness.get('blocking_sections') or []
+
             # Get Blackboard URL (prefer blackboard_links table, fallback to legacy)
             blackboard_url = blackboard_links_map.get(code, ref_fields.get('URL', ''))
 
@@ -322,6 +346,18 @@ def load_audit_data():
                 'Leganto Missing': leganto_missing,
                 'Leganto List Status': leganto_list_status,
                 'Leganto List Items': leganto_list_items,
+
+                'Template Completeness': None if pd.isna(readiness_score) else float(readiness_score),
+                'Template Alignment Status': readiness.get('alignment_status', ''),
+                'Template Sections Visible': int(readiness.get('visible_sections', 0) or 0),
+                'Template Sections Expected': int(readiness.get('expected_sections', 0) or 0),
+                'Lead Sections Ready': (None if not readiness
+                                        else int(readiness.get('lead_sections_ready', 0) or 0)),
+                'Lead Sections Total': int(readiness.get('lead_sections_total', 0) or 0),
+                'Lead Sections Outstanding': list(lead_outstanding),
+                'Template Blocking': list(blocking),
+                'Template Sections': readiness.get('section_states') or {},
+                'Readiness Snapshot': readiness.get('snapshot_date', ''),
 
                 # Include other legacy audit columns as reference
                 'Available to students?': ref_fields.get('Available to students?', ''),

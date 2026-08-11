@@ -23,6 +23,9 @@ from database import (
     save_leganto_snapshot,
     get_leganto_academic_years,
     purge_leganto_lists,
+    save_readiness_snapshot,
+    get_readiness_academic_years,
+    purge_readiness,
     init_db
 )
 from processing import (
@@ -31,7 +34,10 @@ from processing import (
     parse_ally_export,
     reconcile_ally_modules,
     parse_leganto_lists_export,
+    parse_readiness_export,
     ally_term_to_academic_year,
+    TEMPLATE_SECTIONS,
+    LEAD_OWNED_SECTIONS,
 )
 from masquerade import start_masquerade
 
@@ -482,6 +488,198 @@ def _render_leganto_import():
             if st.button("🗑️ Purge Leganto year", disabled=not purge_ok, key="btn_purge_leganto"):
                 removed = purge_leganto_lists(purge_year)
                 st.success(f"Removed {removed} rows for {purge_year}.")
+                st.cache_data.clear()
+
+
+def _render_readiness_import():
+    """
+    Importer for the faculty Template Alignment Report - the visible/hidden/
+    deleted/missing state of each required Blackboard template section, plus
+    when each was last modified.
+
+    Dedicated rather than generic for the same reasons as the Ally and Leganto
+    importers above: the export is wide (a status and a last-modified column per
+    section) and has to be melted long, module codes have to be derived from
+    COURSE_NUMBER, and dates arrive DD/MM/YYYY and must be stored ISO. The
+    generic hub's fuzzy column matching would mangle all three.
+    """
+    st.markdown("---")
+    st.subheader("🧱 Module Readiness (Template Alignment) Import")
+    st.write(
+        "Upload the faculty Template Alignment Report. It records, for every "
+        "Blackboard course, which required template sections are visible, "
+        "hidden, deleted or missing, and when each was last changed."
+    )
+
+    readiness_file = st.file_uploader("Choose the Template Alignment Report (CSV)",
+                                      type="csv", key="uploader_readiness")
+    if readiness_file is None:
+        with st.expander("What this import expects"):
+            st.markdown(
+                "- Columns `COURSE_NUMBER`, `COURSE_NAME`, `COURSE_CREATED_DATE`, "
+                "`TERM_NAME`, `STUDENT_COUNT`, the `INSTITUTION_HIERARCHY_LEVEL_*` "
+                "columns, the section counts (`EXPECTED_`/`VISIBLE_`/`HIDDEN_`/"
+                "`DELETED_`/`MISSING_SECTION_COUNT`), "
+                "`COMPLETENESS_SCORE_PERCENT`, `Alignment_STATUS` and "
+                "`TEMPLATE_VERSION_INDICATOR`.\n"
+                "- Then a `<SECTION>_STATUS` and `<SECTION>_LAST_MODIFIED` pair "
+                "for each template section. Sections are read from the column "
+                "names, so a revised template with different sections imports "
+                "without a code change.\n"
+                "- The academic year **is** read from the file, from `TERM_NAME` "
+                "(e.g. 'Academic Year 2026-2027'), the same as the Ally import.\n"
+                "- Courses outside this faculty's module-code prefixes are "
+                "dropped, and the count is reported before you commit."
+            )
+        return
+
+    try:
+        df_raw = pd.read_csv(readiness_file)
+    except Exception as exc:
+        st.error(f"❌ Could not read that CSV: {exc}")
+        return
+
+    detected_years = []
+    if 'TERM_NAME' in df_raw.columns:
+        detected_years = sorted({y for y in df_raw['TERM_NAME'].map(ally_term_to_academic_year) if y},
+                                reverse=True)
+    if not detected_years:
+        st.error(
+            "❌ No academic year could be read from `TERM_NAME` in this file. "
+            "The readiness import reads the year from the export rather than "
+            "asking for it, so this does not look like a Template Alignment Report.")
+        return
+
+    c1, c2 = st.columns(2)
+    with c1:
+        academic_year = st.selectbox(
+            "Academic year to import:", detected_years, index=0,
+            key="readiness_import_year",
+            help="Read from TERM_NAME in the file. Rows for other years are dropped.")
+    with c2:
+        default_date = datetime.date.today()
+        match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', readiness_file.name)
+        if match:
+            parsed_dt = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
+            if not pd.isna(parsed_dt):
+                default_date = parsed_dt.date()
+        snapshot_date = st.date_input(
+            "Snapshot date:", value=default_date, key="readiness_import_date",
+            help="When this export was produced. Taken from the filename where possible.")
+
+    try:
+        parsed = parse_readiness_export(df_raw, academic_year, snapshot_date.strftime('%Y-%m-%d'))
+    except Exception as exc:
+        st.error(f"❌ {exc}")
+        return
+
+    courses_df = parsed['courses']
+    sections_df = parsed['sections']
+    if courses_df.empty:
+        st.warning(
+            f"No in-faculty rows found for {academic_year} ({parsed['rows_in']} rows read, "
+            f"{parsed['dropped_other_years']} for other years, "
+            f"{parsed['dropped_out_of_faculty']} outside this faculty).")
+        return
+
+    st.markdown("**What this file contains**")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Rows read", f"{parsed['rows_in']:,}")
+    m2.metric("Other years dropped", f"{parsed['dropped_other_years']:,}")
+    m3.metric("Courses kept", f"{len(courses_df):,}")
+    m4.metric("Module codes", f"{courses_df['module_code'].nunique():,}")
+
+    status_counts = courses_df['alignment_status'].value_counts()
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Complete", f"{int(status_counts.get('Complete', 0)):,}")
+    s2.metric("Minor Issues", f"{int(status_counts.get('Minor Issues', 0)):,}")
+    s3.metric("Needs Review", f"{int(status_counts.get('Needs Review', 0)):,}")
+    s4.metric("Non-Compliant", f"{int(status_counts.get('Non-Compliant', 0)):,}")
+
+    # The vendor bands restate the visible-section count, and after a rollover
+    # almost every course sits in one of them. What an auditor can act on is the
+    # lead-owned sections, so report those here too.
+    lead_missing = sections_df[
+        sections_df['section_key'].isin(LEAD_OWNED_SECTIONS)
+        & (sections_df['status'] != 'Visible')]
+    unknown_sections = sorted(set(parsed['section_keys']) - set(TEMPLATE_SECTIONS))
+    st.caption(
+        f"{len(parsed['section_keys'])} template sections detected, of which "
+        f"{len(LEAD_OWNED_SECTIONS)} are module-lead owned. "
+        f"{lead_missing['course_number'].nunique():,} of {len(courses_df):,} courses "
+        "still have at least one lead-owned section not visible to students.")
+    if unknown_sections:
+        st.warning(
+            "⚠️ These sections are in the file but not in the template catalogue, "
+            "so they will import but show without a readable label: "
+            + ", ".join(unknown_sections)
+            + ". Add them to `TEMPLATE_SECTIONS` in `processing.py`.")
+
+    sits_codes = _sits_module_codes()
+    if sits_codes:
+        rec = reconcile_ally_modules(courses_df['module_code'], sits_codes)
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Matched to SITS", f"{len(rec['matched']):,}")
+        r2.metric("In report only", f"{len(rec['ally_only']):,}")
+        r3.metric("In SITS only", f"{len(rec['sits_only']):,}")
+
+    with st.expander("Preview parsed rows"):
+        st.markdown("**Courses**")
+        st.dataframe(courses_df.head(8), use_container_width=True)
+        st.markdown("**Sections**")
+        st.dataframe(sections_df.head(15), use_container_width=True)
+
+    st.markdown("**Import options**")
+    force_all = st.checkbox(
+        "Store every course, even unchanged ones", value=False, key="readiness_import_force",
+        help="Normally a course is only written when its section counts or score have "
+             "moved since the last snapshot, so a re-import does not fill the history "
+             "with identical rows.")
+    confirm = st.checkbox("Confirm: write this readiness snapshot to the database.",
+                          key="readiness_import_confirm")
+
+    if st.button("🚀 Import module readiness", type="primary", disabled=not confirm,
+                 key="btn_import_readiness"):
+        try:
+            with st.spinner("Writing readiness snapshot..."):
+                result = save_readiness_snapshot(courses_df, sections_df, force_all=force_all)
+
+            if result['courses_written'] == 0:
+                st.info(
+                    f"Nothing to write — all {result['courses_unchanged']} courses are "
+                    "unchanged since the last snapshot. Tick 'store every course' to force a write.")
+            else:
+                st.success(
+                    f"✅ Imported {result['courses_written']} courses and "
+                    f"{result['sections']} section rows "
+                    f"({result['courses_unchanged']} unchanged and skipped) for {academic_year}.")
+            logging.info(
+                "🧱 Readiness import %s: %s courses written, %s unchanged, %s section rows",
+                academic_year, result['courses_written'], result['courses_unchanged'],
+                result['sections'])
+            st.cache_data.clear()
+        except Exception as exc:
+            st.error(f"❌ Readiness import failed: {exc}")
+            logging.error(f"Readiness import error: {exc}")
+
+    with st.expander("🗑️ Purge module readiness data"):
+        st.write(
+            "Deletes every stored course and section row for one academic year - "
+            "the way to drop a reference/test import once the real export for that "
+            "year lands."
+        )
+        years_present = get_readiness_academic_years()
+        if not years_present:
+            st.caption("No readiness data stored yet.")
+        else:
+            purge_year = st.selectbox("Academic year to purge:", years_present,
+                                      key="readiness_purge_year")
+            purge_ok = st.checkbox("Confirm: delete all readiness rows for this year.",
+                                   key="readiness_purge_confirm")
+            if st.button("🗑️ Purge readiness year", disabled=not purge_ok,
+                         key="btn_purge_readiness"):
+                removed = purge_readiness(purge_year)
+                st.success(f"Removed {removed} courses (and their sections) for {purge_year}.")
                 st.cache_data.clear()
 
 
@@ -1222,12 +1420,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             "Ally Content Types": "ally_content",
             "VLE Ally Scores (legacy projection)": "ally_scores",
             "Leganto No-Lists": "leganto_nolist",
+            "Module Readiness Courses": "readiness_courses",
+            "Module Readiness Sections": "readiness_sections",
             "Legacy Audit Baseline (Autumn 25/26)": "main_vle_audit_aut",
             "Legacy Audit Baseline (Spring 25/26)": "main_vle_audit_spr"
         }
 
         _render_ally_import()
         _render_leganto_import()
+        _render_readiness_import()
 
         # Separate handling for Blackboard Links (CSV upload)
         st.markdown("---")
@@ -1345,6 +1546,20 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             "Ally data is imported through the 🔍 Ally Institutional Report "
                             "Import section at the top of this tab, not here. Export from "
                             "these tables still works."
+                        )
+
+                    elif target_table in ("readiness_courses", "readiness_sections"):
+                        # Same reasoning as the Ally block above. The Template
+                        # Alignment Report is wide - a status and a last-modified
+                        # column per section - and has to be melted long, its
+                        # module codes derived from COURSE_NUMBER and its dates
+                        # converted from DD/MM/YYYY. Nothing here does any of
+                        # that, and the two tables have to be written together
+                        # or the child rows orphan.
+                        raise ValueError(
+                            "Module readiness data is imported through the 🧱 Module "
+                            "Readiness (Template Alignment) Import section at the top of "
+                            "this tab, not here. Export from these tables still works."
                         )
 
                     st.markdown("**Uploaded Data Preview:**")

@@ -1,6 +1,38 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.16.0 (Current) — *Ally Institutional Report*
+### 🚀 Version 1.17.0 (Current) — *Module Readiness from the Template Alignment Report*
+*11 August 2026*
+
+* **The Blackboard template is now measured, not just audited by hand.** The
+  faculty Template Alignment Report records, for every course, whether each of
+  the 14 required template sections is visible, hidden, deleted or missing, and
+  when each was last changed. It imports through its own section in the Admin
+  Panel, alongside the Ally and Leganto importers, and is scoped to one academic
+  year read from the file itself.
+* **Module reports show the three sections that actually matter.** Eleven of the
+  fourteen sections ship visible and nobody is expected to touch them, so
+  "visible" there tells you nothing. Three — Welcome & Module Outline, Key Staff
+  Contacts and Assessment Detail — ship hidden and have to be unhidden by the
+  module lead. Those three are shown in full on the module report with a plain
+  sentence on what the data does and does not show; the other eleven are
+  collapsed behind an expander so a deleted or missing one is still findable.
+* **A date is not evidence on its own.** Template pushes and rollovers stamp a
+  fresh last-modified date onto hundreds of courses at once. Those bulk dates
+  are detected and reported as such rather than being read as a module lead
+  having done something, so "last changed on this module specifically" means
+  what it says.
+* **The vendor completeness score is kept but not used to triage.** It is stored
+  and displayed unchanged for continuity with the faculty-wide report, but it
+  restates the visible-section count: after a rollover almost every module sits
+  on the same value, so it separates nothing. School dashboards sort on the
+  module-lead sections instead, and flag any section deleted from or missing in
+  the course shell.
+* **Nothing here completes an audit on its own.** The template states are shown
+  as observations from an export, beside the checklist rather than inside it — a
+  recorded audit response still means something a Digital Learning Advisor
+  recorded.
+
+### 🚀 Version 1.16.0 — *Ally Institutional Report*
 *5 August 2026*
 
 * **Ally now tells you what is wrong, not just how bad it is.** The full

@@ -780,6 +780,438 @@ def aggregate_leganto_to_modules(df_lists):
     agg['total_items'] = agg['draft_items'] + agg['published_items']
     return agg[columns]
 
+# --- Module readiness (template alignment) ---------------------------------
+
+# The faculty Template Alignment Report tells us the visible/hidden/deleted/
+# missing state of each required Blackboard template section, plus when each was
+# last modified.
+#
+# `owner` is who acts when a section is wrong, which is the only thing an
+# auditor needs from it:
+#   lead        - the module lead, via the Audit Portal worklist
+#   institution - central boilerplate that ships visible; nobody is expected to
+#                 touch it, so "Visible" here carries no information at all
+#   dlt         - Digital Learning Team; a Missing section means the shell was
+#                 built wrong, which is a course-creation fault, not a lead one
+#
+# The third entry is the audit_fields.id this section answers, where one exists.
+# That mapping is what lets the data pre-answer the existing checklist rather
+# than sitting beside it as a separate score.
+#
+# Labels follow the report's own section names, so a section is called the same
+# thing in the faculty report and in the portal. The one departure is "SGAs"
+# rather than the report's "SGAS", to match the existing audit_fields label.
+TEMPLATE_SECTIONS = {
+    'MODULE_INFORMATION':          ('Module Information',                'institution', None),
+    'WELCOME_MODULE_OUTLINE':      ('Welcome & Module Outline',          'lead',        'welcome_outline'),
+    'KEY_STAFF_CONTACTS':          ('Key Staff Contacts',                'lead',        'contacts_complete'),
+    'SKILLS_DEVELOPMENT_SGAS':     ('Skills Development: Sheffield Graduate Attributes (SGAs)',
+                                                                         'institution', 'sga'),
+    'STUDENT_VOICE':               ('Student Voice',                     'institution', 'student_voice'),
+    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'institution', None),
+    'ACCESSIBILITY_STATEMENT':     ('Accessibility Statement',           'institution', None),
+    'SCHOOL_HANDBOOK':             ('School Handbook',                   'institution', None),
+    'ASSESSMENT_OVERVIEW':         ('Assessment Overview',               'institution', 'assessment_overview'),
+    'ASSESSMENT_DETAIL':           ('Assessment Detail',                 'lead',        'assessment_brief'),
+    'ASSESSMENT_SUPPORT_GUIDANCE': ('Assessment Support and Guidance',   'institution', None),
+    'MODULE_READING_LIST':         ('Module Reading List',               'institution', None),
+    'ENCORE_LECTURE_CAPTURE':      ('Encore Lecture Capture',            'institution', 'encore_link'),
+    'UNIVERSITY_HELP_SUPPORT':     ('University Help & Study Support',   'institution', None),
+}
+
+# The three sections that ship Hidden and have to be unhidden by the module
+# lead. This is where all the triage signal lives: the faculty guidance states
+# the 11/3 split, and the 2026-27 export bears it out - 43 of the 45 courses in
+# the first excerpt sat at exactly 11 of 14 visible, which is the untouched
+# post-rollover default, so the completeness score alone separates almost
+# nothing. diagnostics/check_readiness_export.py re-asserts the split on every
+# new file so a template change cannot silently invalidate this.
+#
+# Derived from the catalogue rather than written out a second time.
+LEAD_OWNED_SECTIONS = tuple(k for k, v in TEMPLATE_SECTIONS.items() if v[1] == 'lead')
+
+# Worst-wins ordering when a module carries several Blackboard shells: a section
+# missing from one shell is worse than hidden in it, which is worse than
+# visible. Note Deleted ranks below Hidden - somebody removed the section
+# outright, and unlike Hidden it drops out of the export's own HIDDEN_SECTIONS
+# summary, so it is easy to miss.
+READINESS_SECTION_RANK = {'Missing': 0, 'Deleted': 1, 'Hidden': 2, 'Visible': 3}
+
+# When a date is a bulk template push rather than per-module lead activity.
+# A (school, date) qualifies on EITHER test - share of the school, or an
+# absolute number of modules.
+#
+# "Last modified is not the creation date" is NOT on its own evidence that a
+# lead has done anything. Template pushes and central fix-ups stamp a fresh date
+# onto whole cohorts at once.
+#
+# Both tests are needed because neither works alone:
+#
+# - Share alone is scale-dependent, which the faculty-wide 2026-27 export made
+#   obvious. The ALA push of 23/07 touched 25 modules. In the 45-module
+#   single-school excerpt this was calibrated on, that is 56% and gets flagged;
+#   in the real 142-module school it is 17.6% and slips under a 20% cut. The
+#   same event, the same day, two answers.
+# - A count alone would flag ordinary activity in a small school.
+#
+# Calibrated on the faculty-wide export (911 courses, 7 schools). Excluding the
+# creation date, modules touched per (school, date) ran 61, 29, 25, 24, 19, 14,
+# 10, 9, 9, then 7 and below with a long tail of 34 pairs touching a single
+# module. The first nine are operations - they also rewrite 6.5-12.8 sections
+# per module, where genuine edits touch two or three. A floor of 8 sits in that
+# gap.
+#
+# Erring toward flagging is the safe direction: a bulk hit yields *no positive
+# evidence*, so over-flagging costs a human check, while under-flagging lets a
+# module auto-complete on the strength of an IT job. Re-run
+# diagnostics/check_readiness_export.py on each new export - it prints the
+# distribution and the resulting classification.
+READINESS_BULK_EDIT_SHARE = 0.20
+READINESS_BULK_EDIT_MIN_MODULES = 8
+
+def _iso_date(series):
+    """DD/MM/YYYY from the export to ISO YYYY-MM-DD for storage and sorting.
+
+    Blank where unparseable rather than raising - a missing modification date on
+    one section must not cost the whole import.
+    """
+    if series is None:
+        return ""
+    parsed = pd.to_datetime(series, dayfirst=True, errors='coerce')
+    return parsed.dt.strftime('%Y-%m-%d').fillna("")
+
+def parse_readiness_export(df, academic_year, snapshot_date):
+    """
+    Turns the faculty Template Alignment Report into the frames
+    database.save_readiness_snapshot() writes.
+
+    Sections are discovered from the column names rather than a fixed list:
+    every column ending `_STATUS` other than `Alignment_STATUS` is a template
+    section, paired with its `_LAST_MODIFIED` sibling. The template is versioned
+    and gains and loses sections between years, so discovering them means a new
+    template needs no code change here - only a TEMPLATE_SECTIONS entry to give
+    the new section a human label.
+
+    Kept I/O-free - the caller reads the CSV and writes the database.
+
+    Returns {'courses', 'sections', 'rows_in', 'dropped_out_of_faculty',
+    'dropped_other_years', 'years_seen', 'section_keys'}.
+    """
+    result = {'courses': pd.DataFrame(), 'sections': pd.DataFrame(), 'rows_in': 0,
+              'dropped_out_of_faculty': 0, 'dropped_other_years': 0,
+              'years_seen': [], 'section_keys': []}
+    if df is None or df.empty:
+        return result
+
+    df = df.copy()
+    result['rows_in'] = len(df)
+
+    required = ['COURSE_NUMBER', 'EXPECTED_SECTION_COUNT', 'VISIBLE_SECTION_COUNT',
+                'COMPLETENESS_SCORE_PERCENT', 'Alignment_STATUS']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "This does not look like a Template Alignment Report - missing "
+            + ", ".join(missing))
+
+    section_keys = [c[:-len('_STATUS')] for c in df.columns
+                    if c.endswith('_STATUS') and c != 'Alignment_STATUS']
+    if not section_keys:
+        raise ValueError(
+            "This Template Alignment Report has no per-section status columns "
+            "- expected columns ending _STATUS.")
+    result['section_keys'] = section_keys
+
+    # Module code, by the same convention as the Ally and Leganto imports:
+    # ALA110.A.288075 -> ALA110.
+    df['module_code'] = (df['COURSE_NUMBER'].astype(str)
+                         .str.split('.').str[0].str.strip().str.upper())
+    df = df[df['module_code'] != ""]
+
+    # Year comes from the file, as it does for Ally - TERM_NAME carries
+    # 'Academic Year 2026-2027', the same shape as Ally's Term name.
+    if 'TERM_NAME' in df.columns:
+        df['_year'] = df['TERM_NAME'].map(ally_term_to_academic_year)
+    else:
+        df['_year'] = ""
+    result['years_seen'] = sorted({y for y in df['_year'] if y})
+    if result['years_seen']:
+        wanted = df['_year'] == academic_year
+        result['dropped_other_years'] = int((~wanted).sum())
+        df = df[wanted]
+
+    in_faculty = df['module_code'].str[:3].isin(FACULTY_SCHOOLS)
+    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
+    df = df[in_faculty]
+    if df.empty:
+        return result
+
+    # The export is a vendor file and its optional columns come and go between
+    # revisions, so every accessor tolerates an absent column rather than
+    # failing the whole import over one.
+    def _num(col):
+        if col not in df.columns:
+            return pd.Series(0, index=df.index, dtype=int)
+        return pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+
+    def _text(col):
+        if col not in df.columns:
+            return pd.Series("", index=df.index, dtype=object)
+        return df[col].astype(str).replace('nan', '').str.strip()
+
+    def _date(col):
+        if col not in df.columns:
+            return pd.Series("", index=df.index, dtype=object)
+        return _iso_date(df[col])
+
+    courses = pd.DataFrame({
+        'course_number': df['COURSE_NUMBER'].astype(str).str.strip(),
+        'snapshot_date': snapshot_date,
+        'academic_year': academic_year,
+        'module_code': df['module_code'],
+        'course_name': _text('COURSE_NAME'),
+        'course_created_date': _date('COURSE_CREATED_DATE'),
+        'term_name': _text('TERM_NAME'),
+        'student_count': _num('STUDENT_COUNT'),
+        # Level 4 of the hierarchy is the school ("School of Architecture and
+        # Landscape"), which is a name rather than the 3-letter code used
+        # everywhere else - kept as supplied for the import report.
+        'school_name': _text('INSTITUTION_HIERARCHY_LEVEL_4'),
+        'expected_sections': _num('EXPECTED_SECTION_COUNT'),
+        'visible_sections': _num('VISIBLE_SECTION_COUNT'),
+        'hidden_sections': _num('HIDDEN_SECTION_COUNT'),
+        'deleted_sections': _num('DELETED_SECTION_COUNT'),
+        'missing_sections': _num('MISSING_SECTION_COUNT'),
+        'completeness_score': pd.to_numeric(df['COMPLETENESS_SCORE_PERCENT'],
+                                            errors='coerce'),
+        'alignment_status': _text('Alignment_STATUS'),
+        'template_version': _text('TEMPLATE_VERSION_INDICATOR'),
+    })
+    # One export can list the same course twice; the later row wins.
+    courses = courses.drop_duplicates(subset=['course_number'], keep='last').reset_index(drop=True)
+
+    kept = set(courses['course_number'])
+    frames = []
+    for key in section_keys:
+        status = _text(f'{key}_STATUS')
+        modified = _date(f'{key}_LAST_MODIFIED')
+        frames.append(pd.DataFrame({
+            'course_number': df['COURSE_NUMBER'].astype(str).str.strip(),
+            'snapshot_date': snapshot_date,
+            'academic_year': academic_year,
+            'section_key': key,
+            'status': status,
+            'last_modified': modified,
+        }))
+
+    sections = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if not sections.empty:
+        sections = sections[sections['status'] != ""]
+        sections = sections[sections['course_number'].isin(kept)]
+        sections = sections.drop_duplicates(
+            subset=['course_number', 'section_key'], keep='last').reset_index(drop=True)
+
+    result['courses'] = courses
+    result['sections'] = sections
+    return result
+
+def detect_bulk_edit_dates(df_sections):
+    """
+    Dates on which template sections changed across so many of a school's
+    courses at once that the change cannot have been per-module lead activity.
+
+    Blackboard template pushes, rollovers and central fix-ups all stamp a fresh
+    last-modified date onto hundreds of courses on a single day. Without this,
+    "modified since the course was created" would read as evidence a lead had
+    done something, when in fact an IT job had.
+
+    Returns a set of (school_prefix, date) pairs. Callers treat a hit as *no
+    positive evidence*, never as negative evidence - a lead may well have edited
+    their own module on the same day a bulk push ran, and we cannot tell.
+
+    Deliberately computed on read rather than baked in at import, so
+    READINESS_BULK_EDIT_SHARE can be retuned without re-importing - the same
+    reasoning as classify_content_maturity.
+
+    Kept I/O-free: callers pass in database.get_readiness_sections_latest().
+    """
+    if df_sections is None or df_sections.empty:
+        return set()
+
+    df = df_sections.copy()
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    df['school'] = df['module_code'].str[:3]
+    df['last_modified'] = df['last_modified'].astype(str).str.strip()
+    df = df[df['last_modified'] != ""]
+    if df.empty:
+        return set()
+
+    school_sizes = df.groupby('school')['module_code'].nunique()
+    touched = (df.groupby(['school', 'last_modified'])['module_code']
+                 .nunique().reset_index(name='modules'))
+    touched['share'] = touched['modules'] / touched['school'].map(school_sizes)
+    bulk = touched[(touched['share'] >= READINESS_BULK_EDIT_SHARE)
+                   | (touched['modules'] >= READINESS_BULK_EDIT_MIN_MODULES)]
+    return set(zip(bulk['school'], bulk['last_modified']))
+
+def classify_edit_evidence(last_modified, created_date, is_bulk):
+    """
+    What a section's last-modified date is evidence of.
+
+    'lead_edit'       - changed on a date that is neither the course creation
+                        date nor a bulk push: somebody worked on this module
+                        specifically
+    'bulk'            - changed only on a date a template push also ran, so the
+                        change cannot be attributed to anyone in particular
+    'never_modified'  - unchanged since the course was created
+    'unknown'         - no usable date
+
+    Deliberately about the *date alone*. Whether a section is ready is the
+    status; this says who moved it. Both have to line up before the data can
+    claim a lead has done anything - a hidden section with a lead_edit date has
+    been worked on and still is not visible to students.
+
+    'bulk' and 'never_modified' both mean *no positive evidence*, never negative
+    evidence: a lead may well have edited their module on the same day a bulk
+    push ran, and an institutional section sits untouched because nobody was
+    ever expected to touch it.
+    """
+    modified = str(last_modified or "").strip()
+    if not modified:
+        return 'unknown'
+    if modified == str(created_date or "").strip():
+        return 'never_modified'
+    if is_bulk:
+        return 'bulk'
+    return 'lead_edit'
+
+def aggregate_readiness_to_modules(df_courses, df_sections):
+    """
+    Rolls Blackboard courses up to modules for the template alignment report.
+
+    A module can carry more than one course shell (separate cohorts), so section
+    status is combined worst-wins via READINESS_SECTION_RANK: if any shell still
+    hides a section, the module still hides it.
+
+    The verdict columns describe the lead-owned sections only. The vendor's own
+    completeness_score and alignment_status are carried through unmodified for
+    continuity with the faculty-wide report, but they are near-constant in
+    practice - see LEAD_OWNED_SECTIONS - so they describe rather than triage.
+
+    Kept I/O-free: callers pass in database.get_readiness_courses_latest() and
+    get_readiness_sections_latest().
+    """
+    columns = ['module_code', 'completeness_score', 'alignment_status',
+               'expected_sections', 'visible_sections', 'hidden_sections',
+               'deleted_sections', 'missing_sections', 'lead_sections_total',
+               'lead_sections_ready', 'lead_sections_outstanding',
+               'blocking_sections', 'section_states', 'shell_count',
+               'template_version', 'snapshot_date']
+    if df_courses is None or df_courses.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_courses.copy()
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    for col in ['expected_sections', 'visible_sections', 'hidden_sections',
+                'deleted_sections', 'missing_sections', 'student_count']:
+        df[col] = pd.to_numeric(df.get(col), errors='coerce').fillna(0).astype(int)
+    df['completeness_score'] = pd.to_numeric(df.get('completeness_score'), errors='coerce')
+
+    agg = df.groupby('module_code', sort=True).agg(
+        # Worst shell wins on every count, so a module is never flattered by an
+        # empty duplicate shell sitting beside the real taught course.
+        expected_sections=('expected_sections', 'max'),
+        visible_sections=('visible_sections', 'min'),
+        hidden_sections=('hidden_sections', 'max'),
+        deleted_sections=('deleted_sections', 'max'),
+        missing_sections=('missing_sections', 'max'),
+        completeness_score=('completeness_score', 'min'),
+        shell_count=('expected_sections', 'size'),
+        snapshot_date=('snapshot_date', 'max'),
+    ).reset_index()
+
+    # The shell a student is most likely to be looking at: most enrolled, then
+    # most of the template visible. Sources the descriptive fields.
+    primary = (df.sort_values(['student_count', 'visible_sections'], ascending=False)
+                 .groupby('module_code', sort=True).first())
+    for col in ['alignment_status', 'template_version']:
+        agg[col] = primary[col].reindex(agg['module_code']).fillna("").astype(str).values
+
+    section_states = _readiness_section_states(df, df_sections)
+    agg['section_states'] = agg['module_code'].map(section_states).apply(
+        lambda v: v if isinstance(v, dict) else {})
+
+    def _lead_ready(states):
+        return sum(1 for k in LEAD_OWNED_SECTIONS
+                   if states.get(k, {}).get('status') == 'Visible')
+
+    def _lead_outstanding(states):
+        return [TEMPLATE_SECTIONS.get(k, (k,))[0] for k in LEAD_OWNED_SECTIONS
+                if k in states and states[k].get('status') != 'Visible']
+
+    def _blocking(states):
+        # Deleted and Missing sections are structural faults rather than
+        # unfinished work, and Deleted ones drop out of the export's own hidden
+        # list, so they are surfaced separately from the lead worklist.
+        return [f"{TEMPLATE_SECTIONS.get(k, (k,))[0]} ({v.get('status')})"
+                for k, v in states.items()
+                if v.get('status') in ('Deleted', 'Missing')]
+
+    agg['lead_sections_total'] = len(LEAD_OWNED_SECTIONS)
+    agg['lead_sections_ready'] = agg['section_states'].apply(_lead_ready)
+    agg['lead_sections_outstanding'] = agg['section_states'].apply(_lead_outstanding)
+    agg['blocking_sections'] = agg['section_states'].apply(_blocking)
+    return agg[columns]
+
+def _readiness_section_states(df_courses, df_sections):
+    """
+    {module_code: {section_key: {'status', 'last_modified', 'evidence'}}}.
+
+    Status is combined worst-wins across a module's shells; last_modified takes
+    the most recent, and the evidence classification is recomputed from that
+    pair rather than carried over from whichever shell won.
+    """
+    if df_sections is None or df_sections.empty:
+        return {}
+
+    s = df_sections.copy()
+    s['module_code'] = s['module_code'].astype(str).str.strip().str.upper()
+    s['status'] = s['status'].astype(str).str.strip()
+    s['last_modified'] = s['last_modified'].astype(str).str.strip()
+    s = s[s['status'] != ""]
+    if s.empty:
+        return {}
+
+    bulk_dates = detect_bulk_edit_dates(s)
+
+    # Earliest creation date across a module's shells - the date against which
+    # "never modified" is judged.
+    created = {}
+    if df_courses is not None and not df_courses.empty and 'course_created_date' in df_courses:
+        c = df_courses[['module_code', 'course_created_date']].copy()
+        c['module_code'] = c['module_code'].astype(str).str.strip().str.upper()
+        c['course_created_date'] = c['course_created_date'].astype(str).str.strip()
+        c = c[c['course_created_date'] != ""]
+        created = c.groupby('module_code')['course_created_date'].min().to_dict()
+
+    s['rank'] = s['status'].map(READINESS_SECTION_RANK).fillna(len(READINESS_SECTION_RANK))
+    grouped = s.groupby(['module_code', 'section_key']).agg(
+        rank=('rank', 'min'), last_modified=('last_modified', 'max')).reset_index()
+    rank_to_status = {v: k for k, v in READINESS_SECTION_RANK.items()}
+
+    states = {}
+    for row in grouped.itertuples(index=False):
+        status = rank_to_status.get(row.rank, "")
+        school = row.module_code[:3]
+        is_bulk = (school, row.last_modified) in bulk_dates
+        states.setdefault(row.module_code, {})[row.section_key] = {
+            'status': status,
+            'last_modified': row.last_modified,
+            'evidence': classify_edit_evidence(
+                row.last_modified, created.get(row.module_code, ""), is_bulk),
+        }
+    return states
+
 def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
     """
     Rolls long issue rows up by check, newest-first by weight of the problem.

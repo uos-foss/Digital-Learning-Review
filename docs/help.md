@@ -129,7 +129,8 @@ That database is populated from several sources:
 | :--- | :--- | :--- |
 | **SITS** | Module list, teaching periods, assessment strategy | Imported annually |
 | **Ally** | Accessibility scores, content counts and per-check issue counts, with history | Institutional report, imported periodically |
-| **Leganto** | Which modules have no reading list | Monthly |
+| **Leganto** | Which modules have no reading list, and whether a list is Draft or Published | Monthly |
+| **Template Alignment Report** | Which required Blackboard template sections are visible, hidden, deleted or missing, and when each changed | Faculty report, imported periodically |
 | **Blackboard** | Direct links to each module's VLE site | CSV import in the Admin Panel |
 | **Audits** | Advisor findings against each module | Saved in the Audit Portal as advisors work |
 

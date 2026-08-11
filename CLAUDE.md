@@ -109,6 +109,60 @@ occurrence, so roll up to module grain on read via
   — the way to drop a reference/test import once the real export for that
   year lands, without touching other years.
 
+## Module readiness (template alignment) data
+
+`readiness_courses` / `readiness_sections` hold the faculty **Template
+Alignment Report** (called Template Adherence before 2026/27): per Blackboard
+course, the visible/hidden/deleted/missing state of each required template
+section and when each was last changed. Imported by `_render_readiness_import()`
+in `views/admin_panel.py` via `processing.parse_readiness_export()` and
+`database.save_readiness_snapshot()` — same pipeline shape as Ally.
+
+- **Only 3 of the 14 sections carry any signal.** Eleven ship *visible* and are
+  institutional boilerplate nobody is expected to edit, so `Visible` on those
+  means nothing. `WELCOME_MODULE_OUTLINE`, `KEY_STAFF_CONTACTS` and
+  `ASSESSMENT_DETAIL` ship *hidden* and must be unhidden by the module lead —
+  `LEAD_OWNED_SECTIONS`, derived from the `TEMPLATE_SECTIONS` catalogue. Triage
+  on those; the vendor's `COMPLETENESS_SCORE_PERCENT` / `Alignment_STATUS` are
+  stored and shown verbatim for continuity with the faculty report but restate
+  the visible-section count — 43 of the 45 courses in the first excerpt sat on
+  exactly 78.6% / "Needs Review", the untouched post-rollover default.
+- **`TEMPLATE_SECTIONS` maps each section to the `audit_fields.id` it answers.**
+  That mapping is the point: the data pre-answers the existing checklist rather
+  than sitting beside it as a rival score. Keep it in step with `audit_fields`.
+- **Sections are discovered from the column names**, not a fixed list — any
+  column ending `_STATUS` other than `Alignment_STATUS`, paired with its
+  `_LAST_MODIFIED` sibling. The template is versioned and changes between years,
+  so a revised template imports without a code change; only the catalogue needs
+  a new label. `readiness_sections` is long for the same reason.
+- **A last-modified date is not evidence of lead activity on its own.** Template
+  pushes stamp hundreds of courses on one day. `detect_bulk_edit_dates()` flags
+  a (school, date) on *either* `READINESS_BULK_EDIT_SHARE` of the school **or**
+  `READINESS_BULK_EDIT_MIN_MODULES` modules outright, and
+  `classify_edit_evidence()` reduces those to *no positive evidence* — never
+  negative evidence. Both tests are needed: share alone is scale-dependent, and
+  the faculty-wide export proved it — the ALA push of 23/07 touched 25 modules,
+  which is 56% of the 45-module excerpt the rule was first calibrated on but
+  only 18% of the real 142-module school. Adding the floor moved 131 lead-section
+  observations out of `lead_edit`. Over-flagging is the safe error here, since a
+  bulk hit only ever withholds evidence. Re-run
+  `diagnostics/check_readiness_export.py` on each new export — it prints the
+  distribution, what was flagged, and the closest cases that were not.
+- **Both primary keys include `academic_year`** (`leganto_lists`'s reasoning,
+  not `ally_courses`'s) so a reference import of a prior year cannot collide
+  with the real one on a shared snapshot date.
+  `database.purge_readiness(academic_year)` drops one year, parent and child.
+- Same aggregation rule as Ally and Leganto: multiple shells per module, so roll
+  up on read via `processing.aggregate_readiness_to_modules()`, never at import
+  time. Section status combines worst-wins via `READINESS_SECTION_RANK`.
+- The readiness tables are **blocked from the generic CSV import hub**, like the
+  Ally tables — the export needs melting and date conversion. Export still works.
+- `diagnostics/check_readiness_export.py <csv> <academic_year>` sanity-checks a
+  new export before trusting an import. It cross-checks the export's own
+  `HIDDEN_SECTIONS` / `DELETED_SECTIONS` summary text against its per-section
+  columns, re-asserts the 11/3 split, and prints the date distribution behind
+  `READINESS_BULK_EDIT_SHARE`. Run it against any new export.
+
 ## Conventions
 
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
