@@ -10,6 +10,9 @@ from processing import (
     FACULTY_SCHOOLS,
     CURRENT_ACADEMIC_YEAR,
     summarise_ally_issues,
+    TEMPLATE_SECTIONS,
+    LEAD_OWNED_SECTIONS,
+    SECTION_STATES,
 )
 from database import (
     get_active_audit_fields,
@@ -52,6 +55,16 @@ SURFACE_WORDS = {
     'editor': ("✏️", "Fix in the Blackboard editor"),
     'image': ("🖼️", "Fix in the browser via Ally feedback"),
     'file': ("📄", "Re-author and re-upload the file"),
+}
+
+# Template section states by tier. 'action' is amber rather than red on purpose:
+# a section drafted and left hidden is the most actionable thing on the page,
+# but it means somebody has done the work, so it must not read as a failing.
+STATE_TIER_COLOUR = {
+    'ok': "#10B981",
+    'action': "#F59E0B",
+    'attention': "#6B7280",
+    'fault': "#EF4444",
 }
 
 
@@ -241,10 +254,11 @@ def _render_ally_trend(selected_code):
 
 
 def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit,
-                           leganto_draft=False, leganto_items=0):
+                           leganto_draft=False, leganto_items=0, active_row=None):
     """
     A short, neutral summary of what's outstanding across Ally, the checklist,
-    and Leganto - the one place these three add up to a single picture.
+    Leganto and the Blackboard template - the one place these add up to a single
+    picture.
 
     Deliberately factual rather than evaluative: this reports what's open, not
     a score or grade for the module or its lead. Individual items can say
@@ -266,6 +280,31 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
                        f"({items} item{'s' if items != 1 else ''})")
     if pending_count:
         bullets.append(f"{pending_count} checklist item{'s' if pending_count != 1 else ''} outstanding")
+
+    # Template alignment. Stated as a count of sections not yet visible to
+    # students, which is a fact about the course, rather than as the vendor's
+    # "Non-Compliant" banding, which reads as a verdict on the lead.
+    if active_row is not None:
+        outstanding = active_row.get('Lead Sections Outstanding') or []
+        drafted = active_row.get('Drafted Sections') or []
+        blocking = active_row.get('Template Blocking') or []
+        if len(outstanding):
+            total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
+            bullets.append(f"{len(outstanding)} of {total} module template section"
+                           f"{'s' if total != 1 else ''} not yet visible to students")
+        # Called out separately: the work exists, it just needs releasing, and
+        # that is a far smaller ask than the bullet above implies on its own.
+        if len(drafted):
+            n = len(drafted)
+            bullets.append(f"{n} of those {'has' if n == 1 else 'have'} been "
+                           f"worked on and only needs making visible "
+                           f"({', '.join(drafted)})")
+        if len(blocking):
+            n = len(blocking)
+            bullets.append(f"{n} template section{'s' if n != 1 else ''} "
+                           f"{'have' if n != 1 else 'has'} been deleted from or "
+                           f"{'are' if n != 1 else 'is'} missing in the course shell")
+
     if leganto_missing:
         bullets.append("no Leganto reading list connected")
     elif leganto_draft:
@@ -389,16 +428,24 @@ def _render_ally_issues(ally_profile, active_row, is_template=False):
 
 
 def _render_module_checks(pending_items, completed_items, leganto_missing, leganto_draft,
-                           leganto_items, has_audit):
+                           leganto_items, has_audit, active_row=None):
     """
-    Checklist and Leganto readiness, outstanding items first then completed.
+    Checklist, Leganto and Blackboard template readiness, outstanding items
+    first then completed.
 
     Everything that isn't Ally accessibility - the module-lead-facing
-    checklist plus the Leganto reading-list gap/status - lives in this one
-    column so "what's left to sort out on this module" and "what's already
-    done" read together instead of across two page-halves.
+    checklist, the Leganto reading-list gap/status, and the template section
+    states - lives in this one column so "what's left to sort out on this
+    module" and "what's already done" read together instead of across two
+    page-halves.
+
+    The template block is reported separately from the checklist rather than
+    folded into it: those states are observations from an export, and a
+    checklist item still means something a Digital Learning Advisor recorded.
     """
     st.subheader("Module Checks and Readiness")
+
+    _render_template_sections(active_row)
 
     pending = list(pending_items)
     if leganto_missing:
@@ -447,6 +494,104 @@ def _render_module_checks(pending_items, completed_items, leganto_missing, legan
                     <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['category']} Compliant: {item['comment']}</h4>
                 </div>
                 """, unsafe_allow_html=True)
+
+
+def _readiness_evidence_words(state, created_date):
+    """The plain sentence under a section's status, saying what the data does
+    and does not show.
+
+    Deliberately explicit about the limits. A 'Visible' section only proves
+    somebody unhid it, and a bulk template push stamps a fresh date on hundreds
+    of courses at once, so neither is claimed as proof the content is right.
+    """
+    modified = _fmt_report_date(state.get('last_modified'))
+    evidence = state.get('evidence')
+    if evidence == 'never_modified':
+        created = _fmt_report_date(created_date) or modified
+        return f"Unchanged since the course was created{f' on {created}' if created else ''}."
+    if evidence == 'bulk':
+        return (f"Last changed {modified}, on a day the template was updated across many "
+                "courses at once - so this is not evidence anyone worked on this module.")
+    if evidence == 'lead_edit':
+        return f"Last changed {modified} on this module specifically."
+    return "No modification date recorded."
+
+
+def _fmt_report_date(value):
+    """ISO storage to the DD-MM-YYYY the portal shows users. Blank if unusable."""
+    parsed = pd.to_datetime(str(value or ""), errors='coerce')
+    return "" if pd.isna(parsed) else parsed.strftime('%d-%m-%Y')
+
+
+def _render_template_sections(active_row):
+    """
+    The Blackboard template's required sections, from the faculty Template
+    Alignment Report.
+
+    Lead-owned sections first and in full, because those are the three that ship
+    hidden and carry all the signal. The other eleven ship visible and nobody is
+    expected to touch them, so "Visible" there says nothing - they are collapsed
+    behind an expander and shown only so a deleted or missing one is findable.
+    """
+    if active_row is None:
+        return
+
+    states = active_row.get('Template Sections') or {}
+    if not isinstance(states, dict) or not states:
+        return
+
+    snapshot = _fmt_report_date(active_row.get('Readiness Snapshot'))
+    ready = active_row.get('Lead Sections Ready')
+    total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
+    created = ""
+    for key in LEAD_OWNED_SECTIONS:
+        state = states.get(key, {})
+        if state.get('evidence') == 'never_modified':
+            created = state.get('last_modified')
+            break
+
+    st.markdown("#### Blackboard Template")
+    st.caption(
+        f"{int(ready or 0)} of {total} module-lead sections visible to students"
+        + (f" · as at {snapshot}" if snapshot else ""))
+
+    for key in LEAD_OWNED_SECTIONS:
+        state = states.get(key)
+        if not state:
+            continue
+        label = TEMPLATE_SECTIONS.get(key, (key,))[0]
+        badge, tier, action = SECTION_STATES.get(
+            state.get('state', 'unknown'), SECTION_STATES['unknown'])
+        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
+        st.markdown(
+            f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05;
+                        padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
+                <span style="background:{colour}1A;color:{colour};font-size:10px;
+                             font-weight:700;padding:2px 6px;border-radius:4px;
+                             text-transform:uppercase;">{badge}</span>
+                <h4 style="margin:6px 0 4px 0;color:#1F2937;font-size:15px;
+                           font-weight:600;">{label}</h4>
+                <p style="margin:0 0 4px 0;color:#374151;font-size:12px;">{action}</p>
+                <p style="margin:0;color:#9CA3AF;font-size:11px;">
+                    {_readiness_evidence_words(state, created)}</p>
+            </div>""", unsafe_allow_html=True)
+
+    others = [(k, v) for k, v in states.items() if k not in LEAD_OWNED_SECTIONS]
+    if others:
+        problem = [k for k, v in others if v.get('status') in ('Deleted', 'Missing')]
+        title = (f"Other template sections ({len(others)}) — "
+                 f"{len(problem)} deleted or missing" if problem
+                 else f"Other template sections ({len(others)})")
+        with st.expander(title):
+            st.caption(
+                "These ship visible in the template and no one is expected to edit "
+                "them, so 'Visible' here is the default rather than evidence of work.")
+            rows = [{
+                'Section': TEMPLATE_SECTIONS.get(k, (k,))[0],
+                'Status': v.get('status', ''),
+                'Last changed': _fmt_report_date(v.get('last_modified')) or "—",
+            } for k, v in others]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _compute_checklist_items(selected_code, checklist_sums, active_fields):
@@ -721,7 +866,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             st.caption("🔎 Auditor Mode — you can record observations for this module in the Audit Portal (see sidebar).")
 
         _render_health_banner(ally_profile, len(pending_items), leganto_missing, has_audit,
-                              leganto_draft, leganto_items)
+                              leganto_draft, leganto_items, active_row)
 
         st.markdown(" ")
 
@@ -736,7 +881,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         with col_checks:
             _render_module_checks(pending_items, completed_items, leganto_missing, leganto_draft,
-                                  leganto_items, has_audit)
+                                  leganto_items, has_audit, active_row)
 
         # Render confidential internal notes if user is an auditor
         if is_dla_or_admin and has_audit:

@@ -237,6 +237,57 @@ def init_db():
         )
     """)
 
+    # The faculty Template Alignment Report, at its native grain: one row per
+    # Blackboard course per snapshot. As with Ally, a module can carry more than
+    # one course shell, so aggregation to module_code happens on read.
+    #
+    # academic_year is in the primary key, matching leganto_lists rather than
+    # ally_courses. Same reason: a reference import of a prior year's export
+    # alongside the current one would otherwise collide on a shared snapshot
+    # date and silently overwrite.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS readiness_courses (
+            course_number TEXT,
+            snapshot_date TEXT,
+            academic_year TEXT,
+            module_code TEXT,
+            course_name TEXT,
+            course_created_date TEXT,
+            term_name TEXT,
+            student_count INTEGER,
+            school_name TEXT,
+            expected_sections INTEGER,
+            visible_sections INTEGER,
+            hidden_sections INTEGER,
+            deleted_sections INTEGER,
+            missing_sections INTEGER,
+            completeness_score REAL,
+            alignment_status TEXT,
+            template_version TEXT,
+            PRIMARY KEY (course_number, snapshot_date, academic_year)
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_readiness_mod
+        ON readiness_courses (module_code, academic_year, snapshot_date)
+    """)
+
+    # Per-section status, long rather than wide. The template is versioned
+    # (TEMPLATE_VERSION_INDICATOR) and its section list changes between years -
+    # 14 sections in 2026/27 - so a wide table would need a migration each time
+    # the template gains or loses one. Long absorbs it.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS readiness_sections (
+            course_number TEXT,
+            snapshot_date TEXT,
+            academic_year TEXT,
+            section_key TEXT,
+            status TEXT,
+            last_modified TEXT,
+            PRIMARY KEY (course_number, snapshot_date, academic_year, section_key)
+        )
+    """)
+
     # Create blackboard_links table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS blackboard_links (
@@ -1049,6 +1100,229 @@ def purge_leganto_lists(academic_year):
         cursor.execute("DELETE FROM leganto_lists WHERE academic_year = ?", (academic_year,))
         conn.commit()
     logging.info("Purged %d leganto_lists rows for %s.", before, academic_year)
+    return before
+
+# --- Module readiness (template alignment) ---------------------------------
+#
+# These read the faculty Template Alignment Report at its native Blackboard-
+# course grain and leave the rollup to module level to
+# processing.aggregate_readiness_to_modules(), so the worst-wins rules and the
+# bulk-edit-date judgement stay in one testable, I/O-free place.
+
+_READINESS_CHANGE_COLS = ['visible_sections', 'hidden_sections', 'deleted_sections',
+                          'missing_sections', 'completeness_score', 'alignment_status']
+
+def get_readiness_academic_years():
+    """Academic years present in readiness_courses, newest first."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'readiness_courses'):
+            return []
+        rows = conn.execute(
+            "SELECT DISTINCT academic_year FROM readiness_courses "
+            "WHERE academic_year IS NOT NULL AND academic_year != '' "
+            "ORDER BY academic_year DESC"
+        ).fetchall()
+    return [r[0] for r in rows]
+
+def get_readiness_courses_latest(academic_year=None):
+    """One row per Blackboard course, at that course's latest snapshot.
+
+    Snapshots are stored only when a course actually changes (see
+    save_readiness_snapshot), so different courses sit at different
+    snapshot_dates and a single MAX over the whole table would drop everything
+    that has not moved recently.
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'readiness_courses'):
+            return pd.DataFrame()
+        if academic_year:
+            sql = """
+                SELECT c.* FROM readiness_courses c
+                JOIN (
+                    SELECT course_number, MAX(snapshot_date) AS ms
+                    FROM readiness_courses WHERE academic_year = ? GROUP BY course_number
+                ) m ON c.course_number = m.course_number AND c.snapshot_date = m.ms
+                WHERE c.academic_year = ?
+            """
+            return pd.read_sql_query(sql, conn, params=(academic_year, academic_year))
+        sql = """
+            SELECT c.* FROM readiness_courses c
+            JOIN (
+                SELECT course_number, MAX(snapshot_date) AS ms
+                FROM readiness_courses GROUP BY course_number
+            ) m ON c.course_number = m.course_number AND c.snapshot_date = m.ms
+        """
+        return pd.read_sql_query(sql, conn)
+
+def get_readiness_sections_latest(academic_year=None):
+    """Long per-section rows for each course's latest snapshot, carrying
+    module_code across from readiness_courses."""
+    with get_db_connection() as conn:
+        if (not table_exists(conn, 'readiness_sections')
+                or not table_exists(conn, 'readiness_courses')):
+            return pd.DataFrame()
+        year_filter = "WHERE c.academic_year = ?" if academic_year else ""
+        sql = f"""
+            SELECT c.module_code, c.academic_year, c.course_number, c.snapshot_date,
+                   c.school_name, c.course_created_date, c.student_count,
+                   t.section_key, t.status, t.last_modified
+            FROM readiness_courses c
+            JOIN (
+                SELECT course_number, MAX(snapshot_date) AS ms
+                FROM readiness_courses {"WHERE academic_year = ?" if academic_year else ""}
+                GROUP BY course_number
+            ) m ON c.course_number = m.course_number AND c.snapshot_date = m.ms
+            JOIN readiness_sections t
+              ON t.course_number = c.course_number
+             AND t.snapshot_date = c.snapshot_date
+             AND t.academic_year = c.academic_year
+            {year_filter}
+        """
+        params = (academic_year, academic_year) if academic_year else ()
+        return pd.read_sql_query(sql, conn, params=params)
+
+def get_readiness_history(module_code=None, academic_year=None):
+    """Every stored snapshot at course grain, for trend charts."""
+    clauses, params = [], []
+    if module_code:
+        clauses.append("module_code = ?")
+        params.append(str(module_code).strip().upper())
+    if academic_year:
+        clauses.append("academic_year = ?")
+        params.append(academic_year)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'readiness_courses'):
+            return pd.DataFrame()
+        return pd.read_sql_query(
+            f"SELECT * FROM readiness_courses {where} ORDER BY snapshot_date", conn,
+            params=tuple(params))
+
+def save_readiness_snapshot(df_courses, df_sections, force_all=False):
+    """Writes one Template Alignment Report into readiness_courses /
+    readiness_sections.
+
+    Courses whose section counts and score are identical to their most recent
+    stored snapshot for the *same academic_year* are skipped unless force_all,
+    so the series holds genuine observations only. Scoped to academic_year for
+    the same reason as save_leganto_snapshot: a reference import of a prior
+    year's export must never be mistaken for "nothing changed".
+
+    Returns a dict of counts for the import report.
+    """
+    empty = {'courses_written': 0, 'courses_unchanged': 0, 'sections': 0}
+    if df_courses is None or df_courses.empty:
+        return empty
+
+    df_courses = df_courses.copy()
+
+    with get_db_connection() as conn:
+        prev = pd.read_sql_query("""
+            SELECT c.* FROM readiness_courses c
+            JOIN (SELECT course_number, academic_year, MAX(snapshot_date) AS ms
+                  FROM readiness_courses GROUP BY course_number, academic_year) m
+              ON c.course_number = m.course_number AND c.academic_year = m.academic_year
+             AND c.snapshot_date = m.ms
+        """, conn) if table_exists(conn, 'readiness_courses') else pd.DataFrame()
+
+    unchanged = 0
+    if not force_all and not prev.empty:
+        merged = df_courses.merge(
+            prev[['course_number', 'academic_year'] + _READINESS_CHANGE_COLS],
+            on=['course_number', 'academic_year'], how='left', suffixes=('', '_prev'))
+        same = pd.Series(True, index=merged.index)
+        for col in _READINESS_CHANGE_COLS:
+            a = merged[col].astype(str).fillna('')
+            b = merged[f'{col}_prev'].astype(str).fillna('')
+            same &= (a == b)
+        same &= merged['alignment_status_prev'].notna()
+        unchanged = int(same.sum())
+        df_courses = df_courses[~same.values].copy()
+
+    if df_courses.empty:
+        return {'courses_written': 0, 'courses_unchanged': unchanged, 'sections': 0}
+
+    # Only sections belonging to a course we are actually writing, so the child
+    # table never carries rows whose parent snapshot was skipped.
+    keep = set(zip(df_courses['course_number'], df_courses['snapshot_date'],
+                   df_courses['academic_year']))
+    if df_sections is None or df_sections.empty:
+        sections = pd.DataFrame()
+    else:
+        mask = [k in keep for k in zip(df_sections['course_number'],
+                                       df_sections['snapshot_date'],
+                                       df_sections['academic_year'])]
+        sections = df_sections[mask].copy()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany("""
+            INSERT INTO readiness_courses (
+                course_number, snapshot_date, academic_year, module_code, course_name,
+                course_created_date, term_name, student_count, school_name,
+                expected_sections, visible_sections, hidden_sections, deleted_sections,
+                missing_sections, completeness_score, alignment_status, template_version)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(course_number, snapshot_date, academic_year) DO UPDATE SET
+                module_code=excluded.module_code, course_name=excluded.course_name,
+                course_created_date=excluded.course_created_date,
+                term_name=excluded.term_name, student_count=excluded.student_count,
+                school_name=excluded.school_name,
+                expected_sections=excluded.expected_sections,
+                visible_sections=excluded.visible_sections,
+                hidden_sections=excluded.hidden_sections,
+                deleted_sections=excluded.deleted_sections,
+                missing_sections=excluded.missing_sections,
+                completeness_score=excluded.completeness_score,
+                alignment_status=excluded.alignment_status,
+                template_version=excluded.template_version
+        """, df_courses[[
+            'course_number', 'snapshot_date', 'academic_year', 'module_code', 'course_name',
+            'course_created_date', 'term_name', 'student_count', 'school_name',
+            'expected_sections', 'visible_sections', 'hidden_sections', 'deleted_sections',
+            'missing_sections', 'completeness_score', 'alignment_status',
+            'template_version']].itertuples(index=False, name=None))
+
+        if not sections.empty:
+            cursor.executemany("""
+                INSERT INTO readiness_sections (
+                    course_number, snapshot_date, academic_year, section_key,
+                    status, last_modified)
+                VALUES (?,?,?,?,?,?)
+                ON CONFLICT(course_number, snapshot_date, academic_year, section_key)
+                DO UPDATE SET status=excluded.status, last_modified=excluded.last_modified
+            """, sections[['course_number', 'snapshot_date', 'academic_year',
+                           'section_key', 'status', 'last_modified']]
+                .itertuples(index=False, name=None))
+        conn.commit()
+
+    logging.info("Readiness snapshot written: %d courses (%d unchanged), %d section rows.",
+                 len(df_courses), unchanged, len(sections))
+    return {'courses_written': len(df_courses), 'courses_unchanged': unchanged,
+            'sections': len(sections)}
+
+def purge_readiness(academic_year):
+    """Deletes every readiness row for one academic_year, parent and child.
+
+    Scoped to a single year rather than the whole table, for the same reason as
+    purge_leganto_lists: a reference/test import can be dropped cleanly once the
+    real current-year export replaces it.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if not table_exists(conn, 'readiness_courses'):
+            return 0
+        before = cursor.execute(
+            "SELECT COUNT(*) FROM readiness_courses WHERE academic_year = ?",
+            (academic_year,)).fetchone()[0]
+        cursor.execute("DELETE FROM readiness_courses WHERE academic_year = ?",
+                       (academic_year,))
+        if table_exists(conn, 'readiness_sections'):
+            cursor.execute("DELETE FROM readiness_sections WHERE academic_year = ?",
+                           (academic_year,))
+        conn.commit()
+    logging.info("Purged %d readiness_courses rows (and their sections) for %s.",
+                 before, academic_year)
     return before
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
