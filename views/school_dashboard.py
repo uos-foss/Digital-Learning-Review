@@ -100,21 +100,24 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Modules", len(school_df))
+                st.metric("Total Modules", len(school_df),
+                          help=f"Total modules for {school} in the {semester} semester.")
             with col2:
-                started = len(scoreable(school_df))
-                st.metric("Content in progress", f"{started}",
-                          help="Modules with content beyond their rolled-over template. "
-                               "Only these carry a meaningful accessibility score - there is "
-                               "no 'finished' state, since module leads build throughout the year.")
+                no_activity = len(school_df) - len(scoreable(school_df))
+                st.metric("Modules with no activity", f"{no_activity}",
+                          help="Modules still in their rolled-over state - no content added "
+                               "yet")
             with col3:
                 avg_ally = mean_score(school_df)
                 st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
                           help="Ally's overall score, averaged across modules with content beyond "
                                "their template only.")
             with col4:
-                audited_count = school_df['Audited?'].apply(lambda x: "✅" in x).sum()
-                st.metric("Audit Participation", f"{(audited_count / len(school_df)):.1%}")
+                total_actionable = int(school_df['Actionable Items'].sum())
+                st.metric("Outstanding Actionable Items", f"{total_actionable}",
+                          help="Sum of outstanding items across all modules in this semester - "
+                               "checklist, Leganto reading lists, Ally accessibility, and template "
+                               "readiness findings combined.")
             
             # Define school codes for filtering data
             school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
