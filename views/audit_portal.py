@@ -138,19 +138,6 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.caption("⚠️ VLE link not found")
         with col2:
             st.markdown(f"**Status:** {sa_status}", help="")
-            # Save Draft already writes audit_status='draft' regardless of the
-            # module's current status, so this doesn't need new save logic -
-            # it's a clearly-labelled shortcut for exactly that, since relying
-            # on advisors to know Save Draft can also un-submit isn't
-            # reasonable. Only touches audit_status - the checklist answers
-            # are untouched and stay editable in the form below either way.
-            if audit_status == 'submitted' and not is_masquerading():
-                if st.button("↩️ Revert to Draft", key=f"ap_revert_draft_{selected_code}"):
-                    revert_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    save_audit_response(selected_code, 'audit_status', 'draft', username_upper, revert_ts)
-                    st.cache_data.clear()
-                    logging.info(f"↩️ Audit status reverted to draft for '{selected_code}' by '{username_upper}'.")
-                    st.rerun()
 
         last_updated = None
         last_auditor = None
@@ -215,45 +202,63 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
             if masquerading:
                 st.info("🎭 Masquerade mode is view-only — switch back to your own account to save changes.")
 
-            col_draft, col_submit = st.columns(2)
+            col_draft, col_submit, col_revert = st.columns(3)
             with col_draft:
                 save_draft = st.form_submit_button("💾 Save Draft", use_container_width=True, disabled=masquerading)
             with col_submit:
                 save_submit = st.form_submit_button("✅ Submit Audit", use_container_width=True, disabled=masquerading)
+            with col_revert:
+                # Only enabled once Submitted - reverts audit_status alone,
+                # without re-saving the checklist answers above (unlike Save
+                # Draft/Submit Audit, which always save the whole form). A
+                # dedicated, clearly-labelled action rather than relying on
+                # advisors to know Save Draft can also move status backward.
+                revert_draft = st.form_submit_button(
+                    "↩️ Revert to Draft", use_container_width=True,
+                    disabled=masquerading or audit_status != 'submitted',
+                    help="Sets this module back to Draft without changing any answers."
+                         if audit_status == 'submitted'
+                         else "Only available once a module has been Submitted.")
 
-            if (save_draft or save_submit) and not masquerading:
+            if (save_draft or save_submit or revert_draft) and not masquerading:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 try:
-                    for fid, val in responses_input.items():
-                        save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
+                    if revert_draft:
+                        save_audit_response(selected_code, 'audit_status', 'draft', username_upper, timestamp)
+                        action = "reverted to draft"
+                    else:
+                        for fid, val in responses_input.items():
+                            save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
 
-                    save_audit_response(selected_code, 'notes_to_lead', module_notes_val, username_upper, timestamp)
-                    save_audit_response(selected_code, 'auditor_notes', auditor_notes_val, username_upper, timestamp)
+                        save_audit_response(selected_code, 'notes_to_lead', module_notes_val, username_upper, timestamp)
+                        save_audit_response(selected_code, 'auditor_notes', auditor_notes_val, username_upper, timestamp)
 
-                    status = 'submitted' if save_submit else 'draft'
-                    save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
+                        status = 'submitted' if save_submit else 'draft'
+                        save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
+                        action = "submitted" if save_submit else "saved as draft"
 
-                    # If this module was flagged for spot-check by the person
-                    # saving it, the first save closes it out - comparing what
-                    # they just answered against the suggestion frozen at the
-                    # moment they flagged it. A save by someone other than the
-                    # flagger (e.g. covering an absence) leaves it pending, so
-                    # the agreement rate stays a measure of the flagger's own
-                    # judgement, not whoever happened to save the module.
-                    pending_sc = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
-                    if pending_sc and pending_sc.get('flagged_by') == username_upper:
-                        agreement = compute_spot_check_agreement(
-                            pending_sc.get('data_verdict_snapshot'), responses_input)
-                        mark_spot_check_checked(
-                            selected_code, CURRENT_ACADEMIC_YEAR, timestamp,
-                            agreement['agreed'], agreement['total'],
-                            notes=f"Closed via Audit Portal save on {timestamp}.")
-                        logging.info(
-                            "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",
-                            selected_code, username_upper, agreement['agreed'], agreement['total'])
+                        # If this module was flagged for spot-check by the person
+                        # saving it, the first save closes it out - comparing what
+                        # they just answered against the suggestion frozen at the
+                        # moment they flagged it. A save by someone other than the
+                        # flagger (e.g. covering an absence) leaves it pending, so
+                        # the agreement rate stays a measure of the flagger's own
+                        # judgement, not whoever happened to save the module.
+                        # Reverting to draft doesn't count as this kind of save,
+                        # so it deliberately skips this block.
+                        pending_sc = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
+                        if pending_sc and pending_sc.get('flagged_by') == username_upper:
+                            agreement = compute_spot_check_agreement(
+                                pending_sc.get('data_verdict_snapshot'), responses_input)
+                            mark_spot_check_checked(
+                                selected_code, CURRENT_ACADEMIC_YEAR, timestamp,
+                                agreement['agreed'], agreement['total'],
+                                notes=f"Closed via Audit Portal save on {timestamp}.")
+                            logging.info(
+                                "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",
+                                selected_code, username_upper, agreement['agreed'], agreement['total'])
 
                     st.cache_data.clear()
-                    action = "submitted" if save_submit else "saved as draft"
                     logging.info(f"✅ Audit {action} for '{selected_code}' by '{username_upper}'.")
                     st.success(f"Audit {action}!")
                     st.rerun()
