@@ -151,19 +151,33 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   `_LAST_MODIFIED` sibling. The template is versioned and changes between years,
   so a revised template imports without a code change; only the catalogue needs
   a new label. `readiness_sections` is long for the same reason.
-- **A last-modified date is not evidence of lead activity on its own.** Template
-  pushes stamp hundreds of courses on one day. `detect_bulk_edit_dates()` flags
-  a (school, date) on *either* `READINESS_BULK_EDIT_SHARE` of the school **or**
-  `READINESS_BULK_EDIT_MIN_MODULES` modules outright, and
-  `classify_edit_evidence()` reduces those to *no positive evidence* — never
-  negative evidence. Both tests are needed: share alone is scale-dependent, and
-  the faculty-wide export proved it — the ALA push of 23/07 touched 25 modules,
+- **A last-modified date is not evidence of *lead* activity on its own — and a
+  shared batch date is usually not IT either.** Aside from the original
+  template rollout, IT does not push bulk content edits. What actually
+  produces a date shared across many of a school's courses is most often
+  Professional Services (PS) / school admin staff working through a batch of
+  modules editing a specific section (commonly Key Staff Contacts) on the
+  lead's behalf — genuine content work, just not done by the lead, and which
+  section(s) get PS-edited this way varies by school. The export gives only a
+  date, no time or editor, so a real IT rollout and a PS team clearing a
+  worklist in one afternoon are indistinguishable in the data.
+  `detect_bulk_edit_dates()` flags a (school, date) on *either*
+  `READINESS_BULK_EDIT_SHARE` of the school **or** `READINESS_BULK_EDIT_MIN_MODULES`
+  modules outright, and `classify_edit_evidence()` reduces those to *no
+  positive evidence of lead activity* — never evidence the section itself is
+  unfinished. Both tests are needed: share alone is scale-dependent, and the
+  faculty-wide export proved it — the ALA batch of 23/07 touched 25 modules,
   which is 56% of the 45-module excerpt the rule was first calibrated on but
   only 18% of the real 142-module school. Adding the floor moved 131 lead-section
   observations out of `lead_edit`. Over-flagging is the safe error here, since a
-  bulk hit only ever withholds evidence. Re-run
+  batch hit only ever withholds *lead* evidence, not readiness. Re-run
   `diagnostics/check_readiness_export.py` on each new export — it prints the
   distribution, what was flagged, and the closest cases that were not.
+  **Open question for Phase 4**: since a `bulk` section may genuinely be
+  PS-completed rather than untouched, treating it as equivalent to
+  `never_modified` is right for *lead-engagement* evidence but may
+  understate genuine readiness. Do not resolve this by guessing — ask before
+  Phase 4 decides what to auto-tick.
 - **Both primary keys include `academic_year`** (`leganto_lists`'s reasoning,
   not `ally_courses`'s) so a reference import of a prior year cannot collide
   with the real one on a shared snapshot date.
