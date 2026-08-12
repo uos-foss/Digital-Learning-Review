@@ -691,25 +691,6 @@ def get_audit_responses(module_code: str):
             'timestamp': row['timestamp']
         } for row in rows}
 
-def delete_audit_responses_for_module(module_code: str) -> int:
-    """Deletes every audit_responses row for one module, returning it to
-    'not audited' - including notes_to_lead, auditor_notes and audit_status,
-    since those are stored as ordinary rows in the same table (field_id
-    'notes_to_lead' etc.) rather than a separate structure. Used for undoing
-    a test audit; a real audit has no equivalent "undo" in the UI on purpose,
-    since audit_responses is meant to be an append-only human record.
-    Returns the number of rows deleted.
-    """
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM audit_responses WHERE module_code = ?",
-                       (module_code.strip().upper(),))
-        conn.commit()
-        deleted = cursor.rowcount
-    if deleted:
-        logging.info("🗑️ Reset audit for '%s': %d response row(s) deleted.", module_code, deleted)
-    return deleted
-
 def table_exists(conn, table_name):
     """True if the named table is present. Defined here rather than in app.py
     so that database.py can use it without importing the entry point."""
