@@ -138,6 +138,19 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.caption("⚠️ VLE link not found")
         with col2:
             st.markdown(f"**Status:** {sa_status}", help="")
+            # Save Draft already writes audit_status='draft' regardless of the
+            # module's current status, so this doesn't need new save logic -
+            # it's a clearly-labelled shortcut for exactly that, since relying
+            # on advisors to know Save Draft can also un-submit isn't
+            # reasonable. Only touches audit_status - the checklist answers
+            # are untouched and stay editable in the form below either way.
+            if audit_status == 'submitted' and not is_masquerading():
+                if st.button("↩️ Revert to Draft", key=f"ap_revert_draft_{selected_code}"):
+                    revert_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    save_audit_response(selected_code, 'audit_status', 'draft', username_upper, revert_ts)
+                    st.cache_data.clear()
+                    logging.info(f"↩️ Audit status reverted to draft for '{selected_code}' by '{username_upper}'.")
+                    st.rerun()
 
         last_updated = None
         last_auditor = None
