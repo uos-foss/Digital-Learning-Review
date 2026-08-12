@@ -5,7 +5,7 @@ from processing import (calculate_compliance_gap, calculate_module_compliance, r
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
-                      get_ally_history, flag_module_for_spot_check, get_pending_spot_check,
+                      get_ally_history, flag_module_for_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
 from views.ally_widgets import (
     scoreable, mean_score, impact_weighted_score, render_maturity_banner,
@@ -221,53 +221,95 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                              "hidden — those only need making visible. ⚠️ marks a section "
                              "deleted from or missing in the course shell.")
 
+                # Latest spot-check status per module, fetched once for the
+                # whole school rather than a query per row. A module can have
+                # more than one flag over time (see purge/re-flag notes in
+                # CLAUDE.md); the most recent one is what's shown.
+                sc_school_df = get_school_spot_checks(school, CURRENT_ACADEMIC_YEAR)
+                sc_status_by_code = {}
+                if not sc_school_df.empty:
+                    latest = sc_school_df.sort_values('flagged_on', ascending=False) \
+                                         .drop_duplicates(subset='module_code', keep='first')
+                    sc_status_by_code = dict(zip(latest['module_code'], latest['status']))
+
+                def _spot_check_display(r):
+                    status = sc_status_by_code.get(r['New module code'])
+                    if status == 'pending':
+                        return "⏳ Pending"
+                    if status == 'checked':
+                        return "✅ Checked"
+                    return ""
+                display_df['Spot-Check'] = display_df.apply(_spot_check_display, axis=1)
+                cols.append('Spot-Check')
+                configs['Spot-Check'] = st.column_config.TextColumn(
+                    "Spot-Check",
+                    help="⏳ Pending - flagged and waiting to be audited. ✅ Checked - "
+                         "the flagger has since audited it. Blank - never flagged.")
 
                 clean_display_df = display_df[cols].reset_index(drop=True)
-                
+
+                st.caption("Select one or more rows (tick the checkboxes) to jump to a "
+                          "module or flag it for spot-check.")
                 selection = st.dataframe(
-                    clean_display_df, 
-                    column_config=configs, 
+                    clean_display_df,
+                    column_config=configs,
                     width="stretch",
                     hide_index=True,
                     on_select="rerun",
-                    selection_mode="single-row",
+                    selection_mode="multi-row",
                     key="school_dashboard_dataframe"
                 )
-                
+
                 # ACTION CENTER ROUTER
-                if selection.selection.rows:
-                    row_idx = selection.selection.rows[0]
-                    clicked_code = clean_display_df.iloc[row_idx]['New module code']
+                selected_rows = selection.selection.rows
+                if selected_rows:
+                    selected_codes = clean_display_df.iloc[selected_rows]['New module code'].tolist()
 
                     st.divider()
-                    st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
-                            st.session_state.selected_module_code = clicked_code
-                            st.switch_page(st.session_state.pg_module)
-                    with c2:
-                        if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="btn_school_cl"):
-                            st.session_state.selected_module_code = clicked_code
-                            st.switch_page(st.session_state.pg_audit)
-                    with c3:
-                        if can_audit:
-                            already_pending = get_pending_spot_check(clicked_code, CURRENT_ACADEMIC_YEAR)
-                            if already_pending:
+                    if len(selected_codes) == 1:
+                        clicked_code = selected_codes[0]
+                        st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            if st.button("📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
+                                st.session_state.selected_module_code = clicked_code
+                                st.switch_page(st.session_state.pg_module)
+                        with c2:
+                            if can_audit and st.button("✅ Open Audit Portal", width="stretch", key="btn_school_cl"):
+                                st.session_state.selected_module_code = clicked_code
+                                st.switch_page(st.session_state.pg_audit)
+                        flag_col = c3
+                    else:
+                        st.info(f"🚀 {len(selected_codes)} modules selected")
+                        flag_col = st.container()
+
+                    if can_audit:
+                        already_pending = [c for c in selected_codes if c in sc_status_by_code
+                                          and sc_status_by_code[c] == 'pending']
+                        flaggable = [c for c in selected_codes if c not in already_pending]
+                        with flag_col:
+                            label = (f"🎯 Flag for Spot-Check" if len(selected_codes) == 1
+                                    else f"🎯 Flag {len(flaggable)} for Spot-Check")
+                            if not flaggable:
                                 st.button("🎯 Already flagged", width="stretch",
                                          disabled=True, key="btn_school_sc_pending",
-                                         help=f"Pending, flagged by {already_pending.get('flagged_by', '')} "
-                                              f"on {already_pending.get('flagged_on', '')}.")
-                            elif st.button("🎯 Flag for Spot-Check", width="stretch", key="btn_school_sc"):
+                                         help="Every selected module already has a pending spot-check.")
+                            elif st.button(label, width="stretch", key="btn_school_sc"):
                                 flagger = str(st.session_state.get("username", "")).strip().upper()
                                 flagged_on = datetime.date.today().strftime('%Y-%m-%d')
-                                active_row = resolve_active_row(clicked_code, df_aut, df_spr)
-                                actionable = checklist_sums.get(clicked_code, {}).get('Actionable Items', 0)
-                                snapshot = build_spot_check_snapshot(active_row, actionable)
-                                flag_module_for_spot_check(
-                                    clicked_code, CURRENT_ACADEMIC_YEAR, flagger, flagged_on, snapshot)
-                                st.success(f"Flagged {clicked_code} for spot-check.")
-                                st.cache_data.clear()
+                                for code in flaggable:
+                                    active_row = resolve_active_row(code, df_aut, df_spr)
+                                    actionable = checklist_sums.get(code, {}).get('Actionable Items', 0)
+                                    snapshot = build_spot_check_snapshot(active_row, actionable)
+                                    flag_module_for_spot_check(
+                                        code, CURRENT_ACADEMIC_YEAR, flagger, flagged_on, snapshot)
+                                msg = f"Flagged {len(flaggable)} module(s) for spot-check."
+                                if already_pending:
+                                    msg += f" {len(already_pending)} already had a pending flag and were skipped."
+                                st.success(msg)
+                                # spot_checks isn't part of the cached loaders above (Actionable
+                                # Items etc. are unaffected by flagging), so no st.cache_data.clear()
+                                # is needed here - only a rerun to refresh the status column.
                                 st.rerun()
                     st.divider()
 
@@ -774,13 +816,34 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     shown['Module Name'] = shown['module_code'].map(names)
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown['Agreement'] = shown.apply(_agreement_display, axis=1)
-                    st.dataframe(
-                        shown.rename(columns={
-                            'module_code': 'Module', 'flagged_by': 'Flagged By',
-                            'flagged_on': 'Flagged On', 'checked_on': 'Checked On'})[
-                            ['Module', 'Module Name', 'Flagged By', 'Flagged On',
-                             'Status', 'Checked On', 'Agreement']],
-                        hide_index=True, width="stretch")
+                    sc_display_df = shown.rename(columns={
+                        'module_code': 'Module', 'flagged_by': 'Flagged By',
+                        'flagged_on': 'Flagged On', 'checked_on': 'Checked On'})[
+                        ['Module', 'Module Name', 'Flagged By', 'Flagged On',
+                         'Status', 'Checked On', 'Agreement']].reset_index(drop=True)
+
+                    st.caption("Select a row to jump to that module.")
+                    sc_selection = st.dataframe(
+                        sc_display_df, hide_index=True, width="stretch",
+                        on_select="rerun", selection_mode="single-row",
+                        key="school_dashboard_spot_check_dataframe")
+
+                    if sc_selection.selection.rows:
+                        sc_clicked_code = sc_display_df.iloc[sc_selection.selection.rows[0]]['Module']
+                        st.divider()
+                        st.info(f"🚀 Quick Action Launch: **{sc_clicked_code}**")
+                        sc_c1, sc_c2 = st.columns(2)
+                        with sc_c1:
+                            if st.button("📊 Jump to Report Card", width="stretch", type="primary",
+                                        key="btn_school_sc_rc"):
+                                st.session_state.selected_module_code = sc_clicked_code
+                                st.switch_page(st.session_state.pg_module)
+                        with sc_c2:
+                            if can_audit and st.button("✅ Open Audit Portal", width="stretch",
+                                                       key="btn_school_sc_ap"):
+                                st.session_state.selected_module_code = sc_clicked_code
+                                st.switch_page(st.session_state.pg_audit)
+                        st.divider()
 
             st.divider()
             csv_school = school_df.to_csv(index=False).encode('utf-8')

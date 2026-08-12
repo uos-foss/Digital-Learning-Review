@@ -3,24 +3,32 @@ Recent updates and releases for the Digital Learning Review portal.
 ### 🚀 Version 1.20.0 (Current) — *Spot-check flagging*
 *12 August 2026*
 
-* **Digital Learning Advisors can now flag a module for a spot-check, right
-  from the School Dashboard.** Select a module in the module list and use the
-  new 🎯 Flag for Spot-Check button, alongside the existing "Jump to Report
-  Card" and "Open Audit Portal" actions. Which modules get checked, and how
-  many, is a DLA's own call - based on experience, spread across levels, and
-  some randomness - not an algorithm.
+* **Digital Learning Advisors can now flag modules for a spot-check, right
+  from the School Dashboard.** Tick one or more rows in the module list and
+  use the new 🎯 Flag for Spot-Check action, alongside the existing "Jump to
+  Report Card" and "Open Audit Portal" buttons. Which modules get checked,
+  and how many, is a DLA's own call - based on experience, spread across
+  levels, and some randomness - not an algorithm. The module list also shows
+  each module's level (Foundation/UG/PGT/PGR) and a Spot-Check status column
+  (⏳ Pending / ✅ Checked), so spread and prior coverage are both visible
+  while choosing.
 * **A new 🎯 Spot-Checks view on the School Dashboard** shows every module the
-  school has flagged this year: who flagged it, when, and its status, so a
-  team can see what's already been covered.
+  school has flagged this year - who flagged it, when, its status, and the
+  agreement result once checked - and lets you jump straight to a module's
+  Report Card or Audit Portal from there too.
 * **Flagged modules queue themselves in the flagger's Audit Portal**, under a
   "Your Spot-Checks" panel. There's no separate recording step - open the
   module, complete the checklist as normal, and saving it compares what was
   ticked against what the Blackboard Template pre-fill was suggesting at the
-  moment the module was flagged. The resulting agreement rate shows on the
-  School Dashboard's Spot-Checks view - the evidence for whether the data can
-  be trusted for modules that never get flagged at all.
-* The module list also now shows each module's level (Foundation/UG/PGT/PGR),
-  so level spread is visible while choosing what to flag.
+  moment the module was flagged. The resulting agreement rate is the evidence
+  for whether the data can be trusted for modules that never get flagged at
+  all.
+* **Most clicks in the app should feel noticeably snappier.** The main data
+  loaders were re-caching from scratch on almost every interaction (a 10-second
+  cache lifetime against loaders that run several queries and aggregations
+  each time); every place that actually changes the data already tells the
+  cache to refresh immediately, so a much longer cache lifetime costs nothing
+  in freshness and removes most of that wait.
 
 ### 🚀 Version 1.19.0 — *The Audit Portal suggests answers from Blackboard*
 *12 August 2026*

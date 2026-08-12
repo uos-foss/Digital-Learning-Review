@@ -301,14 +301,19 @@ counterpart and are never suggested on).
 
 Manual auditing does not scale past the handful of modules that get a real
 audit each year. Rather than a system trying to decide what needs checking,
-a DLA flags modules themselves from the School Dashboard's module list
-(🎯 Flag for Spot-Check) - based on their own judgement (experience, spread
-across levels, some deliberate randomness), not a stratified sample. An
-earlier version of this feature *did* auto-sample and auto-assign; it was
-rolled back specifically because that judgement belongs with the DLAs, not
-an algorithm, and because most real DLA accounts are faculty-wide rather
-than tied to one school (see `get_edit_checklist_users()` in the deleted
-`dev/spot-check-sampling` branch, if it's ever worth revisiting why).
+a DLA flags modules themselves from the School Dashboard's module list -
+select one or more rows and use 🎯 Flag for Spot-Check - based on their own
+judgement (experience, spread across levels, some deliberate randomness),
+not a stratified sample. An earlier version of this feature *did*
+auto-sample and auto-assign; it was rolled back specifically because that
+judgement belongs with the DLAs, not an algorithm (see
+`get_edit_checklist_users()` in the deleted `dev/spot-check-sampling`
+branch, if it's ever worth revisiting why). Note that branch's premise -
+that `users.School='All'` meant most DLAs had no real school alignment -
+was itself wrong: in reality DLAs are aligned with one or more specific
+schools but are provisioned faculty-wide *access* for practical reasons: see
+the corrected project memory on this. The schema has no field for a DLA's
+actual school alignment(s) today.
 
 `spot_checks` (owned by this portal) tracks flags through to outcome —
 `database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_user()`,
@@ -341,6 +346,20 @@ snapshot/diff logic is I/O-free in `processing.py`
   `sample_round` to scope a purge to, unlike the abandoned sampled design.
 
 ## Conventions
+
+- **Caching**: `load_audit_data()`, `load_checklist_data()` and
+  `load_assessment_data()` in `app.py` are `@st.cache_data(ttl=300)`. The ttl
+  is a safety net for an external change (e.g. a sibling app writing to the
+  shared database), not the primary invalidation mechanism - every real write
+  path (Admin Panel imports/edits/purges, Audit Portal saves, spot-check
+  flagging) already calls `st.cache_data.clear()` the moment it writes, so
+  raising the ttl costs nothing in freshness. It was `ttl=10` until 12 August
+  2026, which meant almost every click more than a few seconds apart paid the
+  full reload cost (several queries plus Ally/Leganto/readiness aggregation)
+  for no benefit. A write path that doesn't affect these loaders' output (like
+  flagging a module - `spot_checks` isn't read by any of the three) should not
+  call `st.cache_data.clear()` just out of habit; a plain `st.rerun()` is
+  enough to refresh what actually depends on session/query-time state.
 
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
   five hardcoded copies. Do not add a sixth.
