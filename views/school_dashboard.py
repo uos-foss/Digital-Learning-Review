@@ -5,7 +5,7 @@ from processing import (calculate_compliance_gap, calculate_module_compliance, r
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
-                      get_ally_history, flag_module_for_spot_check,
+                      get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
 from views.ally_widgets import (
     scoreable, mean_score, impact_weighted_score, render_maturity_banner,
@@ -816,23 +816,30 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     shown['Module Name'] = shown['module_code'].map(names)
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown['Agreement'] = shown.apply(_agreement_display, axis=1)
+                    shown = shown.reset_index(drop=True)
+                    # 'id' stays out of the visible table but is kept aligned by
+                    # position so a selected row can be deleted by primary key.
+                    sc_ids = shown['id']
                     sc_display_df = shown.rename(columns={
                         'module_code': 'Module', 'flagged_by': 'Flagged By',
                         'flagged_on': 'Flagged On', 'checked_on': 'Checked On'})[
                         ['Module', 'Module Name', 'Flagged By', 'Flagged On',
-                         'Status', 'Checked On', 'Agreement']].reset_index(drop=True)
+                         'Status', 'Checked On', 'Agreement']]
 
-                    st.caption("Select a row to jump to that module.")
+                    st.caption("Select a row to jump to that module, or remove its flag.")
                     sc_selection = st.dataframe(
                         sc_display_df, hide_index=True, width="stretch",
                         on_select="rerun", selection_mode="single-row",
                         key="school_dashboard_spot_check_dataframe")
 
                     if sc_selection.selection.rows:
-                        sc_clicked_code = sc_display_df.iloc[sc_selection.selection.rows[0]]['Module']
+                        sc_row_idx = sc_selection.selection.rows[0]
+                        sc_clicked_code = sc_display_df.iloc[sc_row_idx]['Module']
+                        sc_clicked_status = shown.iloc[sc_row_idx]['status']
+                        sc_clicked_id = int(sc_ids.iloc[sc_row_idx])
                         st.divider()
                         st.info(f"🚀 Quick Action Launch: **{sc_clicked_code}**")
-                        sc_c1, sc_c2 = st.columns(2)
+                        sc_c1, sc_c2, sc_c3 = st.columns(3)
                         with sc_c1:
                             if st.button("📊 Jump to Report Card", width="stretch", type="primary",
                                         key="btn_school_sc_rc"):
@@ -843,6 +850,19 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                                        key="btn_school_sc_ap"):
                                 st.session_state.selected_module_code = sc_clicked_code
                                 st.switch_page(st.session_state.pg_audit)
+                        with sc_c3:
+                            if can_audit:
+                                remove_confirm = st.checkbox(
+                                    "Confirm removal", key="sc_remove_confirm",
+                                    help="Deletes this flag outright. For a checked module this "
+                                         "also deletes its agreement result - re-flag it from "
+                                         "'All Modules' afterwards for a clean re-run.")
+                                if st.button("🗑️ Remove Flag", width="stretch",
+                                            disabled=not remove_confirm, key="btn_school_sc_remove"):
+                                    delete_spot_check(sc_clicked_id)
+                                    st.success(f"Removed the spot-check flag for {sc_clicked_code}.")
+                                    st.session_state['sc_remove_confirm'] = False
+                                    st.rerun()
                         st.divider()
 
             st.divider()

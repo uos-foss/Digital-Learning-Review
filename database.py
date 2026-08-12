@@ -1439,6 +1439,25 @@ def get_pending_spot_check(module_code: str, academic_year: str):
         cols = [d[0] for d in conn.execute("SELECT * FROM spot_checks LIMIT 0").description]
         return dict(zip(cols, row))
 
+def delete_spot_check(spot_check_id: int) -> bool:
+    """Removes one spot_checks row outright, whether pending or checked.
+
+    Covers two cases with one function: removing a mis-flagged module (the
+    row was pending, never should have been raised), and resetting a checked
+    module - delete its row, then re-flag it from the School Dashboard for a
+    clean re-run, rather than a separate "reset to pending" mutation that
+    would leave a checked row's agreement history half-edited. Returns True
+    if a row was actually deleted.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM spot_checks WHERE id = ?", (spot_check_id,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+    if deleted:
+        logging.info("🎯 Spot-check row id=%s deleted.", spot_check_id)
+    return deleted
+
 def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: str,
                             agreement_agreed: int, agreement_total: int, notes: str = ""):
     """Closes out the pending spot-check row for a module once the DLA who

@@ -344,6 +344,13 @@ snapshot/diff logic is I/O-free in `processing.py`
   signal to compare.
 - `database.purge_spot_checks(academic_year)` drops one year - there is no
   `sample_round` to scope a purge to, unlike the abandoned sampled design.
+- **`database.delete_spot_check(id)`** removes one row outright - reachable
+  from the "🎯 Spot-Checks" view's Remove Flag action, behind a confirm
+  checkbox since deleting a `checked` row also deletes its agreement result.
+  Deliberately a hard delete rather than a separate "reset to pending"
+  mutation: resetting a checked module for a clean re-run is delete, then
+  re-flag from "📋 All Modules" - one function covers both removing a
+  mis-flagged module and resetting a checked one.
 
 ## Conventions
 
