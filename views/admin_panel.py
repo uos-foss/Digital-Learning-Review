@@ -26,6 +26,8 @@ from database import (
     save_readiness_snapshot,
     get_readiness_academic_years,
     purge_readiness,
+    get_audit_responses,
+    delete_audit_responses_for_module,
     init_db
 )
 from processing import (
@@ -38,6 +40,7 @@ from processing import (
     ally_term_to_academic_year,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
+    get_module_mapping,
 )
 from masquerade import start_masquerade
 
@@ -1864,6 +1867,39 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     # ----------------------------------------------------
     elif selected_tab == "⚙️ System Maintenance":
         st.subheader("System Maintenance & Diagnostics")
+
+        st.markdown("##### **Reset Module Audit**")
+        with st.container(border=True):
+            st.write(
+                "Deletes every saved checklist answer, note and status for one "
+                "module, returning it to 'Not Started' - undoes a test audit. "
+                "There is no equivalent action for a real audit: "
+                "`audit_responses` is meant to be an append-only human record, "
+                "so use this deliberately."
+            )
+            module_mapping = get_module_mapping(df_aut, df_spr)
+            reset_options = sorted(f"{code} - {name}" for code, name in module_mapping.items())
+            reset_choice = st.selectbox(
+                "Module to reset:", [""] + reset_options, key="reset_audit_module_select")
+
+            if reset_choice:
+                reset_code = reset_choice.split(" - ")[0]
+                prev = get_audit_responses(reset_code)
+                if not prev:
+                    st.info(f"{reset_code} has no saved audit responses - nothing to reset.")
+                else:
+                    field_rows = [{"Field": fid, "Value": r["value"], "Auditor": r["auditor"],
+                                  "Timestamp": r["timestamp"]} for fid, r in prev.items()]
+                    st.dataframe(pd.DataFrame(field_rows), hide_index=True, use_container_width=True)
+                    confirm_reset = st.checkbox(
+                        f"Confirm: permanently delete all {len(prev)} response row(s) for {reset_code}.",
+                        key="reset_audit_confirm")
+                    if st.button("🗑️ Reset to Not Audited", type="secondary",
+                                disabled=not confirm_reset, key="btn_reset_audit"):
+                        deleted = delete_audit_responses_for_module(reset_code)
+                        st.success(f"Reset {reset_code}: {deleted} response row(s) deleted.")
+                        st.cache_data.clear()
+                        st.rerun()
 
         st.markdown("##### **Data Cleanup Operations**")
         with st.container(border=True):
