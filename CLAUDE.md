@@ -291,6 +291,68 @@ counterpart and are never suggested on).
   the module report's Blackboard Template block and the Audit Portal's
   suggestion caption read from the same sentence for the same section and can
   never drift apart.
+- `resolve_active_row(code, df_aut, df_spr)` in `processing.py` is the one
+  place that picks Spring's row over Autumn's when a module runs in both -
+  was duplicated identically in `views/audit_portal.py` and
+  `views/module_report.py` before Phase 5 needed a third copy for the
+  spot-check sampler and it got centralised instead.
+
+## Spot-check sampling
+
+`spot_checks` (owned by this portal) tracks modules sampled for an advisor to
+review instead of being audited from scratch - `database.py` functions:
+`get_edit_checklist_users()`, `get_next_spot_check_round()`,
+`save_spot_check_sample()`, `get_spot_checks_for_user()`,
+`get_pending_spot_check()`, `mark_spot_check_checked()`,
+`get_spot_check_agreement_summary()`, `purge_spot_checks()`. Generation lives
+in the Admin Panel's "Spot-Check Sampling" tab
+(`views/admin_panel.py::_render_spot_check_sampling()`); the sampling and
+diff logic itself is I/O-free in `processing.py`
+(`generate_spot_check_sample()`, `compute_spot_check_agreement()`).
+
+- **The verdict being sampled is the same `Actionable Items` figure the
+  School Dashboard/Faculty Overview badge already shows** — 0 pending
+  findings is the `'ready'` band, `>0` is `'not_ready'`. No new verdict
+  computation; this reuses `derive_module_findings()`'s output rather than
+  inventing a second opinion about what "ready" means.
+- **The two bands are sampled at independent percentages, and `'ready'` is
+  meant to be the higher one.** That is the band being trusted on data
+  alone, so a false positive there means a module that is actually broken
+  gets skipped outright rather than merely deprioritised - the whole reason
+  Phase 5 exists per the original roadmap. `'not_ready'` modules already
+  surface as outstanding work through the ordinary badge, so a lower rate
+  there is usually enough.
+- **A spot-check has no separate recording UI.** Sampling a module just adds
+  it to the assigned advisor's normal Audit Portal queue
+  (`views/audit_portal.py`'s "Your Spot-Checks" panel). Saving a real audit
+  response for it — Save Draft or Submit, whichever comes first — is what
+  closes it out: `compute_spot_check_agreement()` diffs what was actually
+  ticked against `readiness_prefill_for_module()`'s suggestion as it was
+  frozen into `data_verdict_snapshot` at sampling time, not against
+  whatever the data says by the time the advisor opens it. Only the
+  assigned advisor's own save closes their spot-check, so the agreement
+  rate stays a measure of that person's judgement rather than whoever
+  happened to save the module.
+- **Assignment round-robins per school over `get_edit_checklist_users()`'s
+  pool, where a user scoped `'ALL'` is eligible for every school and a
+  school-scoped user only their own.** This was a deliberate finding, not
+  an assumption: the live `users` table shows almost every DLA account
+  scoped `School='All'`, not attached to one school, so a design that only
+  round-robinned within a strict per-school roster would have produced zero
+  eligible assignees almost everywhere. A school with no eligible assignee
+  at all still gets its sampled modules written with `assigned_to` blank,
+  so a gap in the roster is visible in the generation summary rather than
+  silently losing that school's sample.
+- **`sample_round` is scoped per `academic_year`**, like everything else
+  readiness-adjacent - a new year starts back at round 1.
+  `database.purge_spot_checks(academic_year, sample_round=None)` drops one
+  round or the whole year.
+- **A field the snapshot suggested but that is missing from what was saved**
+  (e.g. the audit field has since been deactivated) is excluded from the
+  agreement comparison entirely, not counted as disagreement - there is no
+  signal to compare, and counting it would understate agreement for a
+  reason that has nothing to do with whether the advisor agreed with the
+  data.
 
 ## Conventions
 

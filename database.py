@@ -289,6 +289,48 @@ def init_db():
         )
     """)
 
+    # Spot-check sampling (Phase 5): a module_code sampled into a review round
+    # is one row, from generation through to an advisor's outcome. Unlike the
+    # snapshot tables above this is a workflow table, not an import - a row is
+    # INSERTed once by save_spot_check_sample() and UPDATEd in place by
+    # mark_spot_check_checked() as the assigned advisor works through it,
+    # never re-inserted.
+    #
+    # data_verdict_snapshot freezes, as JSON, the module's Actionable Items
+    # count and processing.readiness_prefill_for_module()'s suggestions at
+    # sampling time - both can change under the module before it's checked,
+    # and agreement has to be measured against what the advisor was actually
+    # shown, not against whatever the data says by the time they open it.
+    #
+    # UNIQUE on (module_code, academic_year, sample_round) so the same module
+    # cannot be sampled twice into one round - a school with few modules and
+    # a high sample rate could otherwise draw it more than once.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS spot_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_code TEXT,
+            academic_year TEXT,
+            sample_round INTEGER,
+            sampled_on TEXT,
+            assigned_to TEXT,
+            status TEXT DEFAULT 'pending',
+            checked_on TEXT,
+            data_verdict_snapshot TEXT,
+            agreement_agreed INTEGER,
+            agreement_total INTEGER,
+            notes TEXT,
+            UNIQUE (module_code, academic_year, sample_round)
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_spot_checks_assignee
+        ON spot_checks (assigned_to, status)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_spot_checks_module
+        ON spot_checks (module_code, academic_year, status)
+    """)
+
     # Create blackboard_links table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS blackboard_links (
@@ -1324,6 +1366,176 @@ def purge_readiness(academic_year):
         conn.commit()
     logging.info("Purged %d readiness_courses rows (and their sections) for %s.",
                  before, academic_year)
+    return before
+
+def get_edit_checklist_users():
+    """Active users who hold the edit_checklist capability, with their School
+    scope, for building the spot-check assignment pool - see
+    processing.generate_spot_check_sample().
+
+    Capability comes from the user's Role via the roles table
+    (roles.Capabilities), matching how auth.py itself resolves a signed-in
+    user's capabilities - not the legacy per-user users.Capabilities column,
+    which the SQLite auth provider does not read.
+
+    Returns [{'username': str, 'school': str}], school 'ALL' for a
+    faculty-wide account (most DLA/admin accounts today) or a specific
+    3-letter code for a school-scoped one (e.g. an 'SA' School Auditor).
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'users') or not table_exists(conn, 'roles'):
+            return []
+        users_df = pd.read_sql_query("SELECT Username, Role, School, Status FROM users", conn)
+        roles_df = pd.read_sql_query("SELECT Role, Capabilities FROM roles", conn)
+
+    if users_df.empty or roles_df.empty:
+        return []
+
+    users_df['_role_key'] = users_df['Role'].astype(str).str.strip().str.lower()
+    roles_df['_role_key'] = roles_df['Role'].astype(str).str.strip().str.lower()
+    merged = users_df.merge(roles_df[['_role_key', 'Capabilities']], on='_role_key', how='left')
+    merged = merged[merged['Status'].astype(str).str.strip().str.upper() == 'ACTIVE']
+
+    def _has_edit_checklist(caps):
+        return 'edit_checklist' in [c.strip().lower() for c in str(caps or '').split(',')]
+
+    merged = merged[merged['Capabilities'].apply(_has_edit_checklist)]
+    return [
+        {'username': str(u).strip().upper(),
+         'school': (str(s).strip().upper() or 'ALL')}
+        for u, s in zip(merged['Username'], merged['School'])
+    ]
+
+def get_next_spot_check_round(academic_year: str) -> int:
+    """The next sample_round number for this academic_year - rounds are
+    scoped per year, like everything else readiness-adjacent, so a new year
+    starts back at round 1 rather than continuing a faculty-wide counter."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return 1
+        row = conn.execute(
+            "SELECT MAX(sample_round) FROM spot_checks WHERE academic_year = ?",
+            (academic_year,)).fetchone()
+        return int(row[0]) + 1 if row and row[0] is not None else 1
+
+def save_spot_check_sample(df_sample) -> int:
+    """Writes one freshly generated round of spot_checks rows.
+
+    INSERT only - a row is created once at sampling time and thereafter only
+    ever updated in place by mark_spot_check_checked(). Re-running generation
+    for a round that already exists would hit the UNIQUE constraint on
+    (module_code, academic_year, sample_round) rather than silently
+    duplicating a module's assignment.
+    """
+    if df_sample is None or df_sample.empty:
+        return 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany("""
+            INSERT INTO spot_checks (
+                module_code, academic_year, sample_round, sampled_on,
+                assigned_to, status, data_verdict_snapshot)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?)
+        """, df_sample[['module_code', 'academic_year', 'sample_round', 'sampled_on',
+                        'assigned_to', 'data_verdict_snapshot']].itertuples(index=False, name=None))
+        conn.commit()
+    logging.info("Spot-check sample written: %d modules (round %s, %s).",
+                 len(df_sample), df_sample['sample_round'].iloc[0], df_sample['academic_year'].iloc[0])
+    return len(df_sample)
+
+def get_spot_checks_for_user(username: str, status: str = None):
+    """One user's spot-check assignments, most recently sampled first."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        sql = "SELECT * FROM spot_checks WHERE assigned_to = ?"
+        params = [str(username).strip().upper()]
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY sampled_on DESC"
+        return pd.read_sql_query(sql, conn, params=params)
+
+def get_pending_spot_check(module_code: str, academic_year: str):
+    """The pending spot-check row for one module this year, if any - at most
+    one, since a module cannot be sampled twice into the same round and a
+    prior round's row would already be 'checked'. None if not sampled, or
+    already checked."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return None
+        row = conn.execute("""
+            SELECT * FROM spot_checks
+            WHERE module_code = ? AND academic_year = ? AND status = 'pending'
+            ORDER BY sample_round DESC LIMIT 1
+        """, (module_code.strip().upper(), academic_year)).fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in conn.execute("SELECT * FROM spot_checks LIMIT 0").description]
+        return dict(zip(cols, row))
+
+def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: str,
+                            agreement_agreed: int, agreement_total: int, notes: str = ""):
+    """Closes out the pending spot-check row for a module once its assigned
+    advisor saves a real audit response for it - called from the Audit
+    Portal's save path, not a separate button. Returns the number of rows
+    updated (0 or 1)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE spot_checks
+            SET status = 'checked', checked_on = ?, agreement_agreed = ?,
+                agreement_total = ?, notes = ?
+            WHERE module_code = ? AND academic_year = ? AND status = 'pending'
+        """, (checked_on, agreement_agreed, agreement_total, notes,
+              module_code.strip().upper(), academic_year))
+        conn.commit()
+        return cursor.rowcount
+
+def get_spot_check_agreement_summary(academic_year: str = None):
+    """Agreement rate per (school, sample_round), for checked spot-checks
+    only - a pending row has no agreement yet and must not be counted as a
+    disagreement by omission. School is read from module_code's first 3
+    characters, same convention as processing.get_school_comparison().
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        sql = "SELECT * FROM spot_checks WHERE status = 'checked'"
+        params = []
+        if academic_year:
+            sql += " AND academic_year = ?"
+            params.append(academic_year)
+        df = pd.read_sql_query(sql, conn, params=params)
+    if df.empty:
+        return df
+    df['school'] = df['module_code'].astype(str).str.strip().str.upper().str[:3]
+    grouped = df.groupby(['school', 'academic_year', 'sample_round']).agg(
+        checked=('module_code', 'count'),
+        agreed=('agreement_agreed', 'sum'),
+        total=('agreement_total', 'sum'),
+    ).reset_index()
+    grouped['agreement_pct'] = (grouped['agreed'] / grouped['total'] * 100).round(1)
+    return grouped.sort_values(['academic_year', 'sample_round', 'school'])
+
+def purge_spot_checks(academic_year: str, sample_round: int = None) -> int:
+    """Deletes spot_checks rows for one academic_year, optionally scoped to a
+    single sample_round - lets a bad or test round be dropped without losing
+    other rounds the same year."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if not table_exists(conn, 'spot_checks'):
+            return 0
+        sql = "SELECT COUNT(*) FROM spot_checks WHERE academic_year = ?"
+        params = [academic_year]
+        if sample_round is not None:
+            sql += " AND sample_round = ?"
+            params.append(sample_round)
+        before = cursor.execute(sql, params).fetchone()[0]
+        cursor.execute(sql.replace("SELECT COUNT(*)", "DELETE"), params)
+        conn.commit()
+    logging.info("Purged %d spot_checks rows for %s%s.", before, academic_year,
+                 f" round {sample_round}" if sample_round is not None else "")
     return before
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):

@@ -1,6 +1,27 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.19.0 (Current) — *The Audit Portal suggests answers from Blackboard*
+### 🚀 Version 1.20.0 (Current) — *Spot-check sampling*
+*12 August 2026*
+
+* **Not every module needs a full manual audit any more.** The Admin Panel's
+  new Spot-Check Sampling tab draws a stratified sample of modules each
+  round - separately for modules the data already says are ready and ones it
+  says aren't, so the "ready" group (the one being trusted on data alone) can
+  be checked more often than the group that already surfaces as outstanding
+  work through the ordinary badge.
+* **Sampled modules queue themselves in the assigned advisor's Audit Portal**
+  under a new "Your Spot-Checks" panel. There's no separate recording step -
+  open the module, complete the checklist as normal, and saving it compares
+  what was ticked against what the Blackboard Template pre-fill suggested at
+  sampling time.
+* **The agreement rate is the deliverable.** A table on the same Admin Panel
+  tab shows agreement by school and round - the evidence for whether the data
+  can be trusted for the modules that were never sampled at all.
+* Assignment currently round-robins across every active advisor account
+  holding the checklist-editing capability, since most advisor accounts in
+  practice cover the whole faculty rather than one school.
+
+### 🚀 Version 1.19.0 — *The Audit Portal suggests answers from Blackboard*
 *12 August 2026*
 
 * **Three checklist questions can now be pre-filled from what Blackboard

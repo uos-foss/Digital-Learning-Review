@@ -26,6 +26,11 @@ from database import (
     save_readiness_snapshot,
     get_readiness_academic_years,
     purge_readiness,
+    get_edit_checklist_users,
+    get_next_spot_check_round,
+    save_spot_check_sample,
+    get_spot_check_agreement_summary,
+    purge_spot_checks,
     init_db
 )
 from processing import (
@@ -38,6 +43,7 @@ from processing import (
     ally_term_to_academic_year,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
+    generate_spot_check_sample,
 )
 from masquerade import start_masquerade
 
@@ -683,6 +689,146 @@ def _render_readiness_import():
                 st.cache_data.clear()
 
 
+def _render_spot_check_sampling(df_aut, df_spr, checklist_sums):
+    """
+    Draws a stratified sample of modules for advisors to spot-check, rather
+    than auditing every module by hand.
+
+    Stratified by school x verdict band (0 outstanding Actionable Items is
+    'ready', >0 is 'not_ready'), sampled at independent percentages so the
+    'ready' band - the one being trusted on data alone - can be oversampled
+    relative to modules that already surface as work through the ordinary
+    badge. See processing.generate_spot_check_sample().
+
+    The drawn sample is held in session state between "Draw sample" and
+    "Save sample and assign" so the confirmed write is exactly what was
+    previewed, not a fresh (and differently random) draw.
+    """
+    st.markdown("---")
+    st.subheader("🎯 Spot-Check Sampling")
+    st.write(
+        "Instead of auditing every module by hand, a sampled slice gets "
+        "queued in the assigned advisor's Audit Portal. Once they save a "
+        "real audit response for a sampled module, their answer on each "
+        "Blackboard Template field is compared against what the pre-fill "
+        "suggested at sampling time - that comparison is the agreement "
+        "rate below, the evidence that the data can be trusted for the "
+        "unsampled remainder."
+    )
+
+    pool = get_edit_checklist_users()
+    schools_available = sorted(FACULTY_SCHOOLS)
+    with st.expander(f"Assignment pool ({len(pool)} eligible advisor account(s))"):
+        if not pool:
+            st.warning(
+                "⚠️ No active user holds the edit_checklist capability. Sampled "
+                "modules will be written with no assigned_to until at least one "
+                "advisor account exists.")
+        else:
+            pool_df = pd.DataFrame(pool).rename(
+                columns={'username': 'Username', 'school': 'School scope'})
+            st.dataframe(pool_df.sort_values(['School scope', 'Username']),
+                        use_container_width=True, hide_index=True)
+            st.caption(
+                "'ALL' is eligible for every school's sample; a specific school "
+                "code is eligible only for that school. Assignment round-robins "
+                "each school's eligible advisors, in module_code order.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        chosen_schools = st.multiselect("Schools to sample:", schools_available,
+                                        default=schools_available, key="sc_schools")
+    with c2:
+        ready_pct = st.number_input(
+            "% of 'data says ready' modules", min_value=0, max_value=100, value=15,
+            key="sc_ready_pct",
+            help="Modules with 0 outstanding Actionable Items. Oversampled "
+                 "relative to the not-ready band on purpose - a false positive "
+                 "here means a module that is actually broken gets skipped "
+                 "outright, not just deprioritised.")
+    with c3:
+        not_ready_pct = st.number_input(
+            "% of 'data says not ready' modules", min_value=0, max_value=100, value=5,
+            key="sc_not_ready_pct",
+            help="These already surface as outstanding work through the "
+                 "ordinary Actionable Items badge, so a lower rate here is "
+                 "usually enough.")
+
+    next_round = get_next_spot_check_round(CURRENT_ACADEMIC_YEAR)
+    st.caption(f"This will generate round {next_round} for {CURRENT_ACADEMIC_YEAR}.")
+
+    if st.button("🎲 Draw sample", key="btn_draw_spot_check_sample"):
+        st.session_state['sc_pending_sample'] = generate_spot_check_sample(
+            df_aut, df_spr, checklist_sums, pool,
+            ready_pct=ready_pct, not_ready_pct=not_ready_pct,
+            academic_year=CURRENT_ACADEMIC_YEAR, sample_round=next_round,
+            sampled_on=datetime.date.today().strftime('%Y-%m-%d'),
+            schools=chosen_schools or schools_available)
+        st.session_state['sc_confirm'] = False
+
+    sample = st.session_state.get('sc_pending_sample')
+    if sample is not None and not sample.empty:
+        preview = sample.copy()
+        preview['school'] = preview['module_code'].str[:3]
+        st.markdown(f"**Drawn: {len(preview)} module(s)**")
+        st.dataframe(
+            preview[['module_code', 'school', 'assigned_to']]
+                .sort_values(['school', 'module_code'])
+                .rename(columns={'module_code': 'Module', 'school': 'School',
+                                 'assigned_to': 'Assigned to'}),
+            use_container_width=True, hide_index=True)
+        unassigned = int((preview['assigned_to'] == "").sum())
+        if unassigned:
+            st.warning(
+                f"⚠️ {unassigned} sampled module(s) have no eligible assignee "
+                "for their school and will be written unassigned.")
+
+        confirm = st.checkbox(
+            f"Confirm: write this sample as round {next_round} and assign it.",
+            key="sc_confirm")
+        if st.button("🚀 Save sample and assign", type="primary", disabled=not confirm,
+                     key="btn_save_spot_check_sample"):
+            written = save_spot_check_sample(sample)
+            st.success(f"✅ Saved {written} spot-checks for round {next_round}.")
+            logging.info("🎯 Spot-check round %s (%s): %d modules sampled and assigned.",
+                        next_round, CURRENT_ACADEMIC_YEAR, written)
+            del st.session_state['sc_pending_sample']
+            st.session_state['sc_confirm'] = False
+            st.cache_data.clear()
+            st.rerun()
+    elif sample is not None:
+        st.info("No modules matched the chosen schools and percentages.")
+
+    st.markdown("---")
+    st.markdown("**Agreement rate by school and round**")
+    summary = get_spot_check_agreement_summary(CURRENT_ACADEMIC_YEAR)
+    if summary.empty:
+        st.caption("No spot-checks have been completed yet this year.")
+    else:
+        st.dataframe(
+            summary.rename(columns={
+                'school': 'School', 'academic_year': 'Year', 'sample_round': 'Round',
+                'checked': 'Checked', 'agreed': 'Agreed', 'total': 'Comparisons',
+                'agreement_pct': 'Agreement %'}),
+            use_container_width=True, hide_index=True)
+
+    with st.expander("🗑️ Purge a spot-check round"):
+        st.write(
+            "Deletes spot_checks rows for this academic year - a single round, "
+            "or the whole year - for dropping a test or mis-configured round.")
+        purge_round = st.number_input(
+            "Round to purge (0 = whole year):", min_value=0, value=0, step=1,
+            key="sc_purge_round")
+        purge_ok = st.checkbox("Confirm: delete these spot-check rows.",
+                               key="sc_purge_confirm")
+        if st.button("🗑️ Purge spot-checks", disabled=not purge_ok,
+                     key="btn_purge_spot_checks"):
+            round_val = int(purge_round) if purge_round else None
+            removed = purge_spot_checks(CURRENT_ACADEMIC_YEAR, round_val)
+            st.success(f"Removed {removed} spot_checks row(s).")
+            st.cache_data.clear()
+
+
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     # Strict lockdown verification using RBAC capabilities
     user_caps = st.session_state.get("capabilities", [])
@@ -703,6 +849,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         "👤 User Control",
         "📋 Audit Field Manager",
         "📂 Data Import/Export",
+        "🎯 Spot-Check Sampling",
         "🚫 Inactive Modules",
         "⚙️ System Maintenance",
         "🗄️ Database Explorer"
@@ -1762,6 +1909,11 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 except Exception as ex:
                     st.error(f"Failed to parse or write CSV: {ex}")
 
+    # ----------------------------------------------------
+    # TAB: SPOT-CHECK SAMPLING
+    # ----------------------------------------------------
+    elif selected_tab == "🎯 Spot-Check Sampling":
+        _render_spot_check_sampling(df_aut, df_spr, checklist_sums)
 
     # ----------------------------------------------------
     # TAB 7: INACTIVE MODULES MANAGER

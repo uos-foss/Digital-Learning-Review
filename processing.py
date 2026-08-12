@@ -208,8 +208,29 @@ def get_module_mapping(df_aut, df_spr):
                 name = str(row['Module name']).strip()
                 if code and name:
                     mapping[code] = name
-                    
+
     return mapping
+
+def resolve_active_row(code, df_aut, df_spr):
+    """The module row a view should treat as canonical for one module code:
+    Spring's, if the module runs in Spring, else Autumn's. Matches
+    resolve_semester_df()'s own Spring-first convention. None if the module
+    is in neither frame.
+
+    Centralised because getting this precedence wrong silently changes which
+    Blackboard shell's Ally/readiness/Leganto data a page shows - was
+    duplicated identically in views/audit_portal.py and
+    views/module_report.py before this.
+    """
+    aut_m = (df_aut[df_aut['New module code'] == code]
+             if df_aut is not None and not df_aut.empty else pd.DataFrame())
+    spr_m = (df_spr[df_spr['New module code'] == code]
+             if df_spr is not None and not df_spr.empty else pd.DataFrame())
+    if not spr_m.empty:
+        return spr_m.iloc[0]
+    if not aut_m.empty:
+        return aut_m.iloc[0]
+    return None
 
 def is_compliant_val(val):
     """Normalizes and determines compliance for a single audit entry."""
@@ -2001,3 +2022,147 @@ def readiness_prefill_for_module(active_row):
             'section_key': key,
         }
     return prefill
+
+def generate_spot_check_sample(df_aut, df_spr, checklist_sums, assignee_pool,
+                               ready_pct, not_ready_pct, academic_year,
+                               sample_round, sampled_on, schools=None):
+    """
+    A stratified sample of modules for spot-check review, one row per module,
+    ready for database.save_spot_check_sample().
+
+    Stratifies by school x verdict band, where the verdict is the same
+    Actionable Items figure the School Dashboard/Faculty Overview badge
+    already shows - 0 pending findings is the 'ready' band, >0 is
+    'not_ready'. The two bands are sampled independently at their own
+    percentage, so 'ready' can be oversampled relative to 'not_ready': a
+    false positive in the 'ready' band means a module that is actually
+    broken gets skipped outright, not just deprioritised, which is the
+    specific risk the roadmap calls out.
+
+    assignee_pool: [{'username', 'school'}] from
+    database.get_edit_checklist_users(). A user scoped 'ALL' is eligible for
+    every school's assignment; a school-scoped user only their own - most
+    real DLA accounts today are 'ALL', not attached to one school, which is
+    why the pool is built this way rather than assuming a per-school roster.
+    Assignment is a deterministic round-robin over each school's eligible
+    pool (sorted by username, cycling in module_code order) - not weighted
+    by anyone's existing caseload. A school with no eligible assignee at all
+    still gets its sampled modules written, with assigned_to left blank, so
+    a gap in the roster shows up as unassigned rows rather than silently
+    losing that school's sample.
+
+    schools: restrict sampling to these 3-letter codes, or every
+    FACULTY_SCHOOLS if None.
+
+    data_verdict_snapshot is frozen here, as JSON, from
+    readiness_prefill_for_module() plus the Actionable Items count - both can
+    change under the module before anyone checks it, and agreement has to be
+    measured against what the sample actually showed, not against whatever
+    the data says by the time someone opens it.
+
+    Kept I/O-free: checklist_sums and assignee_pool are passed in rather than
+    queried here, so this is callable and testable without a database.
+    """
+    columns = ['module_code', 'academic_year', 'sample_round', 'sampled_on',
+               'assigned_to', 'data_verdict_snapshot']
+    mapping = get_module_mapping(df_aut, df_spr)
+    wanted_schools = set(s.upper() for s in schools) if schools else set(FACULTY_SCHOOLS)
+    checklist_sums = checklist_sums or {}
+
+    pool_rows = []
+    for code in mapping:
+        school = code[:3].upper()
+        if school not in wanted_schools:
+            continue
+        actionable = int(checklist_sums.get(code, {}).get('Actionable Items', 0) or 0)
+        pool_rows.append({'module_code': code, 'school': school,
+                          'band': 'ready' if actionable == 0 else 'not_ready'})
+    if not pool_rows:
+        return pd.DataFrame(columns=columns)
+    pool_df = pd.DataFrame(pool_rows)
+
+    pct_by_band = {'ready': ready_pct, 'not_ready': not_ready_pct}
+    sampled_codes = []
+    for (_school, band), group in pool_df.groupby(['school', 'band']):
+        pct = pct_by_band.get(band, 0)
+        n = min(len(group), int(round(len(group) * pct / 100)))
+        if n > 0:
+            sampled_codes.extend(group['module_code'].sample(n=n).tolist())
+
+    eligible_by_school = {}
+    for entry in (assignee_pool or []):
+        eligible_by_school.setdefault(entry['school'], set()).add(entry['username'])
+
+    def eligible_for(school):
+        return sorted(eligible_by_school.get('ALL', set()) | eligible_by_school.get(school, set()))
+
+    cursor_by_school = {}
+    out_rows = []
+    for code in sorted(sampled_codes):
+        school = code[:3].upper()
+        names = eligible_for(school)
+        assigned_to = ""
+        if names:
+            i = cursor_by_school.get(school, 0)
+            assigned_to = names[i % len(names)]
+            cursor_by_school[school] = i + 1
+
+        active_row = resolve_active_row(code, df_aut, df_spr)
+        snapshot = {
+            'actionable_items': int(checklist_sums.get(code, {}).get('Actionable Items', 0) or 0),
+            'prefill': readiness_prefill_for_module(active_row),
+        }
+        out_rows.append({
+            'module_code': code,
+            'academic_year': academic_year,
+            'sample_round': sample_round,
+            'sampled_on': sampled_on,
+            'assigned_to': assigned_to,
+            'data_verdict_snapshot': json.dumps(snapshot),
+        })
+    return pd.DataFrame(out_rows, columns=columns)
+
+def compute_spot_check_agreement(data_verdict_snapshot, saved_responses):
+    """
+    Diffs a spot-check's frozen snapshot (from generate_spot_check_sample())
+    against what the assigned advisor actually saved for the module - one
+    comparison per readiness-mapped field the module had a suggestion for.
+
+    saved_responses: {audit_field_id: value}, the same shape
+    database.get_audit_responses() values come in - value truthy-compared as
+    'TRUE' (case-insensitive), so both the string form used for storage and
+    a raw Python bool from an in-memory checkbox work identically.
+
+    A field the snapshot had a suggestion for but that is missing from
+    saved_responses (e.g. the audit field has since been deactivated) is
+    excluded rather than counted as disagreement - there is no signal to
+    compare, and silently counting it would understate agreement for a
+    reason that has nothing to do with whether the advisor agreed with the
+    data.
+
+    Returns {'agreed': int, 'total': int, 'detail': [...]}. 'total' is 0
+    (never None) when the module had no mapped-field suggestions at all -
+    callers must treat that as "nothing measurable", not divide by it.
+    """
+    try:
+        snapshot = json.loads(data_verdict_snapshot) if data_verdict_snapshot else {}
+    except (TypeError, ValueError):
+        snapshot = {}
+    prefill = snapshot.get('prefill') or {}
+    saved_responses = saved_responses or {}
+
+    detail = []
+    for field_id, suggestion in prefill.items():
+        if field_id not in saved_responses:
+            continue
+        suggested = bool(suggestion.get('suggested'))
+        actual = str(saved_responses[field_id]).strip().upper() == 'TRUE'
+        detail.append({
+            'audit_field_id': field_id,
+            'suggested': suggested,
+            'actual': actual,
+            'agreed': actual == suggested,
+        })
+
+    return {'agreed': sum(1 for d in detail if d['agreed']),
+            'total': len(detail), 'detail': detail}
