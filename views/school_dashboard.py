@@ -261,7 +261,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 )
 
                 # ACTION CENTER ROUTER
-                selected_rows = selection.selection.rows
+                selected_rows = [i for i in selection.selection.rows if i < len(clean_display_df)]
                 if selected_rows:
                     selected_codes = clean_display_df.iloc[selected_rows]['New module code'].tolist()
 
@@ -832,7 +832,12 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         on_select="rerun", selection_mode="single-row",
                         key="school_dashboard_spot_check_dataframe")
 
-                    if sc_selection.selection.rows:
+                    # Streamlit keeps a dataframe's selection (by row position)
+                    # in session_state across reruns even when the underlying
+                    # data has since shrunk - e.g. right after this same panel
+                    # deletes a row. Bounds-check before indexing rather than
+                    # trusting a persisted index still fits the current table.
+                    if sc_selection.selection.rows and sc_selection.selection.rows[0] < len(sc_display_df):
                         sc_row_idx = sc_selection.selection.rows[0]
                         sc_clicked_code = sc_display_df.iloc[sc_row_idx]['Module']
                         sc_clicked_status = shown.iloc[sc_row_idx]['status']
@@ -868,6 +873,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                             disabled=not remove_confirm, key="btn_school_sc_remove"):
                                     delete_spot_check(sc_clicked_id)
                                     st.success(f"Removed the spot-check flag for {sc_clicked_code}.")
+                                    # Clear the persisted selection rather than
+                                    # leaving it pointing at whatever row now
+                                    # occupies the deleted one's position - a
+                                    # plain del is fine here (unlike writing a
+                                    # value to it) since it just drops the
+                                    # widget's stored state for next run.
+                                    if "school_dashboard_spot_check_dataframe" in st.session_state:
+                                        del st.session_state["school_dashboard_spot_check_dataframe"]
                                     st.rerun()
                         st.divider()
 
