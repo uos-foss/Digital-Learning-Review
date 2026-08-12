@@ -852,8 +852,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                 st.switch_page(st.session_state.pg_audit)
                         with sc_c3:
                             if can_audit:
+                                # Keyed per-row (not a single shared key) so
+                                # confirming removal on one row can never
+                                # leave a *different* row's button
+                                # pre-confirmed after switching selection -
+                                # and so nothing needs resetting after delete,
+                                # which Streamlit disallows once a keyed
+                                # widget has rendered in the same run.
                                 remove_confirm = st.checkbox(
-                                    "Confirm removal", key="sc_remove_confirm",
+                                    "Confirm removal", key=f"sc_remove_confirm_{sc_clicked_id}",
                                     help="Deletes this flag outright. For a checked module this "
                                          "also deletes its agreement result - re-flag it from "
                                          "'All Modules' afterwards for a clean re-run.")
@@ -861,7 +868,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                             disabled=not remove_confirm, key="btn_school_sc_remove"):
                                     delete_spot_check(sc_clicked_id)
                                     st.success(f"Removed the spot-check flag for {sc_clicked_code}.")
-                                    st.session_state['sc_remove_confirm'] = False
                                     st.rerun()
                         st.divider()
 
