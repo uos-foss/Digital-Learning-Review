@@ -163,7 +163,6 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                 for field in active_fields:
                     fid = field['id']
                     label = field['label']
-                    desc = field['description']
                     ftype = field['field_type']
                     prev_val = prev_responses.get(fid, {}).get('value', None)
 
@@ -175,9 +174,8 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                             def_val = suggestion['suggested']
                         else:
                             def_val = False
-                        responses_input[fid] = st.checkbox(label, value=def_val, help=desc, key=f"ap_chk_{selected_code}_{fid}")
-                        if suggestion is not None:
-                            st.caption(f"📋 Blackboard Template: {suggestion['evidence_text']}")
+                        tooltip = f"📋 Blackboard Template: {suggestion['evidence_text']}" if suggestion is not None else "N/A"
+                        responses_input[fid] = st.checkbox(label, value=def_val, help=tooltip, key=f"ap_chk_{selected_code}_{fid}")
 
             st.markdown("---")
 
