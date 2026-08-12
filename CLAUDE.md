@@ -151,19 +151,35 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   `_LAST_MODIFIED` sibling. The template is versioned and changes between years,
   so a revised template imports without a code change; only the catalogue needs
   a new label. `readiness_sections` is long for the same reason.
-- **A last-modified date is not evidence of lead activity on its own.** Template
-  pushes stamp hundreds of courses on one day. `detect_bulk_edit_dates()` flags
-  a (school, date) on *either* `READINESS_BULK_EDIT_SHARE` of the school **or**
-  `READINESS_BULK_EDIT_MIN_MODULES` modules outright, and
-  `classify_edit_evidence()` reduces those to *no positive evidence* — never
-  negative evidence. Both tests are needed: share alone is scale-dependent, and
-  the faculty-wide export proved it — the ALA push of 23/07 touched 25 modules,
+- **A last-modified date is not evidence of *lead* activity on its own — and a
+  shared batch date is usually not IT either.** Aside from the original
+  template rollout, IT does not push bulk content edits. What actually
+  produces a date shared across many of a school's courses is most often
+  Professional Services (PS) / school admin staff working through a batch of
+  modules editing a specific section (commonly Key Staff Contacts) on the
+  lead's behalf — genuine content work, just not done by the lead, and which
+  section(s) get PS-edited this way varies by school. The export gives only a
+  date, no time or editor, so a real IT rollout and a PS team clearing a
+  worklist in one afternoon are indistinguishable in the data.
+  `detect_bulk_edit_dates()` flags a (school, date) on *either*
+  `READINESS_BULK_EDIT_SHARE` of the school **or** `READINESS_BULK_EDIT_MIN_MODULES`
+  modules outright, and `classify_edit_evidence()` reduces those to *no
+  positive evidence of lead activity* — never evidence the section itself is
+  unfinished. Both tests are needed: share alone is scale-dependent, and the
+  faculty-wide export proved it — the ALA batch of 23/07 touched 25 modules,
   which is 56% of the 45-module excerpt the rule was first calibrated on but
   only 18% of the real 142-module school. Adding the floor moved 131 lead-section
   observations out of `lead_edit`. Over-flagging is the safe error here, since a
-  bulk hit only ever withholds evidence. Re-run
+  batch hit only ever withholds *lead* evidence, not readiness. Re-run
   `diagnostics/check_readiness_export.py` on each new export — it prints the
   distribution, what was flagged, and the closest cases that were not.
+  **Resolved for Phase 4** (`processing.readiness_prefill_for_module()`): the
+  Audit Portal checklist question is "is this section done", not "did the
+  lead do it personally", so a `bulk`-evidenced Visible section is suggested
+  ticked exactly like a `lead_edit`-evidenced one — see "Audit Portal
+  pre-fill" below. This is a different question from *lead-engagement*
+  evidence, which `classify_edit_evidence()` still tracks separately and
+  unchanged.
 - **Both primary keys include `academic_year`** (`leganto_lists`'s reasoning,
   not `ally_courses`'s) so a reference import of a prior year cannot collide
   with the real one on a shared snapshot date.
@@ -235,6 +251,46 @@ audited this". Data-only entries are stamped `'Auditor': 'System'`; check
 `parse_custom_observations()` lives in `processing.py`, not `database.py` — it
 is pure string/JSON parsing with no I/O. `database.py` imports and re-exports
 it so nothing importing it from there breaks.
+
+## Audit Portal pre-fill
+
+`processing.readiness_prefill_for_module(active_row)` turns a module's
+template-readiness section states into checklist suggestions for the Audit
+Portal: `{audit_field_id: {'suggested': bool, 'evidence_text': str,
+'section_key': str}}`, one entry per `TEMPLATE_SECTIONS` section that carries
+an `audit_fields.id` (7 of 14 sections; the other 7 have no checklist
+counterpart and are never suggested on).
+
+- **The suggestion is a status question, not a "did the lead do it" question.**
+  `suggested` is `True` whenever the section's state is in
+  `READINESS_READY_STATES` (`visible_edited` or `visible_unattributed`) —
+  i.e. whenever it is Visible, regardless of which evidence class produced
+  that state. This applies identically to the 3 lead-owned fields
+  (`welcome_outline`, `contacts_complete`, `assessment_brief`) and the 4
+  institution-owned-but-mapped ones (`sga`, `student_voice`,
+  `assessment_overview`, `encore_link`) — a deliberate decision, not an
+  oversight: a batch-dated lead-owned section is frequently genuine
+  Professional Services work rather than untouched (see "Module readiness"
+  above), and institutional sections were never the lead's to edit in the
+  first place. `evidence_text` (from `readiness_evidence_words()`) still
+  names which case it is, so an advisor is never shown a bare tick with no
+  reason — see `views/audit_portal.py`'s checkbox loop.
+- **A suggestion never overwrites a saved answer.** `get_audit_responses()`'s
+  value always wins when present; the suggestion only supplies the checkbox's
+  default when the module has never been answered. Leaving a suggested box
+  ticked and pressing Save Draft/Submit records it exactly like a manual tick
+  — `audit_responses` still only ever gets a row when a human presses one of
+  those buttons, with no schema change and no machine-written rows.
+- **A module absent from the readiness data returns an empty dict from
+  `readiness_prefill_for_module()`**, which the Audit Portal must read as "no
+  suggestion, fall back to the ordinary blank-form default" — never as
+  "suggest unticked". Do not conflate the two.
+- `readiness_evidence_words()`, `fmt_report_date()` and
+  `readiness_created_date()` live in `processing.py` (moved from
+  `views/module_report.py`, pure string/date formatting, no I/O) precisely so
+  the module report's Blackboard Template block and the Audit Portal's
+  suggestion caption read from the same sentence for the same section and can
+  never drift apart.
 
 ## Conventions
 
