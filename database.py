@@ -289,6 +289,43 @@ def init_db():
         )
     """)
 
+    # Spot-check flagging: a Digital Learning Advisor picks a module from
+    # their School Dashboard to double-check by hand, based on their own
+    # judgement rather than an algorithmic sample. One row per flag, from the
+    # moment it's raised through to the advisor's own outcome once they audit
+    # it - INSERTed once by flag_module_for_spot_check(), UPDATEd in place by
+    # mark_spot_check_checked(), never re-inserted.
+    #
+    # data_verdict_snapshot freezes, as JSON, what
+    # processing.readiness_prefill_for_module() was suggesting at the moment
+    # the module was flagged - the data can move under the module before it's
+    # actually checked, and agreement has to be measured against what the
+    # advisor was shown when they chose it, not against whatever the data
+    # says by the time they open it.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS spot_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_code TEXT,
+            academic_year TEXT,
+            flagged_by TEXT,
+            flagged_on TEXT,
+            status TEXT DEFAULT 'pending',
+            checked_on TEXT,
+            data_verdict_snapshot TEXT,
+            agreement_agreed INTEGER,
+            agreement_total INTEGER,
+            notes TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_spot_checks_flagger
+        ON spot_checks (flagged_by, status)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_spot_checks_module
+        ON spot_checks (module_code, academic_year, status)
+    """)
+
     # Create blackboard_links table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS blackboard_links (
@@ -1324,6 +1361,140 @@ def purge_readiness(academic_year):
         conn.commit()
     logging.info("Purged %d readiness_courses rows (and their sections) for %s.",
                  before, academic_year)
+    return before
+
+def flag_module_for_spot_check(module_code: str, academic_year: str, flagged_by: str,
+                               flagged_on: str, data_verdict_snapshot: str) -> int:
+    """Records a DLA's own choice to spot-check a module, from the School
+    Dashboard. Returns the new row's id.
+
+    No uniqueness constraint at the table level - a module could legitimately
+    be flagged again in a later year, or re-flagged after a prior check. The
+    "already pending" case (don't let someone flag the same still-open spot-
+    check twice) is checked by the caller via get_pending_spot_check() before
+    this is called, rather than enforced here, since a school looking back
+    over its own history is a normal thing to want and should not be
+    constrained by the write path.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO spot_checks (
+                module_code, academic_year, flagged_by, flagged_on,
+                status, data_verdict_snapshot)
+            VALUES (?, ?, ?, ?, 'pending', ?)
+        """, (module_code.strip().upper(), academic_year, flagged_by, flagged_on,
+              data_verdict_snapshot))
+        conn.commit()
+        new_id = cursor.lastrowid
+    logging.info("🎯 Spot-check flagged for '%s' by '%s' (%s).",
+                 module_code, flagged_by, academic_year)
+    return new_id
+
+def get_spot_checks_for_user(username: str, status: str = None):
+    """One user's own flagged modules, most recently flagged first."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        sql = "SELECT * FROM spot_checks WHERE flagged_by = ?"
+        params = [str(username).strip().upper()]
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY flagged_on DESC"
+        return pd.read_sql_query(sql, conn, params=params)
+
+def get_school_spot_checks(school: str, academic_year: str = None):
+    """Every spot-check flagged for modules in one school - not just the
+    signed-in user's own, so a team can see what's already been covered
+    without duplicating each other's effort. School is matched on the
+    module_code prefix, same convention as processing.get_school_comparison().
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        sql = "SELECT * FROM spot_checks WHERE module_code LIKE ?"
+        params = [f"{school.strip().upper()}%"]
+        if academic_year:
+            sql += " AND academic_year = ?"
+            params.append(academic_year)
+        sql += " ORDER BY flagged_on DESC"
+        return pd.read_sql_query(sql, conn, params=params)
+
+def get_pending_spot_check(module_code: str, academic_year: str):
+    """The pending spot-check row for one module this year, if any - at most
+    one in practice, since flag_module_for_spot_check() is only called after
+    the caller has confirmed nothing is already pending. None if never
+    flagged, or already checked."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return None
+        row = conn.execute("""
+            SELECT * FROM spot_checks
+            WHERE module_code = ? AND academic_year = ? AND status = 'pending'
+            ORDER BY flagged_on DESC LIMIT 1
+        """, (module_code.strip().upper(), academic_year)).fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in conn.execute("SELECT * FROM spot_checks LIMIT 0").description]
+        return dict(zip(cols, row))
+
+def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: str,
+                            agreement_agreed: int, agreement_total: int, notes: str = ""):
+    """Closes out the pending spot-check row for a module once the DLA who
+    flagged it saves a real audit response for it - called from the Audit
+    Portal's save path, not a separate button. Returns the number of rows
+    updated (0 or 1)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE spot_checks
+            SET status = 'checked', checked_on = ?, agreement_agreed = ?,
+                agreement_total = ?, notes = ?
+            WHERE module_code = ? AND academic_year = ? AND status = 'pending'
+        """, (checked_on, agreement_agreed, agreement_total, notes,
+              module_code.strip().upper(), academic_year))
+        conn.commit()
+        return cursor.rowcount
+
+def get_spot_check_agreement_summary(academic_year: str = None):
+    """Agreement rate per school, for checked spot-checks only - a pending
+    row has no agreement yet and must not be counted as a disagreement by
+    omission. School is read from module_code's first 3 characters, same
+    convention as processing.get_school_comparison().
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        sql = "SELECT * FROM spot_checks WHERE status = 'checked'"
+        params = []
+        if academic_year:
+            sql += " AND academic_year = ?"
+            params.append(academic_year)
+        df = pd.read_sql_query(sql, conn, params=params)
+    if df.empty:
+        return df
+    df['school'] = df['module_code'].astype(str).str.strip().str.upper().str[:3]
+    grouped = df.groupby(['school', 'academic_year']).agg(
+        checked=('module_code', 'count'),
+        agreed=('agreement_agreed', 'sum'),
+        total=('agreement_total', 'sum'),
+    ).reset_index()
+    grouped['agreement_pct'] = (grouped['agreed'] / grouped['total'] * 100).round(1)
+    return grouped.sort_values(['academic_year', 'school'])
+
+def purge_spot_checks(academic_year: str) -> int:
+    """Deletes every spot_checks row for one academic_year."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if not table_exists(conn, 'spot_checks'):
+            return 0
+        before = cursor.execute(
+            "SELECT COUNT(*) FROM spot_checks WHERE academic_year = ?",
+            (academic_year,)).fetchone()[0]
+        cursor.execute("DELETE FROM spot_checks WHERE academic_year = ?", (academic_year,))
+        conn.commit()
+    logging.info("Purged %d spot_checks rows for %s.", before, academic_year)
     return before
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):

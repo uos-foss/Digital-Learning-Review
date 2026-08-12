@@ -2,11 +2,17 @@ import streamlit as st
 import pandas as pd
 import datetime
 import logging
-from processing import get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module
+from processing import (
+    get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module,
+    resolve_active_row, compute_spot_check_agreement, CURRENT_ACADEMIC_YEAR,
+)
 from database import (
     get_active_audit_fields,
     get_audit_responses,
-    save_audit_response
+    save_audit_response,
+    get_spot_checks_for_user,
+    get_pending_spot_check,
+    mark_spot_check_checked,
 )
 from masquerade import is_masquerading
 
@@ -59,6 +65,27 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
             if selected_school != "All Schools":
                 combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
 
+    username_upper = str(st.session_state.get("username", "")).strip().upper()
+    pending_spot_checks = (get_spot_checks_for_user(username_upper, status='pending')
+                           if username_upper else pd.DataFrame())
+    if not pending_spot_checks.empty:
+        with st.expander(f"🎯 Your Spot-Checks ({len(pending_spot_checks)} pending)", expanded=True):
+            st.caption(
+                "Modules you flagged for spot-check on the School Dashboard. Open "
+                "one and complete the checklist as normal - saving it records "
+                "whether your answers matched what the Blackboard Template data "
+                "suggested when you flagged it.")
+            for _, sc_row in pending_spot_checks.iterrows():
+                sc_code = sc_row['module_code']
+                sc_name = module_mapping.get(sc_code, sc_code)
+                sc_c1, sc_c2 = st.columns([4, 1])
+                with sc_c1:
+                    st.write(f"**{sc_code}** — {sc_name}  ·  flagged {sc_row['flagged_on']}")
+                with sc_c2:
+                    if st.button("Open", key=f"sc_open_{sc_row['id']}", use_container_width=True):
+                        st.session_state.selected_module_code = sc_code
+                        st.rerun()
+
     if 'selected_module_code' not in st.session_state:
         st.session_state.selected_module_code = ""
 
@@ -85,9 +112,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
 
     selected_code = st.session_state.selected_module_code
     if selected_code:
-        aut_m = df_aut[df_aut['New module code'] == selected_code] if not df_aut.empty else pd.DataFrame()
-        spr_m = df_spr[df_spr['New module code'] == selected_code] if not df_spr.empty else pd.DataFrame()
-        active_row = spr_m.iloc[0] if not spr_m.empty else (aut_m.iloc[0] if not aut_m.empty else None)
+        active_row = resolve_active_row(selected_code, df_aut, df_spr)
         readiness_prefill = readiness_prefill_for_module(active_row)
 
         url = str(active_row.get('URL', '')).strip() if active_row is not None else ""
@@ -185,7 +210,6 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
 
             if (save_draft or save_submit) and not masquerading:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                username_upper = str(st.session_state.get("username", "")).strip().upper()
                 try:
                     for fid, val in responses_input.items():
                         save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
@@ -195,6 +219,25 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
 
                     status = 'submitted' if save_submit else 'draft'
                     save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
+
+                    # If this module was flagged for spot-check by the person
+                    # saving it, the first save closes it out - comparing what
+                    # they just answered against the suggestion frozen at the
+                    # moment they flagged it. A save by someone other than the
+                    # flagger (e.g. covering an absence) leaves it pending, so
+                    # the agreement rate stays a measure of the flagger's own
+                    # judgement, not whoever happened to save the module.
+                    pending_sc = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
+                    if pending_sc and pending_sc.get('flagged_by') == username_upper:
+                        agreement = compute_spot_check_agreement(
+                            pending_sc.get('data_verdict_snapshot'), responses_input)
+                        mark_spot_check_checked(
+                            selected_code, CURRENT_ACADEMIC_YEAR, timestamp,
+                            agreement['agreed'], agreement['total'],
+                            notes=f"Closed via Audit Portal save on {timestamp}.")
+                        logging.info(
+                            "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",
+                            selected_code, username_upper, agreement['agreed'], agreement['total'])
 
                     st.cache_data.clear()
                     action = "submitted" if save_submit else "saved as draft"

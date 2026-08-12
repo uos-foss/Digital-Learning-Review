@@ -291,6 +291,54 @@ counterpart and are never suggested on).
   the module report's Blackboard Template block and the Audit Portal's
   suggestion caption read from the same sentence for the same section and can
   never drift apart.
+- `resolve_active_row(code, df_aut, df_spr)` in `processing.py` is the one
+  place that picks Spring's row over Autumn's when a module runs in both -
+  was duplicated identically in `views/audit_portal.py` and
+  `views/module_report.py` before being centralised for `views/
+  school_dashboard.py`'s spot-check flagging to reuse too.
+
+## Spot-check flagging
+
+Manual auditing does not scale past the handful of modules that get a real
+audit each year. Rather than a system trying to decide what needs checking,
+a DLA flags modules themselves from the School Dashboard's module list
+(🎯 Flag for Spot-Check) - based on their own judgement (experience, spread
+across levels, some deliberate randomness), not a stratified sample. An
+earlier version of this feature *did* auto-sample and auto-assign; it was
+rolled back specifically because that judgement belongs with the DLAs, not
+an algorithm, and because most real DLA accounts are faculty-wide rather
+than tied to one school (see `get_edit_checklist_users()` in the deleted
+`dev/spot-check-sampling` branch, if it's ever worth revisiting why).
+
+`spot_checks` (owned by this portal) tracks flags through to outcome —
+`database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_user()`,
+`get_school_spot_checks()`, `get_pending_spot_check()`,
+`mark_spot_check_checked()`, `get_spot_check_agreement_summary()`,
+`purge_spot_checks()`. The flagging action and the school's history table
+live in `views/school_dashboard.py`'s new "🎯 Spot-Checks" view; the
+snapshot/diff logic is I/O-free in `processing.py`
+(`build_spot_check_snapshot()`, `compute_spot_check_agreement()`).
+
+- **A flag has no separate recording UI.** Flagging a module just adds it to
+  the flagger's normal Audit Portal queue (`views/audit_portal.py`'s "Your
+  Spot-Checks" panel). Saving a real audit response for it — Save Draft or
+  Submit, whichever comes first — is what closes it out:
+  `compute_spot_check_agreement()` diffs what was actually ticked against
+  `readiness_prefill_for_module()`'s suggestion as it was frozen into
+  `data_verdict_snapshot` at the moment of flagging, not against whatever the
+  data says by the time the advisor opens it. Only the flagger's own save
+  closes their spot-check — a different person saving the same module leaves
+  it pending, so the agreement rate stays a measure of the flagger's own
+  judgement.
+- **There is no `assigned_to` distinct from `flagged_by`.** The person who
+  chooses a module is the person who checks it; nothing round-robins or
+  auto-assigns.
+- **A field the snapshot suggested but that is missing from what was saved**
+  (e.g. the audit field has since been deactivated) is excluded from the
+  agreement comparison entirely, not counted as disagreement - there is no
+  signal to compare.
+- `database.purge_spot_checks(academic_year)` drops one year - there is no
+  `sample_round` to scope a purge to, unlike the abandoned sampled design.
 
 ## Conventions
 

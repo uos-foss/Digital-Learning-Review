@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.19.0"
+__version__ = "1.20.0"
 
 from processing import CURRENT_ACADEMIC_YEAR
 

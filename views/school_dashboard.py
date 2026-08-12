@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
+import datetime
 from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
-                        reconcile_ally_modules)
+                        reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
-                      get_ally_history)
+                      get_ally_history, flag_module_for_spot_check, get_pending_spot_check,
+                      get_school_spot_checks, get_spot_check_agreement_summary)
 from views.ally_widgets import (
     scoreable, mean_score, impact_weighted_score, render_maturity_banner,
     render_maturity_breakdown, render_surface_split, render_issue_profile,
@@ -129,7 +131,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -150,6 +152,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     "Module name": "Module Name",
                     "Mod. lead": "Module Lead"
                 }
+                # Shown so a DLA picking modules to spot-check can see level
+                # spread at a glance - there is no Programme field anywhere
+                # in the data, so that part of the spread stays on the DLA's
+                # own knowledge of their school.
+                if 'UG/ PG/ Other' in display_df.columns:
+                    cols.append('UG/ PG/ Other')
+                    configs['UG/ PG/ Other'] = "Level"
                 # Ally score, qualified by how far the course has been built - an
                 # untouched template scores near 100% and would otherwise read as
                 # the best module in the school.
@@ -229,10 +238,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 if selection.selection.rows:
                     row_idx = selection.selection.rows[0]
                     clicked_code = clean_display_df.iloc[row_idx]['New module code']
-                    
+
                     st.divider()
                     st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         if st.button(f"📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
                             st.session_state.selected_module_code = clicked_code
@@ -241,6 +250,25 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="btn_school_cl"):
                             st.session_state.selected_module_code = clicked_code
                             st.switch_page(st.session_state.pg_audit)
+                    with c3:
+                        if can_audit:
+                            already_pending = get_pending_spot_check(clicked_code, CURRENT_ACADEMIC_YEAR)
+                            if already_pending:
+                                st.button("🎯 Already flagged", width="stretch",
+                                         disabled=True, key="btn_school_sc_pending",
+                                         help=f"Pending, flagged by {already_pending.get('flagged_by', '')} "
+                                              f"on {already_pending.get('flagged_on', '')}.")
+                            elif st.button("🎯 Flag for Spot-Check", width="stretch", key="btn_school_sc"):
+                                flagger = str(st.session_state.get("username", "")).strip().upper()
+                                flagged_on = datetime.date.today().strftime('%Y-%m-%d')
+                                active_row = resolve_active_row(clicked_code, df_aut, df_spr)
+                                actionable = checklist_sums.get(clicked_code, {}).get('Actionable Items', 0)
+                                snapshot = build_spot_check_snapshot(active_row, actionable)
+                                flag_module_for_spot_check(
+                                    clicked_code, CURRENT_ACADEMIC_YEAR, flagger, flagged_on, snapshot)
+                                st.success(f"Flagged {clicked_code} for spot-check.")
+                                st.cache_data.clear()
+                                st.rerun()
                     st.divider()
 
             elif selected_view == "📊 Ally Analytics":
@@ -695,6 +723,64 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             hide_index=True,
                             width="stretch",
                         )
+
+            elif selected_view == "🎯 Spot-Checks":
+                st.subheader(f"Spot-Checks — {school}")
+                st.caption(
+                    "Modules a DLA has chosen to double-check by hand, from the module "
+                    "list above - flagging is a judgement call (past experience, spread "
+                    "across levels, some randomness), not an algorithm. A flagged module "
+                    "closes itself out the moment its flagger saves a real audit for it "
+                    "in the Audit Portal; the agreement column then shows whether their "
+                    "answers matched what the Blackboard Template data was suggesting."
+                )
+
+                sc_df = get_school_spot_checks(school, CURRENT_ACADEMIC_YEAR)
+                if sc_df.empty:
+                    st.info(
+                        "No modules flagged yet this year. Select a module in "
+                        "'📋 All Modules' and use 🎯 Flag for Spot-Check.")
+                else:
+                    pending_n = int((sc_df['status'] == 'pending').sum())
+                    checked_n = int((sc_df['status'] == 'checked').sum())
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Flagged this year", len(sc_df))
+                    m2.metric("Pending", pending_n)
+                    m3.metric("Checked", checked_n)
+
+                    agreement_summary = get_spot_check_agreement_summary(CURRENT_ACADEMIC_YEAR)
+                    school_agreement = (agreement_summary[agreement_summary['school'] == school]
+                                        if not agreement_summary.empty else pd.DataFrame())
+                    if not school_agreement.empty:
+                        row = school_agreement.iloc[0]
+                        st.caption(
+                            f"Agreement to date: {int(row['agreed'])} of {int(row['total'])} "
+                            f"compared fields ({row['agreement_pct']:.1f}%) across "
+                            f"{int(row['checked'])} checked module(s).")
+
+                    names = school_df.set_index(
+                        school_df['New module code'].astype(str).str.strip().str.upper()
+                    )['Module name'].to_dict()
+
+                    def _agreement_display(r):
+                        if r['status'] != 'checked':
+                            return "—"
+                        total = r.get('agreement_total')
+                        if total in (None, 0) or pd.isna(total):
+                            return "n/a"
+                        return f"{int(r['agreement_agreed'])}/{int(total)}"
+
+                    shown = sc_df.copy()
+                    shown['Module Name'] = shown['module_code'].map(names)
+                    shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
+                    shown['Agreement'] = shown.apply(_agreement_display, axis=1)
+                    st.dataframe(
+                        shown.rename(columns={
+                            'module_code': 'Module', 'flagged_by': 'Flagged By',
+                            'flagged_on': 'Flagged On', 'checked_on': 'Checked On'})[
+                            ['Module', 'Module Name', 'Flagged By', 'Flagged On',
+                             'Status', 'Checked On', 'Agreement']],
+                        hide_index=True, width="stretch")
 
             st.divider()
             csv_school = school_df.to_csv(index=False).encode('utf-8')

@@ -16,6 +16,7 @@ from processing import (
     fmt_report_date,
     readiness_evidence_words,
     readiness_created_date,
+    resolve_active_row,
 )
 from database import (
     get_active_audit_fields,
@@ -652,7 +653,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         spr_m = df_spr[df_spr['New module code'] == selected_code] if not df_spr.empty else pd.DataFrame()
 
         # Determine active row for metadata
-        active_row = spr_m.iloc[0] if not spr_m.empty else (aut_m.iloc[0] if not aut_m.empty else None)
+        active_row = resolve_active_row(selected_code, df_aut, df_spr)
 
         mod_lead = "Unknown Lead"
         ug_pg = "UG"

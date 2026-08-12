@@ -1,6 +1,28 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.19.0 (Current) — *The Audit Portal suggests answers from Blackboard*
+### 🚀 Version 1.20.0 (Current) — *Spot-check flagging*
+*12 August 2026*
+
+* **Digital Learning Advisors can now flag a module for a spot-check, right
+  from the School Dashboard.** Select a module in the module list and use the
+  new 🎯 Flag for Spot-Check button, alongside the existing "Jump to Report
+  Card" and "Open Audit Portal" actions. Which modules get checked, and how
+  many, is a DLA's own call - based on experience, spread across levels, and
+  some randomness - not an algorithm.
+* **A new 🎯 Spot-Checks view on the School Dashboard** shows every module the
+  school has flagged this year: who flagged it, when, and its status, so a
+  team can see what's already been covered.
+* **Flagged modules queue themselves in the flagger's Audit Portal**, under a
+  "Your Spot-Checks" panel. There's no separate recording step - open the
+  module, complete the checklist as normal, and saving it compares what was
+  ticked against what the Blackboard Template pre-fill was suggesting at the
+  moment the module was flagged. The resulting agreement rate shows on the
+  School Dashboard's Spot-Checks view - the evidence for whether the data can
+  be trusted for modules that never get flagged at all.
+* The module list also now shows each module's level (Foundation/UG/PGT/PGR),
+  so level spread is visible while choosing what to flag.
+
+### 🚀 Version 1.19.0 — *The Audit Portal suggests answers from Blackboard*
 *12 August 2026*
 
 * **Three checklist questions can now be pre-filled from what Blackboard
