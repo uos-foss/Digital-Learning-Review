@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import logging
-from processing import get_module_mapping, FACULTY_SCHOOLS
+from processing import get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module
 from database import (
     get_active_audit_fields,
     get_audit_responses,
@@ -88,6 +88,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
         aut_m = df_aut[df_aut['New module code'] == selected_code] if not df_aut.empty else pd.DataFrame()
         spr_m = df_spr[df_spr['New module code'] == selected_code] if not df_spr.empty else pd.DataFrame()
         active_row = spr_m.iloc[0] if not spr_m.empty else (aut_m.iloc[0] if not aut_m.empty else None)
+        readiness_prefill = readiness_prefill_for_module(active_row)
 
         url = str(active_row.get('URL', '')).strip() if active_row is not None else ""
         if url == 'nan':
@@ -142,8 +143,16 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                     prev_val = prev_responses.get(fid, {}).get('value', None)
 
                     if ftype == 'boolean':
-                        def_val = str(prev_val).upper() == 'TRUE' if prev_val is not None else False
+                        suggestion = readiness_prefill.get(fid)
+                        if prev_val is not None:
+                            def_val = str(prev_val).upper() == 'TRUE'
+                        elif suggestion is not None:
+                            def_val = suggestion['suggested']
+                        else:
+                            def_val = False
                         responses_input[fid] = st.checkbox(label, value=def_val, help=desc, key=f"ap_chk_{selected_code}_{fid}")
+                        if suggestion is not None:
+                            st.caption(f"📋 Blackboard Template: {suggestion['evidence_text']}")
 
             st.markdown("---")
 

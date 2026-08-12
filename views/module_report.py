@@ -13,6 +13,9 @@ from processing import (
     LEAD_OWNED_SECTIONS,
     SECTION_STATES,
     derive_module_findings,
+    fmt_report_date,
+    readiness_evidence_words,
+    readiness_created_date,
 )
 from database import (
     get_active_audit_fields,
@@ -483,33 +486,6 @@ def _render_module_checks(pending_items, completed_items, has_audit, active_row=
                 """, unsafe_allow_html=True)
 
 
-def _readiness_evidence_words(state, created_date):
-    """The plain sentence under a section's status, saying what the data does
-    and does not show.
-
-    Deliberately explicit about the limits. A 'Visible' section only proves
-    somebody unhid it, and a bulk template push stamps a fresh date on hundreds
-    of courses at once, so neither is claimed as proof the content is right.
-    """
-    modified = _fmt_report_date(state.get('last_modified'))
-    evidence = state.get('evidence')
-    if evidence == 'never_modified':
-        created = _fmt_report_date(created_date) or modified
-        return f"Unchanged since the course was created{f' on {created}' if created else ''}."
-    if evidence == 'bulk':
-        return (f"Last changed {modified}, on a day the template was updated across many "
-                "courses at once - so this is not evidence anyone worked on this module.")
-    if evidence == 'lead_edit':
-        return f"Last changed {modified} on this module specifically."
-    return "No modification date recorded."
-
-
-def _fmt_report_date(value):
-    """ISO storage to the DD-MM-YYYY the portal shows users. Blank if unusable."""
-    parsed = pd.to_datetime(str(value or ""), errors='coerce')
-    return "" if pd.isna(parsed) else parsed.strftime('%d-%m-%Y')
-
-
 def _render_template_sections(active_row):
     """
     The Blackboard template's required sections, from the faculty Template
@@ -527,15 +503,10 @@ def _render_template_sections(active_row):
     if not isinstance(states, dict) or not states:
         return
 
-    snapshot = _fmt_report_date(active_row.get('Readiness Snapshot'))
+    snapshot = fmt_report_date(active_row.get('Readiness Snapshot'))
     ready = active_row.get('Lead Sections Ready')
     total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
-    created = ""
-    for key in LEAD_OWNED_SECTIONS:
-        state = states.get(key, {})
-        if state.get('evidence') == 'never_modified':
-            created = state.get('last_modified')
-            break
+    created = readiness_created_date(states)
 
     st.markdown("#### Blackboard Template")
     st.caption(
@@ -560,7 +531,7 @@ def _render_template_sections(active_row):
                            font-weight:600;">{label}</h4>
                 <p style="margin:0 0 4px 0;color:#374151;font-size:12px;">{action}</p>
                 <p style="margin:0;color:#9CA3AF;font-size:11px;">
-                    {_readiness_evidence_words(state, created)}</p>
+                    {readiness_evidence_words(state, created)}</p>
             </div>""", unsafe_allow_html=True)
 
     others = [(k, v) for k, v in states.items() if k not in LEAD_OWNED_SECTIONS]
@@ -576,7 +547,7 @@ def _render_template_sections(active_row):
             rows = [{
                 'Section': TEMPLATE_SECTIONS.get(k, (k,))[0],
                 'Status': v.get('status', ''),
-                'Last changed': _fmt_report_date(v.get('last_modified')) or "—",
+                'Last changed': fmt_report_date(v.get('last_modified')) or "—",
             } for k, v in others]
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 

@@ -173,11 +173,13 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   batch hit only ever withholds *lead* evidence, not readiness. Re-run
   `diagnostics/check_readiness_export.py` on each new export — it prints the
   distribution, what was flagged, and the closest cases that were not.
-  **Open question for Phase 4**: since a `bulk` section may genuinely be
-  PS-completed rather than untouched, treating it as equivalent to
-  `never_modified` is right for *lead-engagement* evidence but may
-  understate genuine readiness. Do not resolve this by guessing — ask before
-  Phase 4 decides what to auto-tick.
+  **Resolved for Phase 4** (`processing.readiness_prefill_for_module()`): the
+  Audit Portal checklist question is "is this section done", not "did the
+  lead do it personally", so a `bulk`-evidenced Visible section is suggested
+  ticked exactly like a `lead_edit`-evidenced one — see "Audit Portal
+  pre-fill" below. This is a different question from *lead-engagement*
+  evidence, which `classify_edit_evidence()` still tracks separately and
+  unchanged.
 - **Both primary keys include `academic_year`** (`leganto_lists`'s reasoning,
   not `ally_courses`'s) so a reference import of a prior year cannot collide
   with the real one on a shared snapshot date.
@@ -249,6 +251,46 @@ audited this". Data-only entries are stamped `'Auditor': 'System'`; check
 `parse_custom_observations()` lives in `processing.py`, not `database.py` — it
 is pure string/JSON parsing with no I/O. `database.py` imports and re-exports
 it so nothing importing it from there breaks.
+
+## Audit Portal pre-fill
+
+`processing.readiness_prefill_for_module(active_row)` turns a module's
+template-readiness section states into checklist suggestions for the Audit
+Portal: `{audit_field_id: {'suggested': bool, 'evidence_text': str,
+'section_key': str}}`, one entry per `TEMPLATE_SECTIONS` section that carries
+an `audit_fields.id` (7 of 14 sections; the other 7 have no checklist
+counterpart and are never suggested on).
+
+- **The suggestion is a status question, not a "did the lead do it" question.**
+  `suggested` is `True` whenever the section's state is in
+  `READINESS_READY_STATES` (`visible_edited` or `visible_unattributed`) —
+  i.e. whenever it is Visible, regardless of which evidence class produced
+  that state. This applies identically to the 3 lead-owned fields
+  (`welcome_outline`, `contacts_complete`, `assessment_brief`) and the 4
+  institution-owned-but-mapped ones (`sga`, `student_voice`,
+  `assessment_overview`, `encore_link`) — a deliberate decision, not an
+  oversight: a batch-dated lead-owned section is frequently genuine
+  Professional Services work rather than untouched (see "Module readiness"
+  above), and institutional sections were never the lead's to edit in the
+  first place. `evidence_text` (from `readiness_evidence_words()`) still
+  names which case it is, so an advisor is never shown a bare tick with no
+  reason — see `views/audit_portal.py`'s checkbox loop.
+- **A suggestion never overwrites a saved answer.** `get_audit_responses()`'s
+  value always wins when present; the suggestion only supplies the checkbox's
+  default when the module has never been answered. Leaving a suggested box
+  ticked and pressing Save Draft/Submit records it exactly like a manual tick
+  — `audit_responses` still only ever gets a row when a human presses one of
+  those buttons, with no schema change and no machine-written rows.
+- **A module absent from the readiness data returns an empty dict from
+  `readiness_prefill_for_module()`**, which the Audit Portal must read as "no
+  suggestion, fall back to the ordinary blank-form default" — never as
+  "suggest unticked". Do not conflate the two.
+- `readiness_evidence_words()`, `fmt_report_date()` and
+  `readiness_created_date()` live in `processing.py` (moved from
+  `views/module_report.py`, pure string/date formatting, no I/O) precisely so
+  the module report's Blackboard Template block and the Audit Portal's
+  suggestion caption read from the same sentence for the same section and can
+  never drift apart.
 
 ## Conventions
 

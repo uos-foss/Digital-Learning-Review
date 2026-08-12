@@ -1,6 +1,28 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.18.0 (Current) — *One source of truth for "what's outstanding"*
+### 🚀 Version 1.19.0 (Current) — *The Audit Portal suggests answers from Blackboard*
+*12 August 2026*
+
+* **Three checklist questions can now be pre-filled from what Blackboard
+  already shows.** Welcome & Module Outline, Key Staff Contacts and
+  Assessment Briefs are backed by the Template Alignment Report, so the Audit
+  Portal now suggests a tick whenever the section is visible to students, with
+  a plain-English note underneath explaining what the data shows and doesn't.
+  A suggestion never overwrites a saved answer — advisors always see and
+  approve it, and nothing is written to the audit record until Save Draft or
+  Submit Audit is pressed.
+* **Four more fields — SGAs, Student Voice, Assessment Details overview and
+  Encore Lecture Capture — get the same treatment**, since those sections are
+  institutional content nobody is expected to edit personally; "visible" is
+  the only thing worth checking for them.
+* **A same-day batch of Blackboard edits across a school is not assumed to be
+  an IT job any more.** Aside from the original template rollout, it's
+  usually Professional Services or school admin staff working through a
+  batch of modules on the lead's behalf — genuine content work, just not
+  done by the lead. The suggestion above treats that the same as a section
+  edited by the lead directly; the evidence note names which one it was.
+
+### 🚀 Version 1.18.0 — *One source of truth for "what's outstanding"*
 *11 August 2026*
 
 * **The Actionable Items badge and the module report page can no longer
