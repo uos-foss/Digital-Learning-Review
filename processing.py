@@ -208,8 +208,29 @@ def get_module_mapping(df_aut, df_spr):
                 name = str(row['Module name']).strip()
                 if code and name:
                     mapping[code] = name
-                    
+
     return mapping
+
+def resolve_active_row(code, df_aut, df_spr):
+    """The module row a view should treat as canonical for one module code:
+    Spring's, if the module runs in Spring, else Autumn's. Matches
+    resolve_semester_df()'s own Spring-first convention. None if the module
+    is in neither frame.
+
+    Centralised because getting this precedence wrong silently changes which
+    Blackboard shell's Ally/readiness/Leganto data a page shows - was
+    duplicated identically in views/audit_portal.py and
+    views/module_report.py before this.
+    """
+    aut_m = (df_aut[df_aut['New module code'] == code]
+             if df_aut is not None and not df_aut.empty else pd.DataFrame())
+    spr_m = (df_spr[df_spr['New module code'] == code]
+             if df_spr is not None and not df_spr.empty else pd.DataFrame())
+    if not spr_m.empty:
+        return spr_m.iloc[0]
+    if not aut_m.empty:
+        return aut_m.iloc[0]
+    return None
 
 def is_compliant_val(val):
     """Normalizes and determines compliance for a single audit entry."""
@@ -2001,3 +2022,65 @@ def readiness_prefill_for_module(active_row):
             'section_key': key,
         }
     return prefill
+
+def build_spot_check_snapshot(active_row, actionable_items):
+    """
+    The frozen record of what the data said about a module at the moment a
+    DLA flagged it for spot-check: readiness_prefill_for_module()'s
+    suggestions plus the Actionable Items count, as JSON for
+    database.flag_module_for_spot_check().
+
+    Comparing an advisor's later Audit Portal answers against this rather
+    than against live data means agreement is measured against what they
+    were actually shown when they chose the module, not against whatever
+    the data has since become.
+    """
+    return json.dumps({
+        'actionable_items': int(actionable_items or 0),
+        'prefill': readiness_prefill_for_module(active_row),
+    })
+
+def compute_spot_check_agreement(data_verdict_snapshot, saved_responses):
+    """
+    Diffs a spot-check's frozen snapshot (from build_spot_check_snapshot())
+    against what the DLA who flagged it actually saved for the module - one
+    comparison per readiness-mapped field the module had a suggestion for.
+
+    saved_responses: {audit_field_id: value}, the same shape
+    database.get_audit_responses() values come in - value truthy-compared as
+    'TRUE' (case-insensitive), so both the string form used for storage and
+    a raw Python bool from an in-memory checkbox work identically.
+
+    A field the snapshot had a suggestion for but that is missing from
+    saved_responses (e.g. the audit field has since been deactivated) is
+    excluded rather than counted as disagreement - there is no signal to
+    compare, and silently counting it would understate agreement for a
+    reason that has nothing to do with whether the advisor agreed with the
+    data.
+
+    Returns {'agreed': int, 'total': int, 'detail': [...]}. 'total' is 0
+    (never None) when the module had no mapped-field suggestions at all -
+    callers must treat that as "nothing measurable", not divide by it.
+    """
+    try:
+        snapshot = json.loads(data_verdict_snapshot) if data_verdict_snapshot else {}
+    except (TypeError, ValueError):
+        snapshot = {}
+    prefill = snapshot.get('prefill') or {}
+    saved_responses = saved_responses or {}
+
+    detail = []
+    for field_id, suggestion in prefill.items():
+        if field_id not in saved_responses:
+            continue
+        suggested = bool(suggestion.get('suggested'))
+        actual = str(saved_responses[field_id]).strip().upper() == 'TRUE'
+        detail.append({
+            'audit_field_id': field_id,
+            'suggested': suggested,
+            'actual': actual,
+            'agreed': actual == suggested,
+        })
+
+    return {'agreed': sum(1 for d in detail if d['agreed']),
+            'total': len(detail), 'detail': detail}

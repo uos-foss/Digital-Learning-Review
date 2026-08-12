@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.19.0"
+__version__ = "1.20.0"
 
 from processing import CURRENT_ACADEMIC_YEAR
 
@@ -131,7 +131,15 @@ def map_level_value(val):
     }
     return level_map.get(s.upper(), s)
 
-@st.cache_data(ttl=10)
+# ttl is a safety net, not the primary invalidation mechanism - every real
+# write path (Admin Panel imports/edits, Audit Portal saves, spot-check
+# flagging) already calls st.cache_data.clear() the moment it writes. A short
+# ttl here just means every click more than a few seconds after the last one
+# pays the full reload cost again for no freshness benefit - these three
+# loaders do several SQL queries plus Ally/Leganto/readiness aggregation each
+# time. 300s still catches an external change (e.g. a sibling app writing to
+# the shared database) reasonably promptly.
+@st.cache_data(ttl=300)
 def load_audit_data():
     logging.info("📥 Constructing module list from SITS as single source of truth...")
     try:
@@ -421,7 +429,7 @@ def load_audit_data():
         logging.error(f"Error loading SITS audit data: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=300)
 def load_checklist_data():
     """
     Per-module audit status, plus 'Actionable Items' - the outstanding-item
@@ -574,7 +582,7 @@ def load_checklist_data():
         logging.error(f"Error loading checklist summaries from SQLite: {e}")
         return {}
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=300)
 def load_assessment_data():
     logging.info("📥 Fetching SITS assessment data from SQLite...")
     try:

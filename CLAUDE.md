@@ -291,8 +291,82 @@ counterpart and are never suggested on).
   the module report's Blackboard Template block and the Audit Portal's
   suggestion caption read from the same sentence for the same section and can
   never drift apart.
+- `resolve_active_row(code, df_aut, df_spr)` in `processing.py` is the one
+  place that picks Spring's row over Autumn's when a module runs in both -
+  was duplicated identically in `views/audit_portal.py` and
+  `views/module_report.py` before being centralised for `views/
+  school_dashboard.py`'s spot-check flagging to reuse too.
+
+## Spot-check flagging
+
+Manual auditing does not scale past the handful of modules that get a real
+audit each year. Rather than a system trying to decide what needs checking,
+a DLA flags modules themselves from the School Dashboard's module list -
+select one or more rows and use 🎯 Flag for Spot-Check - based on their own
+judgement (experience, spread across levels, some deliberate randomness),
+not a stratified sample. An earlier version of this feature *did*
+auto-sample and auto-assign; it was rolled back specifically because that
+judgement belongs with the DLAs, not an algorithm (see
+`get_edit_checklist_users()` in the deleted `dev/spot-check-sampling`
+branch, if it's ever worth revisiting why). Note that branch's premise -
+that `users.School='All'` meant most DLAs had no real school alignment -
+was itself wrong: in reality DLAs are aligned with one or more specific
+schools but are provisioned faculty-wide *access* for practical reasons: see
+the corrected project memory on this. The schema has no field for a DLA's
+actual school alignment(s) today.
+
+`spot_checks` (owned by this portal) tracks flags through to outcome —
+`database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_user()`,
+`get_school_spot_checks()`, `get_pending_spot_check()`,
+`mark_spot_check_checked()`, `get_spot_check_agreement_summary()`,
+`purge_spot_checks()`. The flagging action and the school's history table
+live in `views/school_dashboard.py`'s new "🎯 Spot-Checks" view; the
+snapshot/diff logic is I/O-free in `processing.py`
+(`build_spot_check_snapshot()`, `compute_spot_check_agreement()`).
+
+- **A flag has no separate recording UI.** Flagging a module just adds it to
+  the flagger's normal Audit Portal queue (`views/audit_portal.py`'s "Your
+  Spot-Checks" panel). Saving a real audit response for it — Save Draft or
+  Submit, whichever comes first — is what closes it out:
+  `compute_spot_check_agreement()` diffs what was actually ticked against
+  `readiness_prefill_for_module()`'s suggestion as it was frozen into
+  `data_verdict_snapshot` at the moment of flagging, not against whatever the
+  data says by the time the advisor opens it. Only the flagger's own save
+  closes their spot-check — a different person saving the same module leaves
+  it pending, so the agreement rate stays a measure of the flagger's own
+  judgement.
+- **There is no `assigned_to` distinct from `flagged_by`.** The person who
+  chooses a module is the person who checks it; nothing round-robins or
+  auto-assigns.
+- **A field the snapshot suggested but that is missing from what was saved**
+  (e.g. the audit field has since been deactivated) is excluded from the
+  agreement comparison entirely, not counted as disagreement - there is no
+  signal to compare.
+- `database.purge_spot_checks(academic_year)` drops one year - there is no
+  `sample_round` to scope a purge to, unlike the abandoned sampled design.
+- **`database.delete_spot_check(id)`** removes one row outright - reachable
+  from the "🎯 Spot-Checks" view's Remove Flag action, behind a confirm
+  checkbox since deleting a `checked` row also deletes its agreement result.
+  Deliberately a hard delete rather than a separate "reset to pending"
+  mutation: resetting a checked module for a clean re-run is delete, then
+  re-flag from "📋 All Modules" - one function covers both removing a
+  mis-flagged module and resetting a checked one.
 
 ## Conventions
+
+- **Caching**: `load_audit_data()`, `load_checklist_data()` and
+  `load_assessment_data()` in `app.py` are `@st.cache_data(ttl=300)`. The ttl
+  is a safety net for an external change (e.g. a sibling app writing to the
+  shared database), not the primary invalidation mechanism - every real write
+  path (Admin Panel imports/edits/purges, Audit Portal saves, spot-check
+  flagging) already calls `st.cache_data.clear()` the moment it writes, so
+  raising the ttl costs nothing in freshness. It was `ttl=10` until 12 August
+  2026, which meant almost every click more than a few seconds apart paid the
+  full reload cost (several queries plus Ally/Leganto/readiness aggregation)
+  for no benefit. A write path that doesn't affect these loaders' output (like
+  flagging a module - `spot_checks` isn't read by any of the three) should not
+  call `st.cache_data.clear()` just out of habit; a plain `st.rerun()` is
+  enough to refresh what actually depends on session/query-time state.
 
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
   five hardcoded copies. Do not add a sixth.
