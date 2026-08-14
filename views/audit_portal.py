@@ -5,10 +5,12 @@ import logging
 from processing import (
     get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module,
     resolve_active_row, compute_spot_check_agreement, CURRENT_ACADEMIC_YEAR,
+    compute_audit_verdict,
 )
 from database import (
     get_active_audit_fields,
     get_audit_responses,
+    get_audit_response_history,
     save_audit_response,
     get_spot_checks_for_user,
     get_pending_spot_check,
@@ -130,6 +132,12 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
         else:
             sa_status = "❌ Not Started"
 
+        # As-of-last-save, not live from unsaved checkbox state - matches the
+        # existing sa_status/"Last updated" caption below, which is also a
+        # snapshot of the last save rather than the in-progress form.
+        flat_prev = {fid: r.get('value') for fid, r in prev_responses.items()}
+        verdict = compute_audit_verdict(active_fields, flat_prev)
+
         col1, col2 = st.columns([2, 1])
         with col1:
             if url:
@@ -138,6 +146,13 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.caption("⚠️ VLE link not found")
         with col2:
             st.markdown(f"**Status:** {sa_status}", help="")
+
+        if verdict == 'ready':
+            st.markdown("🟢 **Outcome: Ready**")
+        elif verdict == 'not_ready':
+            st.markdown("🔴 **Outcome: Not Ready**")
+        elif verdict == 'blank':
+            st.markdown("⚪ **Outcome: Blank** (gating items not yet assessed)")
 
         last_updated = None
         last_auditor = None
@@ -151,6 +166,16 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
             st.caption(f"Last updated: {last_updated} by {last_auditor}")
         else:
             st.caption("No submissions yet")
+
+        with st.expander("🕘 Change History", expanded=False):
+            history = get_audit_response_history(selected_code, limit=20)
+            if not history:
+                st.caption("No recorded changes yet.")
+            else:
+                field_labels = {f['id']: f['label'] for f in active_fields}
+                for h in history:
+                    label = field_labels.get(h['field_id'], h['field_id'])
+                    st.caption(f"**{label}**: `{h['old_value']}` → `{h['new_value']}`  ·  {h['changed_by']}, {h['changed_at']}")
 
         st.markdown("---")
 

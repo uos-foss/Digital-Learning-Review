@@ -1190,10 +1190,11 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 df_fields = pd.DataFrame(fields)
                 
                 if df_fields.empty:
-                    df_fields = pd.DataFrame(columns=["id", "label", "action_label", "description", "field_type", "is_active", "display_order"])
+                    df_fields = pd.DataFrame(columns=["id", "label", "action_label", "description", "field_type", "is_active", "display_order", "is_gating"])
                 else:
                     # Ensure types align correctly for Streamlit's editor
                     df_fields['is_active'] = df_fields['is_active'].apply(lambda x: bool(x))
+                    df_fields['is_gating'] = df_fields['is_gating'].apply(lambda x: bool(x))
                     df_fields['display_order'] = pd.to_numeric(df_fields['display_order'], errors='coerce').fillna(10).astype(int)
                     
                 st.markdown("##### **Audit Fields Configuration Table**")
@@ -1208,6 +1209,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         "action_label": st.column_config.TextColumn("Action Item Label", help="Rephrased action item header shown for pending/incomplete tasks.", required=False),
                         "description": st.column_config.TextColumn("Tooltip Description", help="Instructional details/tips."),
                         "field_type": st.column_config.SelectboxColumn("Field Type", options=["boolean", "text", "yes/no"], required=True),
+                        "is_gating": st.column_config.CheckboxColumn("Gating?", default=False, help="If checked, this field must be satisfied for a module to reach a Ready verdict. Boolean/yes-no fields only."),
                         "is_active": st.column_config.CheckboxColumn("Active?", default=True),
                         "display_order": st.column_config.NumberColumn("Display Order", min_value=1, max_value=100, default=10, format="%d")
                      },
@@ -1247,16 +1249,17 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         desc = str(row.get('description', '') or '').strip()
                         ftype = str(row.get('field_type', '')).strip()
                         is_act = 1 if row.get('is_active') else 0
-                        
+                        is_gate = 1 if row.get('is_gating') else 0
+
                         try:
                             order = int(row.get('display_order', 10))
                         except Exception:
                             order = 10
-                            
+
                         # Fallback for action label if empty
                         if not act_label:
                             act_label = label
-                            
+
                         if not fid or not re.match(r"^[a-z0-9_]+$", fid):
                             errors.append(f"Row {idx+1}: Field ID '{fid}' is invalid. Use lowercase letters, numbers, and underscores only.")
                         elif fid in seen_ids:
@@ -1265,9 +1268,11 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             errors.append(f"Row {idx+1}: Question Label cannot be empty.")
                         elif ftype not in ["boolean", "text", "yes/no"]:
                             errors.append(f"Row {idx+1}: Field Type must be either 'boolean', 'text', or 'yes/no'.")
+                        elif is_gate and ftype == "text":
+                            errors.append(f"Row {idx+1}: '{fid}' is marked Gating but Field Type is 'text' — only boolean/yes-no fields can gate the verdict.")
                         else:
                             seen_ids.add(fid)
-                            valid_rows.append((fid, label, act_label, desc, ftype, is_act, order))
+                            valid_rows.append((fid, label, act_label, desc, ftype, is_act, order, is_gate))
                             
                     if errors:
                         for err in errors:
@@ -1283,7 +1288,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             # Wipe table and re-insert
                             cursor.execute("DELETE FROM audit_fields")
                             cursor.executemany(
-                                "INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                "INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order, is_gating) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                 valid_rows
                             )
                             
@@ -1599,7 +1604,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 predefined_tables = ["comment_bank", "audit_fields", "audit_responses", "users", "roles", "leganto_nolist"]
                                 expected_cols = {
                                     "comment_bank": ['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text'],
-                                    "audit_fields": ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'],
+                                    "audit_fields": ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating'],
                                     "audit_responses": ['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'],
                                     "users": ['Username', 'PasswordHash', 'Role', 'School', 'Capabilities', 'Status'],
                                     "roles": ['Role', 'Capabilities'],

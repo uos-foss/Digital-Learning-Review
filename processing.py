@@ -1963,6 +1963,41 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
 
     return result, totals
 
+def compute_audit_verdict(active_fields, responses):
+    """
+    Ready / Not Ready / Blank verdict for one module, from whichever
+    audit_fields carry is_gating=1: 'blank' if any gating field has no saved
+    response yet (checked first - blank wins even if another gating field is
+    already answered false), 'not_ready' if any gating field's value isn't
+    the compliant one, else 'ready'. Returns None if no field is currently
+    flagged is_gating, so the feature is a no-op until an admin opts a field
+    in via the Audit Field Manager - no field ids are assumed here.
+
+    active_fields: list of dicts as returned by get_audit_fields()/
+    get_active_audit_fields() - needs 'id', 'field_type', 'is_gating'.
+    responses: {field_id: value_string} - the same flat shape
+    derive_module_findings() takes, not get_audit_responses()'s
+    {field_id: {'value':...}} shape; callers holding the latter must flatten
+    it first.
+    """
+    gating_fields = [f for f in (active_fields or [])
+                      if f.get('is_gating') and f.get('field_type') in ('boolean', 'yes/no')]
+    if not gating_fields:
+        return None
+
+    for f in gating_fields:
+        if (responses or {}).get(f['id']) is None:
+            return 'blank'
+
+    for f in gating_fields:
+        val = (responses or {}).get(f['id'])
+        is_compliant = (str(val).upper() == 'TRUE' if f['field_type'] == 'boolean'
+                        else str(val).upper() == 'YES')
+        if not is_compliant:
+            return 'not_ready'
+
+    return 'ready'
+
 def readiness_created_date(states):
     """Approximate course creation date from the section states themselves:
     any lead-owned section whose evidence is 'never_modified' has a

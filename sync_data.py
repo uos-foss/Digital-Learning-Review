@@ -302,17 +302,17 @@ def sync_checklist_fields():
             sheet = ss.worksheet("Checklist_Fields")
         except Exception:
             # If the sheet doesn't exist, create it with correct headers
-            sheet = ss.add_worksheet(title="Checklist_Fields", rows=100, cols=7)
-            sheet.update('A1', [['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']])
+            sheet = ss.add_worksheet(title="Checklist_Fields", rows=100, cols=8)
+            sheet.update('A1', [['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating']])
             
         data = sheet.get_all_values()
         
         # 2. Fetch local data from SQLite
         with get_db_connection() as conn:
             try:
-                df_local = pd.read_sql_query("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields", conn)
+                df_local = pd.read_sql_query("SELECT id, label, action_label, description, field_type, is_active, display_order, is_gating FROM audit_fields", conn)
             except Exception:
-                df_local = pd.DataFrame(columns=['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'])
+                df_local = pd.DataFrame(columns=['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating'])
                 
         # 3. Parse remote data
         if len(data) > 1:
@@ -322,23 +322,23 @@ def sync_checklist_fields():
             # Map column names case-insensitively
             rename_map = {}
             for col in df_remote.columns:
-                for target_col in ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']:
+                for target_col in ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating']:
                     if col.lower().strip() == target_col.lower():
                         rename_map[col] = target_col
             df_remote = df_remote.rename(columns=rename_map)
-            
+
             # Add missing fields
-            for col in ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']:
+            for col in ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating']:
                 if col not in df_remote.columns:
                     df_remote[col] = ""
-            df_remote = df_remote[['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']]
+            df_remote = df_remote[['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating']]
         else:
-            df_remote = pd.DataFrame(columns=['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order'])
-            
+            df_remote = pd.DataFrame(columns=['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating'])
+
         # 4. Standardize local dataframe
         if not df_local.empty:
             df_local.columns = [c.strip() for c in df_local.columns]
-            df_local = df_local[['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order']]
+            df_local = df_local[['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating']]
             
         # 5. Merge remote and local (remote wins for matching ID)
         df_remote['id'] = df_remote['id'].astype(str).str.strip().str.lower()
@@ -350,6 +350,7 @@ def sync_checklist_fields():
         
         # Ensure correct datatypes
         df_merged['is_active'] = df_merged['is_active'].apply(lambda x: 1 if str(x).upper() in ['TRUE', '1', 'YES'] or x is True else 0)
+        df_merged['is_gating'] = df_merged['is_gating'].apply(lambda x: 1 if str(x).upper() in ['TRUE', '1', 'YES'] or x is True else 0)
         df_merged['display_order'] = pd.to_numeric(df_merged['display_order'], errors='coerce').fillna(10).astype(int)
         df_merged['label'] = df_merged['label'].astype(str).str.strip()
         df_merged['action_label'] = df_merged['action_label'].astype(str).str.strip()
@@ -397,10 +398,10 @@ def push_checklist_fields_to_sheets():
         try:
             sheet = ss.worksheet("Checklist_Fields")
         except Exception:
-            sheet = ss.add_worksheet(title="Checklist_Fields", rows=100, cols=7)
-            
+            sheet = ss.add_worksheet(title="Checklist_Fields", rows=100, cols=8)
+
         with get_db_connection() as conn:
-            df_local = pd.read_sql_query("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields", conn)
+            df_local = pd.read_sql_query("SELECT id, label, action_label, description, field_type, is_active, display_order, is_gating FROM audit_fields", conn)
             
         if not df_local.empty:
             sheet.clear()
