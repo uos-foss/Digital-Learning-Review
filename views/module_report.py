@@ -750,11 +750,18 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             # A pass/fail verdict is evaluative, unlike the health banner
             # below (deliberately factual/neutral) - kept as its own clearly
             # separate, distinctly-labelled span rather than folded into it.
+            # "Audit Status"/"Readiness Outcome" wording matches audit_portal.py
+            # exactly - the two pages used to say "Checklist Status"/"Module
+            # Readiness" here vs "Status"/"Outcome" there for the same two
+            # concepts (workflow stage vs data-driven gating verdict).
             verdict_labels = {'ready': ("🟢", "Ready"), 'not_ready': ("🔴", "Not Ready"), 'blank': ("⚪", "Blank")}
             verdict_html = ""
             if verdict:
                 v_icon, v_text = verdict_labels[verdict]
-                verdict_html = f"<span><b>Module Readiness:</b> {v_icon} {v_text}</span>"
+                verdict_html = (
+                    f'<span title="Computed automatically from gating checklist items - '
+                    f'independent of whether a DLA has submitted the audit."><b>Readiness Outcome:</b> '
+                    f'{v_icon} {v_text}</span>')
 
             st.markdown(
                 f"""<div style="border:1px solid rgba(49,51,63,0.2);border-radius:8px;
@@ -763,7 +770,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
                     <span><b>VLE Link:</b> {vle_value}</span>
-                    <span><b>Checklist Status:</b> {sa_status}</span>
+                    <span title="Whether a Digital Learning Advisor has reviewed and submitted this checklist."><b>Audit Status:</b> {sa_status}</span>
                     {verdict_html}
                 </div>""", unsafe_allow_html=True)
 
