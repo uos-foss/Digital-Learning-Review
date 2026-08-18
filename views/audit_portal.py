@@ -5,10 +5,12 @@ import logging
 from processing import (
     get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module,
     resolve_active_row, compute_spot_check_agreement, CURRENT_ACADEMIC_YEAR,
+    compute_audit_verdict,
 )
 from database import (
     get_active_audit_fields,
     get_audit_responses,
+    get_audit_response_history,
     save_audit_response,
     get_spot_checks_for_user,
     get_pending_spot_check,
@@ -130,6 +132,12 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
         else:
             sa_status = "❌ Not Started"
 
+        # As-of-last-save, not live from unsaved checkbox state - matches the
+        # existing sa_status/"Last updated" caption below, which is also a
+        # snapshot of the last save rather than the in-progress form.
+        flat_prev = {fid: r.get('value') for fid, r in prev_responses.items()}
+        verdict = compute_audit_verdict(active_fields, flat_prev)
+
         col1, col2 = st.columns([2, 1])
         with col1:
             if url:
@@ -137,7 +145,25 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 st.caption("⚠️ VLE link not found")
         with col2:
-            st.markdown(f"**Status:** {sa_status}", help="")
+            st.markdown(
+                f"**Audit Status:** {sa_status}",
+                help="Whether a Digital Learning Advisor has reviewed and submitted this checklist.")
+
+        # "Audit Status" (workflow stage, above) and "Readiness Outcome"
+        # (below) are deliberately two separate labelled lines, not one -
+        # they answer different questions. Status says whether a human has
+        # signed this off; Outcome is computed straight from the gating
+        # fields' current values and can be Ready/Not Ready even on a module
+        # nobody has submitted yet (e.g. auto-suggested from readiness data).
+        # Wording matches views/module_report.py exactly.
+        verdict_help = ("Computed automatically from gating checklist items - "
+                         "independent of whether a DLA has submitted the audit.")
+        if verdict == 'ready':
+            st.markdown("🟢 **Readiness Outcome: Ready**", help=verdict_help)
+        elif verdict == 'not_ready':
+            st.markdown("🔴 **Readiness Outcome: Not Ready**", help=verdict_help)
+        elif verdict == 'blank':
+            st.markdown("⚪ **Readiness Outcome: Blank** (gating items not yet assessed)", help=verdict_help)
 
         last_updated = None
         last_auditor = None
@@ -151,6 +177,16 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
             st.caption(f"Last updated: {last_updated} by {last_auditor}")
         else:
             st.caption("No submissions yet")
+
+        with st.expander("🕘 Change History", expanded=False):
+            history = get_audit_response_history(selected_code, limit=20)
+            if not history:
+                st.caption("No recorded changes yet.")
+            else:
+                field_labels = {f['id']: f['label'] for f in active_fields}
+                for h in history:
+                    label = field_labels.get(h['field_id'], h['field_id'])
+                    st.caption(f"**{label}**: `{h['old_value']}` → `{h['new_value']}`  ·  {h['changed_by']}, {h['changed_at']}")
 
         st.markdown("---")
 
@@ -200,61 +236,77 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
             if masquerading:
                 st.info("🎭 Masquerade mode is view-only — switch back to your own account to save changes.")
 
-            col_draft, col_submit, col_revert = st.columns(3)
-            with col_draft:
-                save_draft = st.form_submit_button("💾 Save Draft", use_container_width=True, disabled=masquerading)
-            with col_submit:
-                save_submit = st.form_submit_button("✅ Submit Audit", use_container_width=True, disabled=masquerading)
-            with col_revert:
-                # Only enabled once Submitted - reverts audit_status alone,
-                # without re-saving the checklist answers above (unlike Save
-                # Draft/Submit Audit, which always save the whole form). A
-                # dedicated, clearly-labelled action rather than relying on
-                # advisors to know Save Draft can also move status backward.
-                revert_draft = st.form_submit_button(
-                    "↩️ Revert to Draft", use_container_width=True,
-                    disabled=masquerading or audit_status != 'submitted',
-                    help="Sets this module back to Draft without changing any answers."
-                         if audit_status == 'submitted'
-                         else "Only available once a module has been Submitted.")
+            # Audit status is a one-way progression: Not Started -> Draft ->
+            # Submitted, and never goes backwards. There is deliberately no
+            # "revert to draft" action.
+            #
+            # Submitting does NOT lock the audit, because it can't: modules are
+            # built just-in-time all year, so a September audit is legitimately
+            # out of date by January, and a spot-check flagged on an
+            # already-submitted module has to be recordable. What Submitted
+            # actually means is "complete enough to count" - it is the gate
+            # processing.py's faculty compliance table uses to decide which
+            # modules feed the pass rate. Re-saving a submitted audit revises
+            # it in place and it stays Submitted; going back to Draft would
+            # only mean "less complete than before", which is never what an
+            # advisor editing a finished audit intends. The Change History
+            # expander above is what makes those revisions accountable.
+            is_submitted = audit_status == 'submitted'
 
-            if (save_draft or save_submit or revert_draft) and not masquerading:
+            if is_submitted:
+                save_draft = False
+                save_submit = st.form_submit_button(
+                    "✅ Update Audit", use_container_width=True, disabled=masquerading,
+                    help="Saves your changes. This module stays Submitted and keeps "
+                         "counting toward faculty figures; every change is recorded "
+                         "in Change History.")
+            else:
+                col_draft, col_submit = st.columns(2)
+                with col_draft:
+                    save_draft = st.form_submit_button(
+                        "💾 Save Draft", use_container_width=True, disabled=masquerading,
+                        help="Saves your progress without marking the audit complete. "
+                             "Draft audits are excluded from faculty compliance figures.")
+                with col_submit:
+                    save_submit = st.form_submit_button(
+                        "✅ Submit Audit", use_container_width=True, disabled=masquerading,
+                        help="Marks this audit complete. It starts counting toward "
+                             "faculty compliance figures, and stays editable afterwards.")
+
+            if (save_draft or save_submit) and not masquerading:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 try:
-                    if revert_draft:
-                        save_audit_response(selected_code, 'audit_status', 'draft', username_upper, timestamp)
-                        action = "reverted to draft"
+                    for fid, val in responses_input.items():
+                        save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
+
+                    save_audit_response(selected_code, 'notes_to_lead', module_notes_val, username_upper, timestamp)
+                    save_audit_response(selected_code, 'auditor_notes', auditor_notes_val, username_upper, timestamp)
+
+                    status = 'submitted' if save_submit else 'draft'
+                    save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
+                    if save_submit:
+                        action = "updated" if is_submitted else "submitted"
                     else:
-                        for fid, val in responses_input.items():
-                            save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
+                        action = "saved as draft"
 
-                        save_audit_response(selected_code, 'notes_to_lead', module_notes_val, username_upper, timestamp)
-                        save_audit_response(selected_code, 'auditor_notes', auditor_notes_val, username_upper, timestamp)
-
-                        status = 'submitted' if save_submit else 'draft'
-                        save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
-                        action = "submitted" if save_submit else "saved as draft"
-
-                        # If this module was flagged for spot-check by the person
-                        # saving it, the first save closes it out - comparing what
-                        # they just answered against the suggestion frozen at the
-                        # moment they flagged it. A save by someone other than the
-                        # flagger (e.g. covering an absence) leaves it pending, so
-                        # the agreement rate stays a measure of the flagger's own
-                        # judgement, not whoever happened to save the module.
-                        # Reverting to draft doesn't count as this kind of save,
-                        # so it deliberately skips this block.
-                        pending_sc = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
-                        if pending_sc and pending_sc.get('flagged_by') == username_upper:
-                            agreement = compute_spot_check_agreement(
-                                pending_sc.get('data_verdict_snapshot'), responses_input)
-                            mark_spot_check_checked(
-                                selected_code, CURRENT_ACADEMIC_YEAR, timestamp,
-                                agreement['agreed'], agreement['total'],
-                                notes=f"Closed via Audit Portal save on {timestamp}.")
-                            logging.info(
-                                "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",
-                                selected_code, username_upper, agreement['agreed'], agreement['total'])
+                    # If this module was flagged for spot-check by the person
+                    # saving it, the first save closes it out - comparing what
+                    # they just answered against the suggestion frozen at the
+                    # moment they flagged it. A save by someone other than the
+                    # flagger (e.g. covering an absence) leaves it pending, so
+                    # the agreement rate stays a measure of the flagger's own
+                    # judgement, not whoever happened to save the module.
+                    pending_sc = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
+                    if pending_sc and pending_sc.get('flagged_by') == username_upper:
+                        agreement = compute_spot_check_agreement(
+                            pending_sc.get('data_verdict_snapshot'), responses_input)
+                        mark_spot_check_checked(
+                            selected_code, CURRENT_ACADEMIC_YEAR, timestamp,
+                            agreement['agreed'], agreement['total'],
+                            notes=f"Closed via Audit Portal save on {timestamp}.")
+                        logging.info(
+                            "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",
+                            selected_code, username_upper, agreement['agreed'], agreement['total'])
 
                     st.cache_data.clear()
                     logging.info(f"✅ Audit {action} for '{selected_code}' by '{username_upper}'.")

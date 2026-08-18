@@ -13,6 +13,7 @@ from processing import (
     LEAD_OWNED_SECTIONS,
     SECTION_STATES,
     derive_module_findings,
+    compute_audit_verdict,
     fmt_report_date,
     readiness_evidence_words,
     readiness_created_date,
@@ -702,6 +703,11 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         findings = derive_module_findings(active_row, responses, active_fields, comment_bank)
 
+        # Not gated on has_audit - a never-audited module has no responses at
+        # all, so this already resolves to 'blank' correctly by itself;
+        # gating on has_audit would just suppress a correct, meaningful signal.
+        verdict = compute_audit_verdict(active_fields, responses)
+
         # The generic worklist column only ever showed checklist and Leganto
         # findings - Ally and template readiness already have their own
         # richer, source-specific displays (the accessibility card, the
@@ -741,6 +747,22 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             vle_value = (f"<a href='{url}' target='_blank' style='color:#2563EB;'>Open Module Site</a>"
                          if url else "<span style='color:#9CA3AF;'>--</span>")
 
+            # A pass/fail verdict is evaluative, unlike the health banner
+            # below (deliberately factual/neutral) - kept as its own clearly
+            # separate, distinctly-labelled span rather than folded into it.
+            # "Audit Status"/"Readiness Outcome" wording matches audit_portal.py
+            # exactly - the two pages used to say "Checklist Status"/"Module
+            # Readiness" here vs "Status"/"Outcome" there for the same two
+            # concepts (workflow stage vs data-driven gating verdict).
+            verdict_labels = {'ready': ("🟢", "Ready"), 'not_ready': ("🔴", "Not Ready"), 'blank': ("⚪", "Blank")}
+            verdict_html = ""
+            if verdict:
+                v_icon, v_text = verdict_labels[verdict]
+                verdict_html = (
+                    f'<span title="Computed automatically from gating checklist items - '
+                    f'independent of whether a DLA has submitted the audit."><b>Readiness Outcome:</b> '
+                    f'{v_icon} {v_text}</span>')
+
             st.markdown(
                 f"""<div style="border:1px solid rgba(49,51,63,0.2);border-radius:8px;
                             padding:10px 16px;margin-bottom:8px;display:flex;flex-wrap:wrap;
@@ -748,7 +770,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
                     <span><b>VLE Link:</b> {vle_value}</span>
-                    <span><b>Checklist Status:</b> {sa_status}</span>
+                    <span title="Whether a Digital Learning Advisor has reviewed and submitted this checklist."><b>Audit Status:</b> {sa_status}</span>
+                    {verdict_html}
                 </div>""", unsafe_allow_html=True)
 
         if is_dla_or_admin:

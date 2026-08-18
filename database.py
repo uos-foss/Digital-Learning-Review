@@ -110,6 +110,26 @@ def init_db():
         )
     """)
 
+    # Append-only log of value changes to audit_responses, written by
+    # save_audit_response() whenever a saved value actually differs from
+    # what was stored before - traceability for who changed what and when,
+    # without a full audit-round/recheck model.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_response_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_code TEXT,
+            field_id TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            changed_by TEXT,
+            changed_at TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_audit_response_history_mod_field
+        ON audit_response_history (module_code, field_id)
+    """)
+
     # Create ally_scores table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ally_scores (
@@ -483,6 +503,10 @@ def init_db():
     if 'action_label' not in columns:
         cursor.execute("ALTER TABLE audit_fields ADD COLUMN action_label TEXT")
         logging.info("Migrated audit_fields table: added action_label column.")
+
+    if 'is_gating' not in columns:
+        cursor.execute("ALTER TABLE audit_fields ADD COLUMN is_gating INTEGER DEFAULT 0")
+        logging.info("Migrated audit_fields table: added is_gating column.")
         
     # Populate/Update defaults for standard fields to be rephrased action items
     cursor.execute("UPDATE audit_fields SET action_label = 'Welcome Message Missing' WHERE id = 'welcome_message' AND (action_label IS NULL OR action_label = '')")
@@ -644,31 +668,32 @@ def get_audit_fields():
     """Returns all active and inactive audit fields ordered by display_order."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields ORDER BY display_order")
+        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order, is_gating FROM audit_fields ORDER BY display_order")
         return [dict(row) for row in cursor.fetchall()]
 
 def get_active_audit_fields():
     """Returns only active audit fields ordered by display_order."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order FROM audit_fields WHERE is_active = 1 ORDER BY display_order")
+        cursor.execute("SELECT id, label, action_label, description, field_type, is_active, display_order, is_gating FROM audit_fields WHERE is_active = 1 ORDER BY display_order")
         return [dict(row) for row in cursor.fetchall()]
 
-def save_audit_field(field_id: str, label: str, action_label: str, description: str, field_type: str, is_active: int, display_order: int):
+def save_audit_field(field_id: str, label: str, action_label: str, description: str, field_type: str, is_active: int, display_order: int, is_gating: int = 0):
     """Saves or updates an audit field definition."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO audit_fields (id, label, action_label, description, field_type, is_active, display_order, is_gating)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label=excluded.label,
                 action_label=excluded.action_label,
                 description=excluded.description,
                 field_type=excluded.field_type,
                 is_active=excluded.is_active,
-                display_order=excluded.display_order
-        """, (field_id.strip().lower(), label, action_label, description, field_type, is_active, display_order))
+                display_order=excluded.display_order,
+                is_gating=excluded.is_gating
+        """, (field_id.strip().lower(), label, action_label, description, field_type, is_active, display_order, is_gating))
         conn.commit()
 
 def delete_audit_field(field_id: str):
@@ -690,6 +715,27 @@ def get_audit_responses(module_code: str):
             'auditor': row['auditor_username'],
             'timestamp': row['timestamp']
         } for row in rows}
+
+def get_audit_response_history(module_code: str, field_id: str = None, limit: int = 50):
+    """Returns audit_response_history rows for a module (optionally scoped to
+    one field), newest first. Ordered by id rather than changed_at - saves in
+    the same batch share a same-second timestamp string, so id is the
+    reliable tiebreaker."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if field_id:
+            cursor.execute("""
+                SELECT id, module_code, field_id, old_value, new_value, changed_by, changed_at
+                FROM audit_response_history WHERE module_code = ? AND field_id = ?
+                ORDER BY id DESC LIMIT ?
+            """, (module_code.strip().upper(), field_id, limit))
+        else:
+            cursor.execute("""
+                SELECT id, module_code, field_id, old_value, new_value, changed_by, changed_at
+                FROM audit_response_history WHERE module_code = ?
+                ORDER BY id DESC LIMIT ?
+            """, (module_code.strip().upper(), limit))
+        return [dict(row) for row in cursor.fetchall()]
 
 def table_exists(conn, table_name):
     """True if the named table is present. Defined here rather than in app.py
@@ -1517,9 +1563,28 @@ def purge_spot_checks(academic_year: str) -> int:
     return before
 
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
-    """Saves or updates a single audit response."""
+    """Saves or updates a single audit response, and logs the change to
+    audit_response_history whenever the value actually differs from what was
+    stored before - including the first-ever save of a field, logged with
+    old_value=NULL. Applies to real audit_fields checklist items and the
+    notes_to_lead/auditor_notes/audit_status meta keys alike, since none of
+    them have a cheap way to be told apart here and all are worth tracing."""
+    module_code = module_code.strip().upper()
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT value FROM audit_responses WHERE module_code = ? AND field_id = ?",
+            (module_code, field_id))
+        existing = cursor.fetchone()
+        old_value = existing['value'] if existing else None
+
+        if old_value != value:
+            cursor.execute("""
+                INSERT INTO audit_response_history
+                    (module_code, field_id, old_value, new_value, changed_by, changed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (module_code, field_id, old_value, value, auditor_username, timestamp))
+
         cursor.execute("""
             INSERT INTO audit_responses (module_code, field_id, value, auditor_username, timestamp)
             VALUES (?, ?, ?, ?, ?)
@@ -1527,7 +1592,7 @@ def save_audit_response(module_code: str, field_id: str, value: str, auditor_use
                 value=excluded.value,
                 auditor_username=excluded.auditor_username,
                 timestamp=excluded.timestamp
-        """, (module_code.strip().upper(), field_id, value, auditor_username, timestamp))
+        """, (module_code, field_id, value, auditor_username, timestamp))
         conn.commit()
 
 def save_user_sqlite(username: str, password_hash: str, role: str, school: str, capabilities: str, status: str):
