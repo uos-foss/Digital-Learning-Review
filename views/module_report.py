@@ -18,6 +18,9 @@ from processing import (
     readiness_evidence_words,
     readiness_created_date,
     resolve_active_row,
+    parse_user_schools,
+    format_user_schools,
+    module_matches_user_schools,
 )
 from database import (
     get_active_audit_fields,
@@ -590,16 +593,19 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
 
     if only_own_school:
-        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {st.session_state.saved_school}</span>"
+        user_schools = parse_user_schools(st.session_state.saved_school)
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
         st.markdown(f"<h1>Module Report{school_context_badge}</h1>", unsafe_allow_html=True)
-        combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
+        combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
     else:
         st.title("Module Report")
         # Optional multi-tenant school filter to focus without siloing
-        if st.session_state.saved_school != "All":
-            filter_by_school = st.checkbox(f"Focus on my school ({st.session_state.saved_school})", value=True, key="rc_focus_school")
+        user_schools = parse_user_schools(st.session_state.saved_school)
+        if user_schools != ["All"]:
+            label = format_user_schools(user_schools)
+            filter_by_school = st.checkbox(f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})", value=True, key="rc_focus_school")
             if filter_by_school:
-                combined_options = [opt for opt in combined_options if opt.startswith(st.session_state.saved_school)]
+                combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
             else:
                 selected_school = st.selectbox(
                     "Select School to Focus",

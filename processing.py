@@ -150,6 +150,43 @@ def resolve_semester_df(df_aut, df_spr, semester):
 
     return df_aut if df_aut is not None else pd.DataFrame()
 
+def parse_user_schools(school_value):
+    """
+    A user's stored School value (users.School), resolved into a list of
+    codes. Most accounts hold exactly one code or the "All" sentinel, but
+    some DLAs and occasionally an ML are genuinely aligned with more than one
+    school, stored comma-separated (e.g. "ECN,EDC").
+
+    "All" (or empty/None) means faculty-wide and is returned as the single
+    sentinel element ["All"], not every FACULTY_SCHOOLS code, so callers can
+    tell "faculty-wide" apart from "happens to be assigned every school".
+    """
+    raw = str(school_value).strip() if school_value else ""
+    if not raw or raw.upper() == "ALL":
+        return ["All"]
+    codes = [c.strip().upper() for c in raw.split(",") if c.strip()]
+    return codes if codes else ["All"]
+
+def format_user_schools(schools):
+    """
+    Inverse of parse_user_schools - for the School badge/checkbox label and
+    for writing back to users.School. "All" dominates: if present alongside
+    specific codes (e.g. from a stray multiselect pick), the account is
+    faculty-wide, not "All plus some schools".
+    """
+    if not schools or "All" in schools:
+        return "All"
+    return ",".join(sorted(set(s for s in schools if s)))
+
+def module_matches_user_schools(module_code, user_schools):
+    """True if a module (or 'CODE - Name' combined option string) falls
+    under any of a user's assigned schools. ["All"] matches everything.
+    """
+    if not user_schools or "All" in user_schools:
+        return True
+    code = str(module_code or "")
+    return any(code.startswith(s) for s in user_schools)
+
 def aggregate_faculty_stats(df_aut, df_spr):
     """
     Calculates summary statistics at the faculty level.
