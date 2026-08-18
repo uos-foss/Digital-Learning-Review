@@ -1618,14 +1618,18 @@ def update_user_field_sqlite(username: str, field_name: str, value: str):
         raise ValueError(f"Invalid user field name: {field_name}")
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(f"UPDATE users SET {field_name} = ? WHERE Username = ?", (value, username.strip().upper()))
+        # Matched case-insensitively - Username is not stored uppercase for
+        # email-style accounts (DLA/FOSS/SL sign-ins), so comparing against
+        # username.upper() directly would silently match no rows. Same fix
+        # as the password-rehash path in auth.py.
+        cursor.execute(f"UPDATE users SET {field_name} = ? WHERE UPPER(Username) = ?", (value, username.strip().upper()))
         conn.commit()
 
 def delete_user_sqlite(username: str):
     """Deletes a user from the SQLite database."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM users WHERE Username = ?", (username.strip().upper(),))
+        cursor.execute("DELETE FROM users WHERE UPPER(Username) = ?", (username.strip().upper(),))
         conn.commit()
 
 def save_role_sqlite(role_name: str, capabilities: str):
