@@ -3,6 +3,7 @@ import datetime
 import logging
 from database import save_feedback_sqlite
 from masquerade import is_masquerading
+from processing import parse_user_schools, format_user_schools
 
 def view_feedback():
     st.title("💬 App Feedback & Suggestions")
@@ -55,7 +56,7 @@ def view_feedback():
                     st.warning("Please provide your comments before submitting.")
                 else:
                     username = st.session_state.get("username", "Unknown")
-                    school = st.session_state.get("saved_school", "All")
+                    school = format_user_schools(parse_user_schools(st.session_state.get("saved_school", "All")))
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
                     try:

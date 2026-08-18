@@ -3,7 +3,8 @@ import pandas as pd
 import datetime
 from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
-                        reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot)
+                        reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot,
+                        parse_user_schools, format_user_schools)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
@@ -43,34 +44,55 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
         st.session_state.sd_school_select_all = drilldown_school
 
     if only_own_school:
-        school = st.session_state.saved_school
-        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {school}</span>"
+        user_schools = parse_user_schools(st.session_state.saved_school)
+        if len(user_schools) == 1:
+            school = user_schools[0]
+        else:
+            # A locked user aligned with more than one school still needs to
+            # pick which one to view - the dashboard shows one at a time -
+            # but the options are restricted to their own schools, not the
+            # full faculty list.
+            school = st.selectbox(
+                "Select which of your schools to view",
+                user_schools,
+                key="sd_school_select_locked",
+            )
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
         st.markdown(f"<h1>School Dashboard{school_context_badge}</h1>", unsafe_allow_html=True)
     else:
         st.title("School Dashboard")
-        # If saved_school is not "All", show the focus checkbox. If unchecked, let them select another school context.
-        if st.session_state.saved_school != "All":
+        user_schools = parse_user_schools(st.session_state.saved_school)
+        # If not faculty-wide, show the focus checkbox. If unchecked, let them select another school context.
+        if user_schools != ["All"]:
+            label = format_user_schools(user_schools)
             filter_by_school = st.checkbox(
-                f"Focus on my school ({st.session_state.saved_school})", 
-                value=True, 
+                f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})",
+                value=True,
                 key="sd_focus_school",
                 help="Uncheck to toggle or view other schools."
             )
             if filter_by_school:
-                school = st.session_state.saved_school
+                if len(user_schools) == 1:
+                    school = user_schools[0]
+                else:
+                    school = st.selectbox(
+                        "Select which of your schools to view",
+                        user_schools,
+                        key="sd_school_select_focus",
+                    )
             else:
                 school = st.selectbox(
-                    "Select School to View", 
-                    schools, 
-                    index=schools.index(st.session_state.saved_school) if st.session_state.saved_school in schools else 0,
+                    "Select School to View",
+                    schools,
+                    index=schools.index(user_schools[0]) if user_schools[0] in schools else 0,
                     key="sd_school_select",
                     help="Select a specific school to view its dashboard."
                 )
         else:
             # Fallback for "All Schools" users (e.g. FACULTY)
             school = st.selectbox(
-                "Select School to View", 
-                schools, 
+                "Select School to View",
+                schools,
                 key="sd_school_select_all",
                 help="Please select a specific school to view its dashboard."
             )

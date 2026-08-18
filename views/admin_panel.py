@@ -38,6 +38,8 @@ from processing import (
     ally_term_to_academic_year,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
+    parse_user_schools,
+    format_user_schools,
 )
 from masquerade import start_masquerade
 
@@ -1012,11 +1014,17 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             u_status = u_row["Status"]
                             
                             role_default = u_role if u_role in roles_list else roles_list[0]
-                            school_default = u_school if u_school in schools_list else schools_list[0]
                             status_default = "Active" if str(u_status).upper() == "ACTIVE" else "Disabled"
-                            
+
                             new_role = st.selectbox("Assign System Role:", roles_list, index=roles_list.index(role_default), key=f"edit_role_{selected_user}")
-                            new_school = st.selectbox("Assign School Context:", schools_list, index=schools_list.index(school_default), key=f"edit_school_{selected_user}")
+                            school_pick = st.multiselect(
+                                "Assign School Context:",
+                                schools_list,
+                                default=parse_user_schools(u_school),
+                                key=f"edit_school_{selected_user}",
+                                help="Pick 'All' for faculty-wide access, or one or more specific schools for a locked/multi-school account. 'All' overrides any other schools also picked."
+                            )
+                            new_school = format_user_schools(school_pick)
                             new_status = st.segmented_control("Access Status:", ["Active", "Disabled"], default=status_default, key=f"edit_status_{selected_user}")
                             
                             new_pwd = st.text_input("Reset Password (leave empty to keep current):", type="password", key=f"reset_pwd_{selected_user}")
@@ -1069,8 +1077,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         add_username = st.text_input("New Username (e.g. school code or email prefix):", placeholder="e.g. MAT", key="new_user_uname").strip()
                         add_pwd = st.text_input("Account Password:", type="password", placeholder="Enter strong password...", key="new_user_pwd")
                         add_role = st.selectbox("Select Account Role:", roles_list, index=0, key="new_user_role")
-                        add_school = st.selectbox("Select Allowed School:", schools_list, index=0, key="new_user_school")
-                        
+                        add_school_pick = st.multiselect(
+                            "Select Allowed School(s):",
+                            schools_list,
+                            default=["All"],
+                            key="new_user_school",
+                            help="Pick 'All' for faculty-wide access, or one or more specific schools for a locked/multi-school account."
+                        )
+                        add_school = format_user_schools(add_school_pick)
+
                         if st.button("Create Account Registry", type="primary", use_container_width=True, key="btn_create_user"):
                             if not add_username:
                                 st.warning("Please enter a username.")
