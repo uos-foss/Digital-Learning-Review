@@ -800,8 +800,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
                     <span><b>Module Site:</b> {vle_value}</span>
-                    <span title="Whether a Digital Learning Advisor has reviewed and submitted this checklist."><b>Audit Status:</b> {sa_status}</span>
-                    {verdict_html}
+                    <span title="Whether a Digital Learning Advisor has reviewed and submitted this checklist."><b>Audit Status:</b> {sa_status}</span> {verdict_html}
                 </div>""", unsafe_allow_html=True)
 
         if is_dla_or_admin:
