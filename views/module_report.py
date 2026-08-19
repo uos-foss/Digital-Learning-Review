@@ -13,6 +13,7 @@ from processing import (
     LEAD_OWNED_SECTIONS,
     SECTION_STATES,
     derive_module_findings,
+    readiness_manual_override,
     compute_audit_verdict,
     fmt_report_date,
     readiness_evidence_words,
@@ -434,7 +435,7 @@ def _render_ally_issues(ally_profile, active_row, is_template=False):
         st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
 
 
-def _render_module_checks(pending_items, completed_items, has_audit, active_row=None):
+def _render_module_checks(pending_items, completed_items, has_audit, active_row=None, responses=None):
     """
     Checklist, Leganto and Blackboard template readiness, outstanding items
     first then completed.
@@ -456,7 +457,7 @@ def _render_module_checks(pending_items, completed_items, has_audit, active_row=
     """
     st.subheader("Module Checks and Readiness")
 
-    _render_template_sections(active_row)
+    _render_template_sections(active_row, responses, has_audit)
 
     st.markdown(f"#### Outstanding ({len(pending_items)})")
     if not pending_items:
@@ -491,7 +492,7 @@ def _render_module_checks(pending_items, completed_items, has_audit, active_row=
                 """, unsafe_allow_html=True)
 
 
-def _render_template_sections(active_row):
+def _render_template_sections(active_row, responses=None, has_audit=False):
     """
     The Blackboard template's required sections, from the faculty Template
     Alignment Report.
@@ -500,6 +501,14 @@ def _render_template_sections(active_row):
     hidden and carry all the signal. The other eleven ship visible and nobody is
     expected to touch them, so "Visible" there says nothing - they are collapsed
     behind an expander and shown only so a deleted or missing one is findable.
+
+    When a Digital Learning Advisor has actually recorded an answer for a
+    section's mapped checklist field (has_audit), that answer overrides the
+    data-driven badge below - see processing.readiness_manual_override().
+    Otherwise this block could show a section "Not started" here while the
+    Completed cards beside it show the same section ticked off from a real
+    audit, which is exactly the contradiction that confused advisors reading
+    a spot-checked module's report.
     """
     if active_row is None:
         return
@@ -522,10 +531,23 @@ def _render_template_sections(active_row):
         state = states.get(key)
         if not state:
             continue
-        label = TEMPLATE_SECTIONS.get(key, (key,))[0]
-        badge, tier, action = SECTION_STATES.get(
-            state.get('state', 'unknown'), SECTION_STATES['unknown'])
+        label, _owner, audit_field_id = TEMPLATE_SECTIONS.get(key, (key, None, None))
+        state_key = state.get('state', 'unknown')
+        badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
         colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
+        footer = readiness_evidence_words(state, created)
+
+        manual = readiness_manual_override(audit_field_id, responses) if has_audit else None
+        if manual is not None:
+            data_label = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])[0]
+            if manual:
+                badge, colour = "Manually verified complete", STATE_TIER_COLOUR['ok']
+                action = "A Digital Learning Advisor has recorded this as complete in the audit."
+            else:
+                badge, colour = "Manually verified incomplete", STATE_TIER_COLOUR['fault']
+                action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
+            footer = f"Automated read at last import: {data_label}. {footer}"
+
         st.markdown(
             f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05;
                         padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
@@ -536,7 +558,7 @@ def _render_template_sections(active_row):
                            font-weight:600;">{label}</h4>
                 <p style="margin:0 0 4px 0;color:#374151;font-size:12px;">{action}</p>
                 <p style="margin:0;color:#9CA3AF;font-size:11px;">
-                    {readiness_evidence_words(state, created)}</p>
+                    {footer}</p>
             </div>""", unsafe_allow_html=True)
 
     others = [(k, v) for k, v in states.items() if k not in LEAD_OWNED_SECTIONS]
@@ -798,7 +820,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             _render_ally_card(selected_code, active_row, ally_profile)
 
         with col_checks:
-            _render_module_checks(pending_items, completed_items, has_audit, active_row)
+            _render_module_checks(pending_items, completed_items, has_audit, active_row, responses)
 
         # Render confidential internal notes if user is an auditor
         if is_dla_or_admin and has_audit:

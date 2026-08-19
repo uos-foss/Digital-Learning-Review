@@ -1335,7 +1335,7 @@ def readiness_evidence_words(state, created_date):
                 "school - most likely Professional Services staff working through a "
                 "batch on the lead's behalf, not evidence from this module alone.")
     if evidence == 'lead_edit':
-        return f"Last changed {modified} on this module specifically."
+        return f"Last changed {modified}."
     return "No modification date recorded."
 
 def aggregate_readiness_to_modules(df_courses, df_sections):
@@ -1826,6 +1826,34 @@ def get_school_comparison(active_df, checklist_sums):
 # each type needs), plus 'source' and 'state' as the only new keys - so nothing
 # downstream needed new rendering code, only a new place to get the list from.
 
+def readiness_manual_override(audit_field_id, responses):
+    """
+    Whether a Digital Learning Advisor's own audit answer should override a
+    lead-owned template section's data-driven ready/not-ready read.
+
+    Returns True/False - the human verdict - when the module has a real,
+    recorded answer for audit_field_id; None when there is nothing to
+    override with (no mapping, or the field has never been answered), in
+    which case the caller falls back to the raw readiness state.
+
+    Unconditional on whether the answer agrees with the data: once an
+    advisor has recorded a verdict (a full audit, or closing out a
+    spot-check - see "Spot-check flagging" in CLAUDE.md), that verdict is
+    what happened, and the readiness snapshot becomes context for it rather
+    than a rival source of truth that can go on contradicting it on screen.
+    Before this, a module's Blackboard Template block and its own completed
+    checklist cards could show the same section as both "Not started" and
+    "Complete" at once - the data hadn't caught up with what the advisor had
+    actually verified.
+    """
+    if not audit_field_id:
+        return None
+    val = (responses or {}).get(audit_field_id)
+    if val is None or str(val).strip() == '':
+        return None
+    return str(val).strip().upper() == 'TRUE'
+
+
 def derive_module_findings(active_row, responses, active_fields, comment_bank):
     """
     Every checklist, Leganto, Ally and template-readiness finding for one
@@ -1980,13 +2008,16 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
         badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
 
         if owner == 'lead':
+            manual = readiness_manual_override(audit_field_id, responses)
+            is_ready = manual if manual is not None else (state_key in READINESS_READY_STATES)
             findings.append({
                 'source': 'readiness',
-                'state': 'completed' if state_key in READINESS_READY_STATES else 'pending',
+                'state': 'completed' if is_ready else 'pending',
                 'type': 'boolean',
                 'label': f"{section_label}: {badge}",
                 'description': action,
                 'audit_field_id': audit_field_id,
+                'manual_override': manual,
             })
         elif state_key in ('deleted', 'missing'):
             findings.append({

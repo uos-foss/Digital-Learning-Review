@@ -368,6 +368,27 @@ snapshot/diff logic is I/O-free in `processing.py`
   call `st.cache_data.clear()` just out of habit; a plain `st.rerun()` is
   enough to refresh what actually depends on session/query-time state.
 
+- **Interactive column sort on `st.dataframe` tables is unreliable when the
+  table also has `on_select="rerun"`** (e.g. the "All Modules" table in
+  `views/school_dashboard.py`) — this is an upstream Streamlit limitation, not
+  an app bug. Streamlit does not track click-to-sort state across a script
+  rerun ([streamlit/streamlit#10701](https://github.com/streamlit/streamlit/issues/10701),
+  open/unfixed as of Streamlit 1.61.1), so a rerun triggered by interacting
+  with the table (row selection, or another widget on the page) can silently
+  drop the sort back to the underlying row order while the header arrow still
+  shows the stale sort direction. Confirmed 19 Aug 2026 on the School
+  Dashboard's Module Code column: descending sort was a clean, complete
+  reverse-alphabetical order, but ascending showed a scrambled order with no
+  relationship to alphabetical order at all - i.e. the sort silently reverted
+  to natural row order. Don't chase this as a data/dtype bug in this repo's
+  code first - check whether the reported "wrong" direction is actually just
+  unsorted before assuming e.g. a formatting issue (see the actual `Ally
+  Score` text-vs-numeric sort bug this was first confused with, fixed 19 Aug
+  2026 in `views/school_dashboard.py` - that one *was* a real app bug: a
+  percentage was pre-formatted into a string and given a bare column_config
+  label instead of `st.column_config.NumberColumn`, so the grid sorted it
+  lexicographically). No app-side fix for the rerun/sort issue exists yet;
+  it needs an upstream Streamlit fix.
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
   five hardcoded copies. Do not add a sixth.
 - **`processing.py` is I/O-free** — pandas transformations only. SQL belongs in
