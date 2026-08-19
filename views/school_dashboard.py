@@ -9,8 +9,7 @@ from database import (get_all_audit_responses, get_active_audit_fields, get_ai_d
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
 from views.ally_widgets import (
-    scoreable, mean_score, impact_weighted_score, render_maturity_banner,
-    render_maturity_breakdown, render_surface_split, render_issue_profile,
+    scoreable, mean_score, render_maturity_banner, render_issue_profile,
     render_severe_register, build_accessibility_risk_list,
 )
 
@@ -346,8 +345,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 render_maturity_banner(school_df)
 
                 ally_tabs = st.tabs([
-                    "🔧 What to fix", "🏗️ Build progress", "📄 Files vs pages",
-                    "🔴 Severe issues", "📋 By module", "🔗 Reconciliation",
+                    "🔧 What to fix", "🔴 Severe issues", "📋 By module", "🔗 Reconciliation",
                 ])
 
                 df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
@@ -363,34 +361,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                          key=f"school_issue_profile_{school}")
 
                 with ally_tabs[1]:
-                    st.markdown("##### How much of the school's provision has content yet")
-                    render_maturity_breakdown(school_df)
-                    built_df = scoreable(school_df)
-                    b1, b2, b3 = st.columns(3)
-                    b1.metric("Modules with content", f"{len(built_df)} / {len(school_df)}")
-                    b2.metric("Files scanned",
-                              f"{int(pd.to_numeric(school_df.get('Total Files'), errors='coerce').fillna(0).sum()):,}")
-                    b3.metric("Editor pages",
-                              f"{int(pd.to_numeric(school_df.get('Ally WYSIWYG Items'), errors='coerce').fillna(0).sum()):,}")
-
-                with ally_tabs[2]:
-                    st.markdown("##### Uploaded documents against pages built in Blackboard")
-                    render_surface_split(school_df)
-                    plain = mean_score(school_df)
-                    weighted = impact_weighted_score(school_df)
-                    if plain is not None and weighted is not None:
-                        w1, w2 = st.columns(2)
-                        w1.metric("Average across modules", f"{plain:.1%}")
-                        w2.metric("Weighted by enrolment", f"{weighted:.1%}",
-                                  delta=f"{(weighted - plain) * 100:+.1f} pts",
-                                  help="What students actually encounter. Below the plain "
-                                       "average means the busiest modules are the weaker ones.")
-
-                with ally_tabs[3]:
                     st.markdown("##### Modules carrying a severe accessibility issue")
                     render_severe_register(school_df, key=f"school_severe_{school}")
 
-                with ally_tabs[4]:
+                with ally_tabs[2]:
                     st.markdown("##### Every module, with the detail behind its score")
                     if school_df.empty or 'Ally Overall' not in school_df.columns:
                         st.warning("No Ally data found for this school.")
@@ -422,7 +396,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             },
                             width="stretch", hide_index=True)
 
-                with ally_tabs[5]:
+                with ally_tabs[3]:
                     st.markdown("##### Where Ally and SITS disagree")
                     st.caption(
                         "Programme-level and community Blackboard sites have no SITS module, "
