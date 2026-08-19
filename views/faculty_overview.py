@@ -55,7 +55,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     
     # ABSOLUTE LOCKDOWN ROUTER: Uses robust native widget for 100% reliable state linkage across reloads.
     # Also enables true lazy-loading, increasing app speed by not calculating inactive views!
-    view_options = ["🏫 School Comparison", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum"]
+    # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
+    # disabled - add them back to this list to restore. Their view code below
+    # is untouched.
+    view_options = ["🏫 School Comparison", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List"]
     
     selected_view = st.segmented_control(
         "Navigate View:", 
