@@ -105,18 +105,12 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
         school_df = target_df[target_df['New module code'].str.startswith(school, na=False)].copy()
         
         if not school_df.empty:
-            # Integration: Add audit status
-            def get_audit_status(code):
-                if code in checklist_sums:
-                    return checklist_sums[code]['Status']
-                return "❌ Not Audited"
-                
+            # Integration: Add actionable items count
             def get_actionable_items(code):
                 if code in checklist_sums:
                     return checklist_sums[code].get('Actionable Items', 0)
                 return 0
-            
-            school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
+
             school_df['Actionable Items'] = school_df['New module code'].apply(get_actionable_items)
             
             # Define school codes for filtering data
@@ -197,8 +191,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 if 'Content Maturity' in display_df.columns:
                     cols.append('Content Maturity')
                     configs['Content Maturity'] = "Build Stage"
-                cols.append('Audited?')
-                configs['Audited?'] = "Audited?"
                 cols.append('Actionable Items')
                 configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
                 
