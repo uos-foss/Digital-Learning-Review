@@ -3,15 +3,14 @@ import pandas as pd
 import datetime
 from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
-                        reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot,
-                        parse_user_schools, format_user_schools)
+                        resolve_active_row, build_spot_check_snapshot,
+                        parse_user_schools, format_user_schools, prepare_ally_issues)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
 from views.ally_widgets import (
-    scoreable, mean_score, impact_weighted_score, render_maturity_banner,
-    render_maturity_breakdown, render_surface_split, render_issue_profile,
-    render_severe_register, build_accessibility_risk_list,
+    scoreable, mean_score, render_maturity_banner, render_issue_profile,
+    build_accessibility_risk_list,
 )
 
 def to_sentence_case(name: str) -> str:
@@ -106,40 +105,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
         school_df = target_df[target_df['New module code'].str.startswith(school, na=False)].copy()
         
         if not school_df.empty:
-            # Integration: Add audit status
-            def get_audit_status(code):
-                if code in checklist_sums:
-                    return checklist_sums[code]['Status']
-                return "❌ Not Audited"
-                
+            # Integration: Add actionable items count
             def get_actionable_items(code):
                 if code in checklist_sums:
                     return checklist_sums[code].get('Actionable Items', 0)
                 return 0
-            
-            school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
+
             school_df['Actionable Items'] = school_df['New module code'].apply(get_actionable_items)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Modules", len(school_df),
-                          help=f"Total modules for {school} in the {semester} semester.")
-            with col2:
-                no_activity = len(school_df) - len(scoreable(school_df))
-                st.metric("Modules with no activity", f"{no_activity}",
-                          help="Modules that still only have the default template - no "
-                               "content added yet")
-            with col3:
-                avg_ally = mean_score(school_df)
-                st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
-                          help="Ally's overall score, averaged across modules with content beyond "
-                               "their template only.")
-            with col4:
-                total_actionable = int(school_df['Actionable Items'].sum())
-                st.metric("Outstanding Actionable Items", f"{total_actionable}",
-                          help="Sum of outstanding items across all modules in this semester - "
-                               "checklist, Leganto reading lists, Ally accessibility, and template "
-                               "readiness findings combined.")
             
             # Define school codes for filtering data
             school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
@@ -156,7 +128,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
+            # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
+            # disabled - add them back to this list to restore. Their view code
+            # below is untouched.
+            view_options = ["📋 Modules Overview", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -166,7 +141,28 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             )
             st.divider()
             
-            if selected_view == "📋 All Modules":
+            if selected_view == "📋 Modules Overview":
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Modules", len(school_df),
+                              help=f"Total modules for {school} in the {semester} semester.")
+                with col2:
+                    no_activity = len(school_df) - len(scoreable(school_df))
+                    st.metric("Modules with no activity", f"{no_activity}",
+                              help="Modules that still only have the default template - no "
+                                   "content added yet")
+                with col3:
+                    avg_ally = mean_score(school_df)
+                    st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
+                              help="Ally's overall score, averaged across modules with content "
+                                   "beyond their template only.")
+                with col4:
+                    total_actionable = int(school_df['Actionable Items'].sum())
+                    st.metric("Outstanding Actionable Items", f"{total_actionable}",
+                              help="Sum of outstanding items across all modules in this semester - "
+                                   "checklist, Leganto reading lists, Ally accessibility, and "
+                                   "template readiness findings combined.")
+
                 st.subheader("Module Audit Status")
                 display_df = school_df.copy()
                 # Default order: the underlying query has no ORDER BY, so rows
@@ -189,17 +185,28 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     configs['UG/ PG/ Other'] = "Level"
                 # Ally score, qualified by how far the course has been built - an
                 # untouched template scores near 100% and would otherwise read as
-                # the best module in the school.
-                if 'Ally Overall' in display_df.columns:
-                    display_df['Ally Score'] = display_df['Ally Overall'].apply(
-                        lambda v: v * 100 if pd.notna(v) else None)
-                    cols.append('Ally Score')
-                    configs['Ally Score'] = st.column_config.NumberColumn("Ally Score", format="%.1f%%")
-                if 'Content Maturity' in display_df.columns:
-                    cols.append('Content Maturity')
-                    configs['Content Maturity'] = "Build Stage"
-                cols.append('Audited?')
-                configs['Audited?'] = "Audited?"
+                # the best module in the school. One column rather than two: the
+                # score only means something once a module is 'In progress', so
+                # everywhere else the build stage itself is the useful value, not
+                # a near-100% number sitting next to it. This mixes text and
+                # percentages in the same cell by design, so it sorts as text,
+                # not by score - a deliberate tradeoff of combining the two.
+                if 'Ally Overall' in display_df.columns or 'Content Maturity' in display_df.columns:
+                    def _score_or_stage(r):
+                        maturity = r.get('Content Maturity')
+                        if maturity == 'In progress':
+                            v = r.get('Ally Overall')
+                            if pd.notna(v):
+                                return f"{v * 100:.1f}%"
+                        return maturity if maturity else "—"
+                    display_df['Score / Stage'] = display_df.apply(_score_or_stage, axis=1)
+                    cols.append('Score / Stage')
+                    configs['Score / Stage'] = st.column_config.TextColumn(
+                        "Score / Build Stage",
+                        help="Ally's accessibility score once a module has content "
+                             "beyond its template ('In progress'); otherwise the build "
+                             "stage itself, since an untouched template scores near "
+                             "100% and would misread as the best module in the school.")
                 cols.append('Actionable Items')
                 configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
                 
@@ -344,68 +351,71 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             elif selected_view == "📊 Ally Analytics":
                 st.subheader(f"Accessibility Profile — {school} ({semester})")
                 render_maturity_banner(school_df)
-
-                ally_tabs = st.tabs([
-                    "🔧 What to fix", "🏗️ Build progress", "📄 Files vs pages",
-                    "🔴 Severe issues", "📋 By module", "🔗 Reconciliation",
-                ])
+                st.caption(
+                    "Counted in content items rather than modules, because that is the "
+                    "size of the job. One session on exporting tagged PDFs can clear "
+                    "hundreds of items at once."
+                )
 
                 df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
+                scoped_issues = prepare_ally_issues(df_issues, school_codes)
 
-                with ally_tabs[0]:
-                    st.markdown("##### The accessibility work this school is carrying")
-                    st.caption(
-                        "Counted in content items rather than modules, because that is the "
-                        "size of the job. One session on exporting tagged PDFs can clear "
-                        "hundreds of items at once."
-                    )
-                    render_issue_profile(df_issues, school_codes, top_n=12,
+                severity_options = ["Severe", "Major", "Minor", "Other"]
+                fcol1, fcol2 = st.columns(2)
+                with fcol1:
+                    severity_filter = st.multiselect(
+                        "Filter by severity", severity_options, default=severity_options,
+                        key=f"ally_severity_filter_{school}")
+                if not severity_filter:
+                    severity_filter = severity_options
+                severity_scoped = scoped_issues[scoped_issues['severity_label'].isin(severity_filter)]
+                with fcol2:
+                    issue_options = sorted(severity_scoped['label'].unique())
+                    issue_filter = st.multiselect(
+                        "Filter by issue", issue_options, default=[],
+                        key=f"ally_issue_filter_{school}",
+                        help="Narrows the module table to modules carrying one or more of "
+                             "the selected issues. Leave blank to include every issue at "
+                             "the severities chosen on the left.")
+
+                filters_active = set(severity_filter) != set(severity_options) or bool(issue_filter)
+
+                chart_col, table_col = st.columns([2, 3])
+
+                with chart_col:
+                    st.markdown("##### What to fix")
+                    render_issue_profile(severity_scoped, school_codes, top_n=8,
                                          key=f"school_issue_profile_{school}")
 
-                with ally_tabs[1]:
-                    st.markdown("##### How much of the school's provision has content yet")
-                    render_maturity_breakdown(school_df)
-                    built_df = scoreable(school_df)
-                    b1, b2, b3 = st.columns(3)
-                    b1.metric("Modules with content", f"{len(built_df)} / {len(school_df)}")
-                    b2.metric("Files scanned",
-                              f"{int(pd.to_numeric(school_df.get('Total Files'), errors='coerce').fillna(0).sum()):,}")
-                    b3.metric("Editor pages",
-                              f"{int(pd.to_numeric(school_df.get('Ally WYSIWYG Items'), errors='coerce').fillna(0).sum()):,}")
-
-                with ally_tabs[2]:
-                    st.markdown("##### Uploaded documents against pages built in Blackboard")
-                    render_surface_split(school_df)
-                    plain = mean_score(school_df)
-                    weighted = impact_weighted_score(school_df)
-                    if plain is not None and weighted is not None:
-                        w1, w2 = st.columns(2)
-                        w1.metric("Average across modules", f"{plain:.1%}")
-                        w2.metric("Weighted by enrolment", f"{weighted:.1%}",
-                                  delta=f"{(weighted - plain) * 100:+.1f} pts",
-                                  help="What students actually encounter. Below the plain "
-                                       "average means the busiest modules are the weaker ones.")
-
-                with ally_tabs[3]:
-                    st.markdown("##### Modules carrying a severe accessibility issue")
-                    render_severe_register(school_df, key=f"school_severe_{school}")
-
-                with ally_tabs[4]:
-                    st.markdown("##### Every module, with the detail behind its score")
+                with table_col:
+                    st.markdown("##### Modules")
                     if school_df.empty or 'Ally Overall' not in school_df.columns:
                         st.warning("No Ally data found for this school.")
                     else:
                         table = school_df.copy()
+                        table['_code'] = table['New module code'].astype(str).str.strip().str.upper()
                         table['Mod. lead'] = table['Mod. lead'].apply(to_sentence_case)
-                        table = table.sort_values(['Ally Severe', 'Ally Major'], ascending=False)
-                        show = [c for c in [
-                            'New module code', 'Module name', 'Mod. lead', 'Content Maturity',
-                            'Ally Overall', 'Ally Files', 'Ally WYSIWYG', 'Total Files',
-                            'Ally WYSIWYG Items', 'Ally Severe', 'Ally Major', 'Ally Minor',
-                            'Ally Students'] if c in table.columns]
-                        st.dataframe(
-                            table[show].reset_index(drop=True),
-                            column_config={
+
+                        if filters_active:
+                            table_issues = severity_scoped
+                            if issue_filter:
+                                table_issues = table_issues[table_issues['label'].isin(issue_filter)]
+                            matched_items = table_issues.groupby('module_code')['items'].sum()
+                            table = table[table['_code'].isin(matched_items.index)].copy()
+                            table['Matching Items'] = table['_code'].map(matched_items).fillna(0).astype(int)
+                            table = table.sort_values(['Matching Items', 'Ally Severe'], ascending=False)
+                        else:
+                            table = table.sort_values(['Ally Severe', 'Ally Major'], ascending=False)
+
+                        if table.empty:
+                            st.info("No modules match the selected filters.")
+                        else:
+                            show = [c for c in [
+                                'New module code', 'Module name', 'Mod. lead', 'Content Maturity',
+                                'Ally Overall', 'Ally Files', 'Ally WYSIWYG', 'Total Files',
+                                'Ally WYSIWYG Items', 'Ally Severe', 'Ally Major', 'Ally Minor',
+                                'Ally Students'] if c in table.columns]
+                            configs = {
                                 'New module code': "Module Code",
                                 'Module name': "Module Name",
                                 'Mod. lead': "Module Lead",
@@ -419,33 +429,17 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                 'Ally Major': st.column_config.NumberColumn("Major", format="%d"),
                                 'Ally Minor': st.column_config.NumberColumn("Minor", format="%d"),
                                 'Ally Students': st.column_config.NumberColumn("Students", format="%d"),
-                            },
-                            width="stretch", hide_index=True)
-
-                with ally_tabs[5]:
-                    st.markdown("##### Where Ally and SITS disagree")
-                    st.caption(
-                        "Programme-level and community Blackboard sites have no SITS module, "
-                        "and a few SITS modules have no Blackboard course. Both used to "
-                        "disappear silently at import."
-                    )
-                    df_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
-                    if df_courses.empty:
-                        st.info("No Ally courses loaded.")
-                    else:
-                        ally_here = df_courses[
-                            df_courses['module_code'].astype(str).str[:3] == school]
-                        rec = reconcile_ally_modules(ally_here['module_code'], school_codes)
-                        r1, r2, r3 = st.columns(3)
-                        r1.metric("Matched", len(rec['matched']))
-                        r2.metric("Ally only", len(rec['ally_only']))
-                        r3.metric("SITS only", len(rec['sits_only']))
-                        if rec['ally_only']:
-                            st.write("**Blackboard courses with no SITS module this semester**")
-                            st.code(", ".join(rec['ally_only']))
-                        if rec['sits_only']:
-                            st.write("**SITS modules with no Blackboard course**")
-                            st.code(", ".join(rec['sits_only']))
+                            }
+                            if filters_active:
+                                show.append('Matching Items')
+                                configs['Matching Items'] = st.column_config.NumberColumn(
+                                    "Matching Items",
+                                    help="Content items matching the severity/issue filters "
+                                         "above.")
+                            st.dataframe(
+                                table[show].reset_index(drop=True),
+                                column_config=configs,
+                                width="stretch", hide_index=True)
 
             elif selected_view == "📈 Trends":
                 st.subheader(f"Accessibility Trends ({school})")
@@ -799,7 +793,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 if sc_df.empty:
                     st.info(
                         "No modules flagged yet this year. Select a module in "
-                        "'📋 All Modules' and use 🎯 Flag for Spot-Check.")
+                        "'📋 Modules Overview' and use 🎯 Flag for Spot-Check.")
                 else:
                     pending_n = int((sc_df['status'] == 'pending').sum())
                     checked_n = int((sc_df['status'] == 'checked').sum())
@@ -886,7 +880,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                     "Confirm removal", key=f"sc_remove_confirm_{sc_clicked_id}",
                                     help="Deletes this flag outright. For a checked module this "
                                          "also deletes its agreement result - re-flag it from "
-                                         "'All Modules' afterwards to start fresh.")
+                                         "'Modules Overview' afterwards to start fresh.")
                                 if st.button("🗑️ Remove Flag", width="stretch",
                                             disabled=not remove_confirm, key="btn_school_sc_remove"):
                                     delete_spot_check(sc_clicked_id)

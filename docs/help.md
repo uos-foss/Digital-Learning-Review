@@ -38,9 +38,9 @@ Five tabs:
 * **School Comparison** — One row per school: module count, audit coverage,
   average Ally score, VLE compliance and an overall status badge. Faculty-wide
   totals sit beneath the table. Click any row to open that school's dashboard.
-* **Ally Analytics** — The faculty's accessibility profile, in six tabs: the
-  issue league table, build-out tracker, files against editor pages, severity
-  load by school, score distribution and a data-coverage check.
+* **Ally Analytics** — The faculty's accessibility profile, in five tabs: the
+  issue league table, build-out tracker, severity load by school, score
+  distribution and a data-coverage check.
 * **Compliance Gap** — Which audit checks are most often failed.
 * **Priority Action List** — Modules most in need of attention.
 * **Assessment Types** — SITS assessment strategy overall, or compared across
@@ -56,14 +56,19 @@ Five tabs:
 
 ### 🏫 School Dashboard
 
-Six tabs. Note that these are **not** the same set as the Faculty Overview —
-this page has All Modules and Trends, and does not have School Comparison.
+Note that these are **not** the same set as the Faculty Overview — this page
+has Modules Overview and Trends, and does not have School Comparison.
 
-* **All Modules** — Every module in the school with its lead, Ally score, build
-  stage and audit status.
-* **Ally Analytics** — Six tabs: what to fix, build progress, files against
-  editor pages, severe issues, a per-module table, and reconciliation against
-  SITS.
+* **Modules Overview** — Four summary cards (total modules, modules with no
+  activity, average Ally score, outstanding actionable items), then every
+  module in the school with its lead, Ally score, build stage and audit
+  status.
+* **Ally Analytics** — A single view: the issue-by-severity chart and the
+  module table side by side, both driven by the severity and issue filters
+  above them. No filters shows every module; narrowing to Severe replaces
+  the old dedicated severe-issues list. (Reconciliation against SITS moved
+  to the Admin Panel's Inactive Modules tab, since it's a data-integrity
+  check, not an accessibility metric.)
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
 * **Checklist Completion** (Faculty Overview's Compliance Gap, renamed here),
@@ -146,6 +151,11 @@ Some modules in SITS are not really running — skeleton shells, modules merged
 into another, or archived records. Administrators can mark these as inactive in
 the Admin Panel, which removes them from every dashboard, count and analytic so
 they do not drag down a school's figures. They can be restored at any time.
+
+The same tab also shows the Ally/SITS reconciliation: Blackboard courses Ally
+tracks with no matching SITS module (usually shell, custom or programme-level
+sites — candidates for marking inactive, but occasionally real provision SITS
+hasn't caught up on), and SITS modules with no Blackboard course.
 
 ### 📜 Activity Logging
 

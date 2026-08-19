@@ -1876,6 +1876,33 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 except Exception as e:
                     st.error(f"Error marking module as inactive: {e}")
 
+            st.divider()
+            st.markdown("##### **Ally / SITS Reconciliation**")
+            st.caption(
+                "Blackboard courses Ally tracks that have no matching SITS module, and SITS "
+                "modules with no Blackboard course. The Ally-only list is usually shell, "
+                "custom, or programme-level courses - candidates for marking inactive above - "
+                "but some are real provision SITS just doesn't have a code for yet, so check "
+                "before assuming one can be ignored."
+            )
+            df_ally_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
+            if df_ally_courses.empty:
+                st.info("No Ally courses loaded. Import the institutional report to see this.")
+            elif not all_modules:
+                st.info("No SITS modules loaded to reconcile against.")
+            else:
+                rec = reconcile_ally_modules(df_ally_courses['module_code'], all_modules)
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Matched", f"{len(rec['matched']):,}")
+                r2.metric("Ally only", f"{len(rec['ally_only']):,}")
+                r3.metric("SITS only", f"{len(rec['sits_only']):,}")
+                if rec['ally_only']:
+                    st.write("**Blackboard courses with no SITS module**")
+                    st.code(", ".join(rec['ally_only']))
+                if rec['sits_only']:
+                    st.write("**SITS modules with no Blackboard course**")
+                    st.code(", ".join(rec['sits_only']))
+
         except Exception as e:
             st.error(f"Error managing inactive modules: {e}")
 

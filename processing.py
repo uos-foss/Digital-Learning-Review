@@ -1423,41 +1423,64 @@ def _readiness_section_states(df_courses, df_sections):
         }
     return states
 
-def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
+def prepare_ally_issues(df_issues, module_codes=None):
     """
-    Rolls long issue rows up by check, newest-first by weight of the problem.
+    Long-form Ally issue rows - one per module per check - labelled with the
+    plain-English name, severity tier, fix surface and advice from
+    ALLY_CHECKS. LibraryReference is excluded - it marks library-sourced
+    content, not a defect.
 
-    `items` is the number of content items affected, so summing it across
-    modules gives the size of the job rather than a count of modules with a
-    complaint. LibraryReference is excluded - it marks library-sourced content,
-    not a defect.
+    The shared base under summarise_ally_issues (rolled up by check, for the
+    "what to fix" chart) and the School Dashboard's per-module issue table,
+    so the check_name -> label/severity mapping lives in exactly one place
+    rather than drifting between a chart view and a table view of the same
+    data.
 
     Kept I/O-free: callers pass in database.get_ally_issues_latest().
     """
-    columns = ['check_name', 'label', 'severity', 'severity_label', 'surface',
-               'advice', 'items', 'modules']
+    columns = ['module_code', 'check_name', 'label', 'severity', 'severity_label',
+               'surface', 'advice', 'items']
     if df_issues is None or df_issues.empty:
         return pd.DataFrame(columns=columns)
 
     df = df_issues.copy()
     df = df[df['check_name'] != 'LibraryReference']
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
     if module_codes is not None:
         scope = {str(c).strip().upper() for c in module_codes if str(c).strip()}
-        df = df[df['module_code'].astype(str).str.strip().str.upper().isin(scope)]
+        df = df[df['module_code'].isin(scope)]
     if df.empty:
         return pd.DataFrame(columns=columns)
 
-    df['items'] = pd.to_numeric(df['items'], errors='coerce').fillna(0)
+    df['items'] = pd.to_numeric(df['items'], errors='coerce').fillna(0).astype(int)
+    df['label'] = df['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[0])
+    df['surface'] = df['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[1])
+    df['advice'] = df['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[2])
+    df['severity_label'] = df['severity'].map(
+        lambda s: ALLY_SEVERITY_LABELS.get(int(s), "Other") if pd.notna(s) else "Other")
+    return df[columns].reset_index(drop=True)
+
+def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
+    """
+    Rolls prepare_ally_issues() up by check, worst-first by weight of the
+    problem.
+
+    `items` is the number of content items affected, so summing it across
+    modules gives the size of the job rather than a count of modules with a
+    complaint.
+    """
+    columns = ['check_name', 'label', 'severity', 'severity_label', 'surface',
+               'advice', 'items', 'modules']
+    df = prepare_ally_issues(df_issues, module_codes)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
     grouped = (df.groupby('check_name', as_index=False)
-                 .agg(severity=('severity', 'min'),
-                      items=('items', 'sum'),
-                      modules=('module_code', 'nunique')))
-    grouped['label'] = grouped['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[0])
-    grouped['surface'] = grouped['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[1])
-    grouped['advice'] = grouped['check_name'].map(lambda c: ALLY_CHECKS.get(c, (c, 'file', ''))[2])
+                 .agg(label=('label', 'first'), severity=('severity', 'min'),
+                      surface=('surface', 'first'), advice=('advice', 'first'),
+                      items=('items', 'sum'), modules=('module_code', 'nunique')))
     grouped['severity_label'] = grouped['severity'].map(
         lambda s: ALLY_SEVERITY_LABELS.get(int(s), "Other") if pd.notna(s) else "Other")
-    grouped['items'] = grouped['items'].astype(int)
 
     grouped = grouped.sort_values(['severity', 'items'], ascending=[True, False])
     if top_n:

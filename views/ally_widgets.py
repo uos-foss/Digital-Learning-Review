@@ -12,6 +12,7 @@ autumn, before anyone has taught anything. There is no "finished" state:
 module leads build just-in-time throughout the year, so nothing here ever
 claims a course is complete, only that it has moved past its template.
 """
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -45,20 +46,6 @@ def mean_score(df, column='Ally Overall'):
         return None
     values = pd.to_numeric(subset[column], errors='coerce').dropna()
     return float(values.mean()) if not values.empty else None
-
-
-def impact_weighted_score(df, column='Ally Overall'):
-    """Score weighted by enrolment, so it reflects student exposure rather than
-    an average over modules of wildly different size."""
-    subset = scoreable(df)
-    if subset.empty or column not in subset.columns:
-        return None
-    scores = pd.to_numeric(subset[column], errors='coerce')
-    weights = pd.to_numeric(subset.get('Ally Students'), errors='coerce').fillna(0)
-    valid = scores.notna() & (weights > 0)
-    if not valid.any():
-        return None
-    return float((scores[valid] * weights[valid]).sum() / weights[valid].sum())
 
 
 def render_maturity_banner(df):
@@ -95,52 +82,6 @@ def render_maturity_breakdown(df, caption=None):
                "course has started, never that it is finished.")
 
 
-def render_surface_split(df, group_column=None):
-    """
-    Files score against editor-page score.
-
-    The single most useful diagnostic the institutional export added: a school
-    scoring well on pages and badly on documents needs document-authoring
-    support, not Blackboard training, and the two are entirely different
-    interventions. A single blended number hides it completely.
-    """
-    subset = scoreable(df)
-    if subset.empty:
-        st.info("No built courses in this scope yet, so there is nothing to compare.")
-        return
-
-    if group_column and group_column in subset.columns:
-        rows = []
-        for name, group in subset.groupby(group_column):
-            for label, col in [("Uploaded files", 'Ally Files'),
-                               ("Editor pages", 'Ally WYSIWYG')]:
-                values = pd.to_numeric(group.get(col), errors='coerce').dropna()
-                if not values.empty:
-                    rows.append({group_column: name, 'Surface': label,
-                                 'Score': float(values.mean())})
-        if not rows:
-            st.info("No scores available.")
-            return
-        chart = pd.DataFrame(rows)
-        st.bar_chart(chart, x=group_column, y='Score', color='Surface', height=320,
-                     stack=False)
-    else:
-        rows = []
-        for label, col in [("Uploaded files", 'Ally Files'), ("Editor pages", 'Ally WYSIWYG')]:
-            values = pd.to_numeric(subset.get(col), errors='coerce').dropna()
-            if not values.empty:
-                rows.append({'Surface': label, 'Score': float(values.mean())})
-        if not rows:
-            st.info("No scores available.")
-            return
-        st.bar_chart(pd.DataFrame(rows), x='Surface', y='Score', height=260,
-                     color='#2563EB')
-
-    st.caption("Documents are fixed by re-authoring and re-uploading them. Editor "
-               "pages are fixed in Blackboard in minutes. Where the gap is wide, the "
-               "lower bar is where the effort belongs.")
-
-
 def render_issue_profile(df_issues, module_codes, top_n=12, key="issue_profile"):
     """
     Which accessibility problems dominate this scope, by items affected.
@@ -160,17 +101,37 @@ def render_issue_profile(df_issues, module_codes, top_n=12, key="issue_profile")
         st.success("✅ Ally has found no accessibility issues in this scope.")
         return profile
 
-    chart_df = profile[['label', 'items', 'severity_label']].copy()
-    chart_df.columns = ['Issue', 'Items affected', 'Severity']
-    st.bar_chart(chart_df, x='Issue', y='Items affected', color='Severity',
-                 height=420, horizontal=True)
+    chart_df = profile[['label', 'items', 'severity_label', 'modules', 'surface', 'advice']].copy()
+    chart_df['surface'] = chart_df['surface'].map(lambda s: SURFACE_LABELS.get(s, ''))
+    chart_df.columns = ['Issue', 'Items affected', 'Severity', 'Modules affected',
+                         'Where it gets fixed', 'What to do']
 
-    with st.expander("What each of these means, and where it gets fixed"):
-        for _, row in profile.iterrows():
-            st.markdown(
-                f"**{row['label']}** — {row['severity_label']}, {row['items']} item(s) "
-                f"across {row['modules']} module(s)  \n"
-                f"*{SURFACE_LABELS.get(row['surface'], '')}.* {row['advice']}")
+    # st.bar_chart (a thin Altair wrapper) truncates long category labels to a
+    # fixed pixel width with no way to override it - full-sentence issue names
+    # were unreadable. Built directly in Altair instead so labelLimit can be
+    # lifted and the row order (severity first, then items affected) preserved
+    # rather than re-sorted alphabetically. The explanation that used to live
+    # in a separate expander below is folded into the tooltip instead, so the
+    # detail sits on the bar it describes rather than in a second lookup.
+    issue_order = chart_df['Issue'].tolist()
+    chart = (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            y=alt.Y('Issue:N', sort=issue_order, title=None,
+                    axis=alt.Axis(labelLimit=1000, labelFontSize=12, labelPadding=8)),
+            x=alt.X('Items affected:Q'),
+            color=alt.Color('Severity:N',
+                             scale=alt.Scale(
+                                 domain=["Severe", "Major", "Minor", "Other"],
+                                 range=["#7F1D1D", "#DC2626", "#F97316", "#EAB308"]),
+                             legend=alt.Legend(title=None)),
+            tooltip=['Issue', 'Severity', 'Items affected', 'Modules affected',
+                     'Where it gets fixed', 'What to do'],
+        )
+        .properties(height=max(320, 34 * len(chart_df)))
+    )
+    st.altair_chart(chart, use_container_width=True)
     return profile
 
 
@@ -232,33 +193,6 @@ def build_accessibility_risk_list(df):
     if skipped:
         note += f" {skipped} module(s) not yet started are excluded."
     return at_risk[cols].reset_index(drop=True), configs, note, "warning"
-
-
-def render_severe_register(df, key="severe_register"):
-    """Modules carrying a severe issue, worst and busiest first."""
-    if df is None or df.empty or 'Ally Severe' not in df.columns:
-        return
-    severe = df[pd.to_numeric(df['Ally Severe'], errors='coerce').fillna(0) > 0].copy()
-    if severe.empty:
-        st.success("✅ No modules in this scope carry a severe accessibility issue.")
-        return
-
-    severe['Students'] = pd.to_numeric(severe.get('Ally Students'), errors='coerce').fillna(0).astype(int)
-    severe['Severe items'] = pd.to_numeric(severe['Ally Severe'], errors='coerce').fillna(0).astype(int)
-    severe['Score'] = pd.to_numeric(severe.get('Ally Overall'), errors='coerce')
-    severe = severe.sort_values(['Severe items', 'Students'], ascending=False)
-
-    cols = [c for c in ['New module code', 'Module name', 'Mod. lead',
-                        'Severe items', 'Students', 'Score'] if c in severe.columns]
-    st.dataframe(
-        severe[cols].reset_index(drop=True),
-        column_config={
-            'New module code': "Module Code",
-            'Module name': "Module Name",
-            'Mod. lead': "Module Lead",
-            'Score': st.column_config.NumberColumn("Ally Overall", format="%.1f%%"),
-        },
-        width="stretch", hide_index=True, key=key)
     st.caption("Severe issues are unreadable scans, corrupt files, documents locked "
                "against screen readers, and images that can trigger seizures. These "
                "block access outright rather than making it harder.")
