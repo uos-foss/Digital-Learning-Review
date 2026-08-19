@@ -638,32 +638,61 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
     else:
         st.title("Module Report")
-        # Optional multi-tenant school filter to focus without siloing
+        # Optional multi-tenant school filter to focus without siloing.
+        # `context_focus_own` / `context_school` are plain session-state
+        # values (never a widget's own `key=`) shared with School Dashboard's
+        # and Audit Portal's equivalent controls, read here and written back
+        # below. A widget's *own* state does not survive `st.switch_page()`
+        # navigation in this app's st.navigation()/st.Page(function) setup,
+        # so `value=`/`index=` always reseed from these plain keys rather
+        # than relying on `key=` continuity across pages - see "School
+        # context locking" in CLAUDE.md.
         user_schools = parse_user_schools(st.session_state.saved_school)
         if user_schools != ["All"]:
             label = format_user_schools(user_schools)
-            filter_by_school = st.checkbox(f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})", value=True, key="rc_focus_school")
+            filter_by_school = st.checkbox(
+                f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})",
+                value=st.session_state.get("context_focus_own", True),
+                key="rc_context_focus_own_widget",
+                help="Uncheck to work in another school's context - this stays locked "
+                     "across pages until you re-check this or pick your own school "
+                     "again, so covering a colleague's school doesn't keep reverting "
+                     "back to yours.")
+            st.session_state.context_focus_own = filter_by_school
             if filter_by_school:
                 combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
             else:
+                options = ["All Schools"] + schools_list
+                persisted_school = st.session_state.get("context_school")
+                default_idx = options.index(persisted_school) if persisted_school in options else 0
                 selected_school = st.selectbox(
                     "Select School to Focus",
-                    ["All Schools"] + schools_list,
-                    index=0,
-                    key="rc_school_select",
+                    options,
+                    index=default_idx,
+                    key="rc_context_school_widget",
                     help="Switch to another school's module list."
                 )
+                st.session_state.context_school = selected_school
                 if selected_school != "All Schools":
                     combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
         else:
-            # Fallback for "All Schools" users (e.g. FACULTY) to filter module list by school
+            # Fallback for "All Schools" users (e.g. FACULTY, and most real
+            # DLA accounts - see "DLA accounts are faculty-wide" in project
+            # memory) to filter module list by school. Shares `context_school`
+            # with School Dashboard's and Audit Portal's equivalent fallback
+            # branch, same reasoning as the checkbox branch above.
+            options = ["All Schools"] + schools_list
+            persisted_school = st.session_state.get("context_school")
+            default_idx = options.index(persisted_school) if persisted_school in options else 0
             selected_school = st.selectbox(
                 "Filter by School",
-                ["All Schools"] + schools_list,
-                index=0,
+                options,
+                index=default_idx,
                 key="rc_school_select_all",
-                help="Filter the module selection list by a specific school."
+                help="Filter the module selection list by a specific school. This "
+                     "choice is shared with School Dashboard and the Audit Portal."
             )
+            st.session_state.context_school = selected_school
             if selected_school != "All Schools":
                 combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
 
