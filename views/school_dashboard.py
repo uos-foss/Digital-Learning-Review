@@ -119,27 +119,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             school_df['Audited?'] = school_df['New module code'].apply(get_audit_status)
             school_df['Actionable Items'] = school_df['New module code'].apply(get_actionable_items)
             
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Modules", len(school_df),
-                          help=f"Total modules for {school} in the {semester} semester.")
-            with col2:
-                no_activity = len(school_df) - len(scoreable(school_df))
-                st.metric("Modules with no activity", f"{no_activity}",
-                          help="Modules that still only have the default template - no "
-                               "content added yet")
-            with col3:
-                avg_ally = mean_score(school_df)
-                st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
-                          help="Ally's overall score, averaged across modules with content beyond "
-                               "their template only.")
-            with col4:
-                total_actionable = int(school_df['Actionable Items'].sum())
-                st.metric("Outstanding Actionable Items", f"{total_actionable}",
-                          help="Sum of outstanding items across all modules in this semester - "
-                               "checklist, Leganto reading lists, Ally accessibility, and template "
-                               "readiness findings combined.")
-            
             # Define school codes for filtering data
             school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
 
@@ -155,7 +134,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
+            view_options = ["📋 Modules Overview", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -165,7 +144,28 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             )
             st.divider()
             
-            if selected_view == "📋 All Modules":
+            if selected_view == "📋 Modules Overview":
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Modules", len(school_df),
+                              help=f"Total modules for {school} in the {semester} semester.")
+                with col2:
+                    no_activity = len(school_df) - len(scoreable(school_df))
+                    st.metric("Modules with no activity", f"{no_activity}",
+                              help="Modules that still only have the default template - no "
+                                   "content added yet")
+                with col3:
+                    avg_ally = mean_score(school_df)
+                    st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
+                              help="Ally's overall score, averaged across modules with content "
+                                   "beyond their template only.")
+                with col4:
+                    total_actionable = int(school_df['Actionable Items'].sum())
+                    st.metric("Outstanding Actionable Items", f"{total_actionable}",
+                              help="Sum of outstanding items across all modules in this semester - "
+                                   "checklist, Leganto reading lists, Ally accessibility, and "
+                                   "template readiness findings combined.")
+
                 st.subheader("Module Audit Status")
                 display_df = school_df.copy()
                 # Default order: the underlying query has no ORDER BY, so rows
@@ -748,7 +748,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 if sc_df.empty:
                     st.info(
                         "No modules flagged yet this year. Select a module in "
-                        "'📋 All Modules' and use 🎯 Flag for Spot-Check.")
+                        "'📋 Modules Overview' and use 🎯 Flag for Spot-Check.")
                 else:
                     pending_n = int((sc_df['status'] == 'pending').sum())
                     checked_n = int((sc_df['status'] == 'checked').sum())
@@ -835,7 +835,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                     "Confirm removal", key=f"sc_remove_confirm_{sc_clicked_id}",
                                     help="Deletes this flag outright. For a checked module this "
                                          "also deletes its agreement result - re-flag it from "
-                                         "'All Modules' afterwards to start fresh.")
+                                         "'Modules Overview' afterwards to start fresh.")
                                 if st.button("🗑️ Remove Flag", width="stretch",
                                             disabled=not remove_confirm, key="btn_school_sc_remove"):
                                     delete_spot_check(sc_clicked_id)
