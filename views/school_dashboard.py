@@ -127,8 +127,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             with col2:
                 no_activity = len(school_df) - len(scoreable(school_df))
                 st.metric("Modules with no activity", f"{no_activity}",
-                          help="Modules still in their rolled-over state - no content added "
-                               "yet")
+                          help="Modules that still only have the default template - no "
+                               "content added yet")
             with col3:
                 avg_ally = mean_score(school_df)
                 st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
@@ -243,10 +243,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     cols.append('Template')
                     configs['Template'] = st.column_config.TextColumn(
                         "Template Sections",
-                        help="Module-lead-owned Blackboard template sections visible to "
-                             "students. 👁 marks sections already worked on but still "
-                             "hidden — those only need making visible. ⚠️ marks a section "
-                             "deleted from or missing in the course shell.")
+                        help="The Blackboard template sections the module lead is "
+                             "responsible for, and whether they're visible to students. "
+                             "👁 marks sections already worked on but still hidden — those "
+                             "only need making visible. ⚠️ marks a section deleted from or "
+                             "missing in the Blackboard course.")
 
                 # Latest spot-check status per module, fetched once for the
                 # whole school rather than a query per row. A module can have
@@ -534,7 +535,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
 
             elif selected_view == "⚠️ Priority Action List":
                 st.subheader("🎯 Focus Priority Lenses")
-                st.caption("Pivoting on different risk vectors across the school.")
+                st.caption("A different way to look at risk across the school's modules.")
                 
                 lens = st.radio(
                     "Choose inspection criteria:",
@@ -579,7 +580,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         if not gap_df.empty:
                             render_status = (
                                 f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
-                                "missing multiple key structural requirements."
+                                "missing several key checklist items."
                             )
                             render_status_type = "warning"
                             gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
@@ -594,7 +595,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             render_status = "No modules in this school have been audited yet."
                             render_status_type = "info"
                         else:
-                            render_status = f"All {len(scored_df)} audited modules meet healthy baseline structural thresholds!"
+                            render_status = f"All {len(scored_df)} audited modules meet the required baseline checklist items!"
                             render_status_type = "success"
 
                 elif lens == "📋 Missing Audits":
@@ -626,7 +627,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
 
                 elif lens == "📚 Missing Reading Lists":
                     if 'Leganto Missing' not in source_data.columns:
-                        render_status = "Leganto configuration data not integrated yet."
+                        render_status = "Leganto reading-list data hasn't been imported for this school yet."
                         render_status_type = "error"
                     else:
                         missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
@@ -814,7 +815,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         row = school_agreement.iloc[0]
                         st.caption(
                             f"Agreement to date: {int(row['agreed'])} of {int(row['total'])} "
-                            f"compared fields ({row['agreement_pct']:.1f}%) across "
+                            f"checklist answers compared ({row['agreement_pct']:.1f}%) across "
                             f"{int(row['checked'])} checked module(s).")
 
                     names = school_df.set_index(
@@ -885,7 +886,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                     "Confirm removal", key=f"sc_remove_confirm_{sc_clicked_id}",
                                     help="Deletes this flag outright. For a checked module this "
                                          "also deletes its agreement result - re-flag it from "
-                                         "'All Modules' afterwards for a clean re-run.")
+                                         "'All Modules' afterwards to start fresh.")
                                 if st.button("🗑️ Remove Flag", width="stretch",
                                             disabled=not remove_confirm, key="btn_school_sc_remove"):
                                     delete_spot_check(sc_clicked_id)
