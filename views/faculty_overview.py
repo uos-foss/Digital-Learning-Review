@@ -7,7 +7,7 @@ from processing import (aggregate_faculty_stats, calculate_module_compliance,
 from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
 from views.ally_widgets import (
     scoreable, render_maturity_banner, render_maturity_breakdown,
-    render_surface_split, render_issue_profile, build_accessibility_risk_list,
+    render_issue_profile, build_accessibility_risk_list,
 )
 
 def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
@@ -158,7 +158,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             if not active_df.empty else set()
 
         ally_tabs = st.tabs([
-            "🔧 Issue league table", "🏗️ Build-out tracker", "📄 Files vs pages",
+            "🔧 Issue league table", "🏗️ Build-out tracker",
             "🏫 By school", "📈 Score distribution", "🩺 Coverage",
         ])
 
@@ -199,15 +199,6 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 )
 
         with ally_tabs[2]:
-            st.markdown("##### Uploaded documents against pages built in Blackboard")
-            if not active_df.empty:
-                split_df = active_df.copy()
-                split_df['School'] = split_df['New module code'].astype(str).str[:3]
-                render_surface_split(split_df, group_column='School')
-            else:
-                st.info("No data for this semester.")
-
-        with ally_tabs[3]:
             st.markdown("##### Severity load by school")
             if active_df.empty:
                 st.info("No data for this semester.")
@@ -240,7 +231,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                                "This normalises for school size, so a small school with a "
                                "heavy load is still visible.")
 
-        with ally_tabs[4]:
+        with ally_tabs[3]:
             st.markdown("##### Where modules with content sit on the scale")
             scores_series = pd.to_numeric(
                 scoreable(active_df).get('Ally Overall'), errors='coerce').dropna() \
@@ -300,7 +291,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                                         st.session_state.selected_module_code = clicked_code
                                         st.switch_page(st.session_state.pg_audit)
 
-        with ally_tabs[5]:
+        with ally_tabs[4]:
             st.markdown("##### Is the data telling us the truth?")
             df_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
             if df_courses.empty:

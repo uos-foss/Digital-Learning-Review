@@ -48,20 +48,6 @@ def mean_score(df, column='Ally Overall'):
     return float(values.mean()) if not values.empty else None
 
 
-def impact_weighted_score(df, column='Ally Overall'):
-    """Score weighted by enrolment, so it reflects student exposure rather than
-    an average over modules of wildly different size."""
-    subset = scoreable(df)
-    if subset.empty or column not in subset.columns:
-        return None
-    scores = pd.to_numeric(subset[column], errors='coerce')
-    weights = pd.to_numeric(subset.get('Ally Students'), errors='coerce').fillna(0)
-    valid = scores.notna() & (weights > 0)
-    if not valid.any():
-        return None
-    return float((scores[valid] * weights[valid]).sum() / weights[valid].sum())
-
-
 def render_maturity_banner(df):
     """A one-line honesty statement about how much of the scope has content
     beyond its template yet."""
@@ -94,52 +80,6 @@ def render_maturity_breakdown(df, caption=None):
                "'Built' stage: module leads add content throughout the course, often "
                "right up to the final assessment, so a file count can only show a "
                "course has started, never that it is finished.")
-
-
-def render_surface_split(df, group_column=None):
-    """
-    Files score against editor-page score.
-
-    The single most useful diagnostic the institutional export added: a school
-    scoring well on pages and badly on documents needs document-authoring
-    support, not Blackboard training, and the two are entirely different
-    interventions. A single blended number hides it completely.
-    """
-    subset = scoreable(df)
-    if subset.empty:
-        st.info("No built courses in this scope yet, so there is nothing to compare.")
-        return
-
-    if group_column and group_column in subset.columns:
-        rows = []
-        for name, group in subset.groupby(group_column):
-            for label, col in [("Uploaded files", 'Ally Files'),
-                               ("Editor pages", 'Ally WYSIWYG')]:
-                values = pd.to_numeric(group.get(col), errors='coerce').dropna()
-                if not values.empty:
-                    rows.append({group_column: name, 'Surface': label,
-                                 'Score': float(values.mean())})
-        if not rows:
-            st.info("No scores available.")
-            return
-        chart = pd.DataFrame(rows)
-        st.bar_chart(chart, x=group_column, y='Score', color='Surface', height=320,
-                     stack=False)
-    else:
-        rows = []
-        for label, col in [("Uploaded files", 'Ally Files'), ("Editor pages", 'Ally WYSIWYG')]:
-            values = pd.to_numeric(subset.get(col), errors='coerce').dropna()
-            if not values.empty:
-                rows.append({'Surface': label, 'Score': float(values.mean())})
-        if not rows:
-            st.info("No scores available.")
-            return
-        st.bar_chart(pd.DataFrame(rows), x='Surface', y='Score', height=260,
-                     color='#2563EB')
-
-    st.caption("Documents are fixed by re-authoring and re-uploading them. Editor "
-               "pages are fixed in Blackboard in minutes. Where the gap is wide, the "
-               "lower bar is where the effort belongs.")
 
 
 def render_issue_profile(df_issues, module_codes, top_n=12, key="issue_profile"):
