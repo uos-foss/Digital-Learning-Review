@@ -63,10 +63,12 @@ has Modules Overview and Trends, and does not have School Comparison.
   activity, average Ally score, outstanding actionable items), then every
   module in the school with its lead, Ally score, build stage and audit
   status.
-* **Ally Analytics** — Three tabs: what to fix, severe issues, and a
-  per-module table. (Reconciliation against SITS moved to the Admin Panel's
-  Inactive Modules tab, since it's a data-integrity check, not an
-  accessibility metric.)
+* **Ally Analytics** — A single view: the issue-by-severity chart and the
+  module table side by side, both driven by the severity and issue filters
+  above them. No filters shows every module; narrowing to Severe replaces
+  the old dedicated severe-issues list. (Reconciliation against SITS moved
+  to the Admin Panel's Inactive Modules tab, since it's a data-integrity
+  check, not an accessibility metric.)
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
 * **Checklist Completion** (Faculty Overview's Compliance Gap, renamed here),
