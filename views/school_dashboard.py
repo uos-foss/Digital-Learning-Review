@@ -182,15 +182,28 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     configs['UG/ PG/ Other'] = "Level"
                 # Ally score, qualified by how far the course has been built - an
                 # untouched template scores near 100% and would otherwise read as
-                # the best module in the school.
-                if 'Ally Overall' in display_df.columns:
-                    display_df['Ally Score'] = display_df['Ally Overall'].apply(
-                        lambda v: v * 100 if pd.notna(v) else None)
-                    cols.append('Ally Score')
-                    configs['Ally Score'] = st.column_config.NumberColumn("Ally Score", format="%.1f%%")
-                if 'Content Maturity' in display_df.columns:
-                    cols.append('Content Maturity')
-                    configs['Content Maturity'] = "Build Stage"
+                # the best module in the school. One column rather than two: the
+                # score only means something once a module is 'In progress', so
+                # everywhere else the build stage itself is the useful value, not
+                # a near-100% number sitting next to it. This mixes text and
+                # percentages in the same cell by design, so it sorts as text,
+                # not by score - a deliberate tradeoff of combining the two.
+                if 'Ally Overall' in display_df.columns or 'Content Maturity' in display_df.columns:
+                    def _score_or_stage(r):
+                        maturity = r.get('Content Maturity')
+                        if maturity == 'In progress':
+                            v = r.get('Ally Overall')
+                            if pd.notna(v):
+                                return f"{v * 100:.1f}%"
+                        return maturity if maturity else "—"
+                    display_df['Score / Stage'] = display_df.apply(_score_or_stage, axis=1)
+                    cols.append('Score / Stage')
+                    configs['Score / Stage'] = st.column_config.TextColumn(
+                        "Score / Build Stage",
+                        help="Ally's accessibility score once a module has content "
+                             "beyond its template ('In progress'); otherwise the build "
+                             "stage itself, since an untouched template scores near "
+                             "100% and would misread as the best module in the school.")
                 cols.append('Actionable Items')
                 configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
                 
