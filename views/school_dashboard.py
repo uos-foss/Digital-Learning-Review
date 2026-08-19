@@ -169,6 +169,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             if selected_view == "📋 All Modules":
                 st.subheader("Module Audit Status")
                 display_df = school_df.copy()
+                # Default order: the underlying query has no ORDER BY, so rows
+                # otherwise land in whatever order the last sync inserted them.
+                display_df = display_df.sort_values('New module code').reset_index(drop=True)
                 # Apply sentence case to Module Lead names
                 display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_sentence_case)
                 cols = ['New module code', 'Module name', 'Mod. lead']
