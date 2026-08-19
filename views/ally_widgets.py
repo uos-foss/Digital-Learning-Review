@@ -12,6 +12,7 @@ autumn, before anyone has taught anything. There is no "finished" state:
 module leads build just-in-time throughout the year, so nothing here ever
 claims a course is complete, only that it has moved past its template.
 """
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -160,17 +161,37 @@ def render_issue_profile(df_issues, module_codes, top_n=12, key="issue_profile")
         st.success("✅ Ally has found no accessibility issues in this scope.")
         return profile
 
-    chart_df = profile[['label', 'items', 'severity_label']].copy()
-    chart_df.columns = ['Issue', 'Items affected', 'Severity']
-    st.bar_chart(chart_df, x='Issue', y='Items affected', color='Severity',
-                 height=420, horizontal=True)
+    chart_df = profile[['label', 'items', 'severity_label', 'modules', 'surface', 'advice']].copy()
+    chart_df['surface'] = chart_df['surface'].map(lambda s: SURFACE_LABELS.get(s, ''))
+    chart_df.columns = ['Issue', 'Items affected', 'Severity', 'Modules affected',
+                         'Where it gets fixed', 'What to do']
 
-    with st.expander("What each of these means, and where it gets fixed"):
-        for _, row in profile.iterrows():
-            st.markdown(
-                f"**{row['label']}** — {row['severity_label']}, {row['items']} item(s) "
-                f"across {row['modules']} module(s)  \n"
-                f"*{SURFACE_LABELS.get(row['surface'], '')}.* {row['advice']}")
+    # st.bar_chart (a thin Altair wrapper) truncates long category labels to a
+    # fixed pixel width with no way to override it - full-sentence issue names
+    # were unreadable. Built directly in Altair instead so labelLimit can be
+    # lifted and the row order (severity first, then items affected) preserved
+    # rather than re-sorted alphabetically. The explanation that used to live
+    # in a separate expander below is folded into the tooltip instead, so the
+    # detail sits on the bar it describes rather than in a second lookup.
+    issue_order = chart_df['Issue'].tolist()
+    chart = (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            y=alt.Y('Issue:N', sort=issue_order, title=None,
+                    axis=alt.Axis(labelLimit=1000, labelFontSize=12, labelPadding=8)),
+            x=alt.X('Items affected:Q'),
+            color=alt.Color('Severity:N',
+                             scale=alt.Scale(
+                                 domain=["Severe", "Major", "Minor", "Other"],
+                                 range=["#7F1D1D", "#DC2626", "#F97316", "#EAB308"]),
+                             legend=alt.Legend(title=None)),
+            tooltip=['Issue', 'Severity', 'Items affected', 'Modules affected',
+                     'Where it gets fixed', 'What to do'],
+        )
+        .properties(height=max(320, 34 * len(chart_df)))
+    )
+    st.altair_chart(chart, use_container_width=True)
     return profile
 
 
