@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import datetime
 import logging
 import re
+import html
 from processing import (
     get_module_mapping,
     FACULTY_SCHOOLS,
@@ -369,18 +370,32 @@ def _render_pending_item_card(item):
         title = "📌 Observation (older system)"
         body = f"<strong>Observation:</strong> {item['comment']}"
     elif item['type'] == 'custom':
-        title_text = item.get('label', '').strip() or item.get('category', 'Custom Observation')
-        title = f"📌 {title_text}"
-        body = item.get('description', '')
-        body = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', body).replace('\n', '<br/>')
+        # Content here is free text a DLA typed into a 'text' audit field
+        # (e.g. lm_note) - unlike the other branches above, it must not be
+        # interpolated into unsafe_allow_html HTML, or a note containing
+        # "<script>..." would execute for anyone who opens this module's
+        # report. st.container(border=True) is a real nested component
+        # (unlike splitting a raw <div> across two st.markdown calls, which
+        # doesn't actually nest - each call's HTML is parsed independently
+        # and the browser auto-closes the unclosed tag), so the badge/
+        # heading can stay HTML (app/admin-authored field label, not user
+        # text) while the note itself goes through plain st.markdown() for
+        # real, safely-escaped markdown (bold, lists, links) instead of the
+        # old hand-rolled **bold** regex.
+        field_label = html.escape(item.get('category') or 'Custom Observation')
+        body_md = '\n\n'.join(p for p in (item.get('label', '').strip(), item.get('description', '').strip()) if p)
+        with st.container(border=True):
+            st.markdown(f"""
+            <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">📌 {field_label}</h4>
+            """, unsafe_allow_html=True)
+            st.markdown(body_md)
+        return
     else:
         return
 
     st.markdown(f"""
     <div style="border-left: 4px solid #F59E0B; background-color: rgba(245, 158, 11, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(245, 158, 11, 0.05); border-right: 1px solid rgba(245, 158, 11, 0.05); border-bottom: 1px solid rgba(245, 158, 11, 0.05);">
-        <span style="background:{TIER_COLOUR['Major']}1A;color:{TIER_COLOUR['Major']};font-size:10px;
-                     font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Major</span>
-        <h4 style="margin: 6px 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
+        <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
         <div style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">{body}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -459,7 +474,7 @@ def _render_module_checks(pending_items, completed_items, has_audit, active_row=
 
     _render_template_sections(active_row, responses, has_audit)
 
-    st.markdown(f"#### Outstanding ({len(pending_items)})")
+    st.markdown(f"#### To Do ({len(pending_items)})")
     if not pending_items:
         st.success("✅ Nothing outstanding right now.")
     else:
@@ -823,10 +838,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         with col_checks:
             _render_module_checks(pending_items, completed_items, has_audit, active_row, responses)
 
-        # Render confidential internal notes if user is an auditor
-        if is_dla_or_admin and has_audit:
-            auditor_notes = str(responses.get('auditor_notes', '')).strip()
-            if auditor_notes and auditor_notes.lower() != 'none':
-                st.info(f"🔒 **Auditor Notes (Internal/Auditors Only):**\n\n{auditor_notes}")
+        comments_val = str(responses.get('comments', '') or '').strip()
+        if has_audit and comments_val:
+            st.info(f"**Additional Comments:**\n\n{comments_val}")
 
         st.caption(f"Last updated: {last_updated_str}")

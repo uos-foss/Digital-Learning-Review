@@ -1821,6 +1821,32 @@ def readiness_manual_override(audit_field_id, responses):
     return str(val).strip().upper() == 'TRUE'
 
 
+INERT_TEXT_FIELD_IDS = frozenset({'comments'})
+"""'text'-type audit_fields whose value is pure metadata for the auditor -
+never turned into a checklist finding, so it never shows as an Outstanding
+card and never counts toward Actionable Items. 'comments' ("Additional
+Comments") carries years of legacy tag/custom-observation JSON that used to
+drive real findings, but it's a general-purpose free-text box now with no
+input UI for that structure - a DLA typing an unrelated note into it should
+not silently create a permanent open action item. 'lm_note' ("Learning
+Materials note") is deliberately NOT here: it's meant to flag something
+about a module's Learning Materials that stays actionable until resolved,
+the same way every other 'text' field defaults to behaving."""
+
+NOTE_OVERRIDE_FIELDS = {'learning_materials': 'lm_note'}
+"""boolean audit_field id -> the 'text' field id that can veto a tick.
+
+'learning_materials' is asked to mean two different things at once -
+"materials are present" and "materials are acceptable" - with lm_note as
+the escape valve for the second when they diverge (present but flawed). An
+auditor who ticks the box anyway and still writes a note describing the
+problem should not have that note's module quietly read as fully compliant
+- a non-empty lm_note always keeps 'learning_materials' pending, regardless
+of the tickbox. This does not, and cannot, catch the opposite mistake - an
+inexperienced auditor who ticks with no note at all - a missing note is
+indistinguishable from "no issues to note"; that gap is what spot-check
+flagging (see 'Spot-check flagging' in CLAUDE.md) is for, not this."""
+
 def derive_module_findings(active_row, responses, active_fields, comment_bank):
     """
     Every checklist, Leganto, Ally and template-readiness finding for one
@@ -1864,6 +1890,9 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
             if ftype in ('boolean', 'yes/no'):
                 is_compliant = (str(val).upper() == 'TRUE' if ftype == 'boolean'
                                else str(val).upper() == 'YES')
+                note_field_id = NOTE_OVERRIDE_FIELDS.get(fid)
+                if note_field_id and str((responses or {}).get(note_field_id, '') or '').strip():
+                    is_compliant = False
                 findings.append({
                     'source': 'checklist',
                     'state': 'completed' if is_compliant else 'pending',
@@ -1871,7 +1900,7 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
                     'label': label if is_compliant else action_label,
                     'description': desc,
                 })
-            elif ftype == 'text' and val:
+            elif ftype == 'text' and val and fid not in INERT_TEXT_FIELD_IDS:
                 custom_val = val
                 tags = []
                 try:

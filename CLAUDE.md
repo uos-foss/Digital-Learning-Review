@@ -9,9 +9,19 @@ This file records what is **not** obvious from reading the code. Everything else
 ## Who does what
 
 Audits are carried out by **Digital Learning Advisors on the module lead's
-behalf**. Module leads do not fill in their own audits. This is why the Audit
-Portal has both `notes_to_lead` ("Notes for Module Lead") and `auditor_notes`
-("🔒 Internal Notes", explicitly not visible to leads).
+behalf**. Module leads do not fill in their own audits.
+
+The Audit Portal used to have two free-text fields for this, `notes_to_lead`
+("Notes for Module Lead") and `auditor_notes` ("🔒 Internal Notes", explicitly
+not visible to leads). Both were dropped 19-08-2026 — `notes_to_lead` had no
+reader anywhere in the app (dead data from the moment it was typed), and
+`auditor_notes`'s only reader (`views/module_report.py`'s internal-notes panel)
+was removed alongside it. Old rows for both keys are left in `audit_responses`
+untouched, just no longer written or displayed. `active_fields`-driven `'text'`
+type checklist fields are the current mechanism for free-text notes on an
+audit, but they are not a drop-in replacement — see `INERT_TEXT_FIELD_IDS`
+in "Unified module findings" below for the actionable/inert split that
+replaces the old lead-visible/internal-only split.
 
 Do not describe the audit as something leads complete. Older code and docs used
 "Module Lead Checklist" for what is now the Audit Portal — that name was wrong
@@ -220,6 +230,39 @@ module report page showed as cards — so a module could show 9 outstanding
 items on its own page and 0 on the dashboard that's meant to prioritise
 across the school. Do not reintroduce a second, hand-written "count what's
 pending" anywhere; add a new source to `derive_module_findings()` instead.
+
+**`INERT_TEXT_FIELD_IDS` opts specific `'text'`-type audit fields out of
+finding generation entirely** — their value is saved and shown in the Audit
+Portal like any other field, but never becomes a checklist finding, so it
+never shows as an Outstanding card and never counts toward `Actionable
+Items`. Added 19-08-2026 when `notes_to_lead`/`auditor_notes` were dropped in
+favour of ordinary `'text'` audit fields (see "Who does what" above): by
+default a `'text'` field is actionable (counted, like every other checklist
+field), which is right for something like `lm_note` ("Learning Materials
+note") — a flag that should stay open until resolved — but wrong for
+`comments` ("Additional Comments"), a catch-all note box that would
+otherwise turn any unrelated remark into a permanent open action item.
+`comments` carries years of legacy tag/custom-observation JSON from before
+the Audit Portal dropped the tag-picker UI for `'text'` fields (5 modules'
+worth as of 19-08-2026) — that data still round-trips through
+`parse_custom_observations()` if this field is ever made actionable again,
+it's just not read into findings while inert. Decide new `'text'` fields'
+membership deliberately; don't default new ones into this set without reason.
+
+**`NOTE_OVERRIDE_FIELDS` lets a `'text'` field veto a `boolean` field's
+tick.** `learning_materials` is asked to mean two things at once — "present"
+and "present and acceptable" — with `lm_note` as the escape valve for when
+they diverge. Added 19-08-2026: an auditor who ticks `learning_materials`
+but still writes a problem into `lm_note` should not have the module read as
+fully compliant just because the box is ticked — a non-empty `lm_note`
+always forces `learning_materials` to `'pending'` in
+`derive_module_findings()`, regardless of the checkbox value. This is
+deliberately one-directional and doesn't catch the opposite failure — an
+inexperienced auditor who ticks with nothing in `lm_note` at all reads
+identically to "materials fine, nothing to note"; there is no way to tell
+those apart from the stored data. That gap is what spot-check flagging (see
+"Spot-check flagging" below) exists to catch via a second reviewer's
+judgement, not something this mapping can close on its own.
 
 **Ally and readiness findings are produced but never rendered generically** —
 both already have their own richer display (the accessibility card, the
