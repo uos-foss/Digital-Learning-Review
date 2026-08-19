@@ -269,62 +269,6 @@ def resolve_active_row(code, df_aut, df_spr):
         return aut_m.iloc[0]
     return None
 
-def is_compliant_val(val):
-    """Normalizes and determines compliance for a single audit entry."""
-    if pd.isna(val):
-        return 0
-    val_c = str(val).strip().lower()
-    
-    # Disqualifiers prioritize failure. If any of these are present, the item is non-compliant.
-    negatives = [
-        'missing', 'hidden', 'incomplete', 'empty', 'none', 
-        'not edited', 'wrong place', 'not visible', 'not part of template',
-        'no ' # matches 'no, yes' but safely leaves 'non-standard'
-    ]
-    
-    if any(x in val_c for x in negatives) or val_c == 'no':
-        return 0
-        
-    # Positive indicators - anything suggesting content or effort exists
-    positives = [
-        'yes', 'teaching', 'support', 'visible', 'present', 'complete', 
-        'video', 'image', 'text', 'details & learning outcomes', 
-        'manual', 'badging system'
-    ]
-    
-    if any(x in val_c for x in positives):
-        return 1
-        
-    return 0
-
-def calculate_compliance_gap(df):
-    """
-    Calculates the percentage of 'Yes' (or positive indicators) for audit categories.
-    """
-    audit_cols = [
-        'Welcome to your module message?', 
-        'Key staff contacts complete?', 
-        'Module outline complete?', 
-        'How you will be assessed visible?',
-        'Skills development (SGAs) visible?',
-        'Accessibility statement visible?',
-        'School handbook visible?',
-        'Assessment overview - present and consistent with SITS',
-        'Assessment support and guidance visible to students?',
-        'University help and study support visible to students?'
-    ]
-    
-    gaps = {}
-    for col in audit_cols:
-        if col in df.columns:
-            # Apply logic to coerce messy text data into numeric 1s and 0s
-            series_numeric = df[col].apply(is_compliant_val)
-            positive_count = series_numeric.sum()
-            total_count = len(df)
-            gaps[col] = (positive_count / total_count) if total_count > 0 else 0
-
-    return gaps
-
 def calculate_module_compliance(df_responses, active_fields):
     """
     Counts compliant items per module from submitted audit responses.
@@ -355,8 +299,8 @@ def calculate_module_compliance(df_responses, active_fields):
 
     df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
     # Audit values are written as the strings 'True'/'False' by the Audit Portal.
-    # is_compliant_val is for the free-text legacy columns and would read
-    # 'False' as compliant, so match the strict set used by the field gap chart.
+    # Match the strict set used by the field gap chart, rather than a substring
+    # test - a loose 'contains "yes"' style check would read 'False' as compliant.
     df['compliant'] = df['value'].apply(lambda v: 1 if str(v).strip().upper() in ['TRUE', 'YES', '1'] else 0)
 
     counts = df.groupby('module_code')['compliant'].sum().reset_index()

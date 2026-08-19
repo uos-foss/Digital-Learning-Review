@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
+from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools)
@@ -127,8 +127,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             with col2:
                 no_activity = len(school_df) - len(scoreable(school_df))
                 st.metric("Modules with no activity", f"{no_activity}",
-                          help="Modules still in their rolled-over state - no content added "
-                               "yet")
+                          help="Modules that still only have the default template - no "
+                               "content added yet")
             with col3:
                 avg_ally = mean_score(school_df)
                 st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
@@ -156,7 +156,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -243,10 +243,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     cols.append('Template')
                     configs['Template'] = st.column_config.TextColumn(
                         "Template Sections",
-                        help="Module-lead-owned Blackboard template sections visible to "
-                             "students. 👁 marks sections already worked on but still "
-                             "hidden — those only need making visible. ⚠️ marks a section "
-                             "deleted from or missing in the course shell.")
+                        help="The Blackboard template sections the module lead is "
+                             "responsible for, and whether they're visible to students. "
+                             "👁 marks sections already worked on but still hidden — those "
+                             "only need making visible. ⚠️ marks a section deleted from or "
+                             "missing in the Blackboard course.")
 
                 # Latest spot-check status per module, fetched once for the
                 # whole school rather than a query per row. A module can have
@@ -485,70 +486,60 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             "so each point is a real movement. Early in the year the upload "
                             "line matters more than the score line."
                         )
-            elif selected_view == "✅ Compliance Gap":
-                st.subheader(f"Compliance Gap Analysis ({semester})")
-                
-                audit_source = st.radio(
-                    "Select Audit Dataset:",
-                    ["New Audit Checklist (SQLite Primary)", "Legacy VLE Audit (25/26 Reference)"],
-                    horizontal=True,
-                    key="sd_compliance_dataset_selector"
-                )
-                
-                if audit_source == "Legacy VLE Audit (25/26 Reference)":
-                    gaps = calculate_compliance_gap(school_df)
-                else:
-                    from processing import calculate_dynamic_compliance_gap
-                    gaps = calculate_dynamic_compliance_gap(school_code=school)
+            elif selected_view == "✅ Checklist Completion":
+                st.subheader(f"Checklist Completion Analysis ({semester})")
+
+                from processing import calculate_dynamic_compliance_gap
+                gaps = calculate_dynamic_compliance_gap(school_code=school)
                 
                 if gaps:
-                    gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])
-                    gap_df['Compliance %'] = gap_df['Compliance %'] * 100
-                    
+                    gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', '% Complete'])
+                    gap_df['% Complete'] = gap_df['% Complete'] * 100
+
                     import altair as alt
                     chart_base = alt.Chart(gap_df).encode(
-                        y=alt.Y('Category:N', 
-                                sort='x', 
+                        y=alt.Y('Category:N',
+                                sort='x',
                                 title=None,
                                 axis=alt.Axis(labelLimit=500, labelFontSize=12)),
-                        x=alt.X('Compliance %:Q', 
-                                scale=alt.Scale(domain=[0, 100]), 
-                                title="Percentage Compliant"),
-                        tooltip=['Category', alt.Tooltip('Compliance %', format='.1f')]
+                        x=alt.X('% Complete:Q',
+                                scale=alt.Scale(domain=[0, 100]),
+                                title="% Complete"),
+                        tooltip=['Category', alt.Tooltip('% Complete', format='.1f')]
                     )
-                    
+
                     bars = chart_base.mark_bar(cornerRadiusEnd=5, height=28).encode(
-                        color=alt.Color('Compliance %:Q', 
-                                       scale=alt.Scale(scheme='redyellowgreen'), 
+                        color=alt.Color('% Complete:Q',
+                                       scale=alt.Scale(scheme='redyellowgreen'),
                                        legend=None)
                     )
-                    
+
                     text_overlay = chart_base.mark_text(
                         align='left',
                         baseline='middle',
                         dx=6,
                         fontWeight='bold'
                     ).encode(
-                        text=alt.Text('Compliance %:Q', format='.1f')
+                        text=alt.Text('% Complete:Q', format='.1f')
                     )
-                    
+
                     final_chart = (bars + text_overlay).properties(
                         height=450
                     ).configure_view(
                         strokeWidth=0
                     )
-                    
+
                     st.altair_chart(final_chart, use_container_width=True)
                 else:
-                    st.write("No compliance data available.")
+                    st.write("No checklist completion data available.")
 
             elif selected_view == "⚠️ Priority Action List":
                 st.subheader("🎯 Focus Priority Lenses")
-                st.caption("Pivoting on different risk vectors across the school.")
+                st.caption("A different way to look at risk across the school's modules.")
                 
                 lens = st.radio(
                     "Choose inspection criteria:",
-                    ["⚠️ Accessibility Risk", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
+                    ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
                     horizontal=True,
                     label_visibility="collapsed",
                     key="school_priority_lens_selector"
@@ -566,7 +557,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     render_df, render_configs, render_status, render_status_type = \
                         build_accessibility_risk_list(source_data)
 
-                elif lens == "🔍 Critical Compliance Gaps":
+                elif lens == "🔍 Critical Checklist Gaps":
                     counts, max_items = calculate_module_compliance(
                         get_all_audit_responses(), get_active_audit_fields()
                     )
@@ -575,7 +566,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         render_status = "No scorable audit fields are configured."
                         render_status_type = "error"
                     elif counts.empty:
-                        render_status = "No audits submitted yet, so there are no compliance gaps to show."
+                        render_status = "No audits submitted yet, so there are no checklist gaps to show."
                         render_status_type = "info"
                     else:
                         source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
@@ -589,7 +580,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         if not gap_df.empty:
                             render_status = (
                                 f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
-                                "missing multiple key structural requirements."
+                                "missing several key checklist items."
                             )
                             render_status_type = "warning"
                             gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
@@ -598,13 +589,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             render_df = gap_df[display_cols].copy()
                             render_configs = {
                                 "New module code": "Code", "Module name": "Module Name",
-                                "Mod. lead": "Lead", "DisplayValue": "Compliance Count"
+                                "Mod. lead": "Lead", "DisplayValue": "Items Complete"
                             }
                         elif scored_df.empty:
                             render_status = "No modules in this school have been audited yet."
                             render_status_type = "info"
                         else:
-                            render_status = f"All {len(scored_df)} audited modules meet healthy baseline structural thresholds!"
+                            render_status = f"All {len(scored_df)} audited modules meet the required baseline checklist items!"
                             render_status_type = "success"
 
                 elif lens == "📋 Missing Audits":
@@ -636,7 +627,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
 
                 elif lens == "📚 Missing Reading Lists":
                     if 'Leganto Missing' not in source_data.columns:
-                        render_status = "Leganto configuration data not integrated yet."
+                        render_status = "Leganto reading-list data hasn't been imported for this school yet."
                         render_status_type = "error"
                     else:
                         missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
@@ -824,7 +815,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         row = school_agreement.iloc[0]
                         st.caption(
                             f"Agreement to date: {int(row['agreed'])} of {int(row['total'])} "
-                            f"compared fields ({row['agreement_pct']:.1f}%) across "
+                            f"checklist answers compared ({row['agreement_pct']:.1f}%) across "
                             f"{int(row['checked'])} checked module(s).")
 
                     names = school_df.set_index(
@@ -895,7 +886,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                     "Confirm removal", key=f"sc_remove_confirm_{sc_clicked_id}",
                                     help="Deletes this flag outright. For a checked module this "
                                          "also deletes its agreement result - re-flag it from "
-                                         "'All Modules' afterwards for a clean re-run.")
+                                         "'All Modules' afterwards to start fresh.")
                                 if st.button("🗑️ Remove Flag", width="stretch",
                                             disabled=not remove_confirm, key="btn_school_sc_remove"):
                                     delete_spot_check(sc_clicked_id)
