@@ -38,8 +38,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     # with the data being shown.
     drilldown_school = st.session_state.pop("drilldown_school", None)
     if drilldown_school in schools and not only_own_school:
-        st.session_state.sd_focus_school = False
-        st.session_state.sd_school_select = drilldown_school
+        st.session_state.context_focus_own = False
+        st.session_state.context_school = drilldown_school
         st.session_state.sd_school_select_all = drilldown_school
 
     if only_own_school:
@@ -62,14 +62,30 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
         st.title("School Dashboard")
         user_schools = parse_user_schools(st.session_state.saved_school)
         # If not faculty-wide, show the focus checkbox. If unchecked, let them select another school context.
+        # `context_focus_own` / `context_school` are plain session-state
+        # values (never a widget's own `key=`) read by every page that needs
+        # school context - School Dashboard, Audit Portal, Module Report -
+        # and written back here whenever the DLA changes them. A widget's
+        # *own* state does not survive `st.switch_page()` navigation in this
+        # app's st.navigation()/st.Page(function) setup (confirmed - each
+        # page's widgets are cleared once that page's function stops
+        # executing, even when a different page's function creates a widget
+        # with the identical key), so the widgets below always reseed their
+        # `value=`/`index=` from these plain keys rather than relying on
+        # `key=` continuity across pages. See "School context locking" in
+        # CLAUDE.md.
         if user_schools != ["All"]:
             label = format_user_schools(user_schools)
             filter_by_school = st.checkbox(
                 f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})",
-                value=True,
-                key="sd_focus_school",
-                help="Uncheck to toggle or view other schools."
+                value=st.session_state.get("context_focus_own", True),
+                key="sd_context_focus_own_widget",
+                help="Uncheck to work in another school's context - this stays locked "
+                     "across pages until you re-check this or pick your own school "
+                     "again, so covering a colleague's school doesn't keep reverting "
+                     "back to yours."
             )
+            st.session_state.context_focus_own = filter_by_school
             if filter_by_school:
                 if len(user_schools) == 1:
                     school = user_schools[0]
@@ -80,21 +96,35 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         key="sd_school_select_focus",
                     )
             else:
+                persisted_school = st.session_state.get("context_school")
+                default_idx = (schools.index(persisted_school) if persisted_school in schools
+                               else (schools.index(user_schools[0]) if user_schools[0] in schools else 0))
                 school = st.selectbox(
                     "Select School to View",
                     schools,
-                    index=schools.index(user_schools[0]) if user_schools[0] in schools else 0,
-                    key="sd_school_select",
-                    help="Select a specific school to view its dashboard."
+                    index=default_idx,
+                    key="sd_context_school_widget",
+                    help="Select a specific school to view its dashboard. This choice "
+                         "is shared with the Audit Portal and Module Report."
                 )
+                st.session_state.context_school = school
         else:
-            # Fallback for "All Schools" users (e.g. FACULTY)
+            # Fallback for "All Schools" users (e.g. FACULTY, and most real
+            # DLA accounts - see "DLA accounts are faculty-wide" in project
+            # memory) to pick a specific school. Shares `context_school` with
+            # Audit Portal's and Module Report's equivalent fallback branch,
+            # same reasoning as the checkbox branch above.
+            persisted_school = st.session_state.get("context_school")
+            default_idx = schools.index(persisted_school) if persisted_school in schools else 0
             school = st.selectbox(
                 "Select School to View",
                 schools,
+                index=default_idx,
                 key="sd_school_select_all",
-                help="Please select a specific school to view its dashboard."
+                help="Please select a specific school to view its dashboard. This "
+                     "choice is shared with the Audit Portal and Module Report."
             )
+            st.session_state.context_school = school
         
     semester = st.session_state.semester
     st.header(f"{school} - {semester} Semester")
@@ -308,10 +338,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         with c1:
                             if st.button("📊 Jump to Report Card", width="stretch", type="primary", key="btn_school_rc"):
                                 st.session_state.selected_module_code = clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_module)
                         with c2:
                             if can_audit and st.button("✅ Open Audit Portal", width="stretch", key="btn_school_cl"):
                                 st.session_state.selected_module_code = clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_audit)
                         flag_col = c3
                     else:
@@ -670,10 +704,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         with c1:
                             if st.button(f"📊 Jump to Module Report Card", width="stretch", type="primary", key="school_priority_btn_rc"):
                                 st.session_state.selected_module_code = clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_module)
                         with c2:
                             if can_audit and st.button(f"✅ Open Audit Portal", width="stretch", key="school_priority_btn_cl"):
                                 st.session_state.selected_module_code = clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_audit)
                         st.divider()
 
@@ -824,24 +862,57 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             return "n/a"
                         return f"{int(r['agreement_agreed'])}/{int(total)}"
 
+                    # 'comments' ("Additional Comments") and 'lm_note' (the
+                    # Learning Materials note-override) are shown as their
+                    # own columns, pulled from each module's *current* audit
+                    # responses - one query for every flagged module rather
+                    # than one query per row. Labels come from audit_fields
+                    # so a relabel there doesn't drift from these headers.
+                    text_field_labels = {
+                        f['id']: f['label'] for f in get_active_audit_fields()
+                        if f['field_type'] == 'text'
+                    }
+                    comments_label = text_field_labels.get('comments', 'Additional Comments')
+                    lm_note_label = text_field_labels.get('lm_note', 'Learning Materials Note')
+                    notes_by_module = {}
+                    if text_field_labels:
+                        all_responses = get_all_audit_responses()
+                        if not all_responses.empty:
+                            notes_df = all_responses[all_responses['field_id'].isin(('comments', 'lm_note'))]
+                            for _, nrow in notes_df.iterrows():
+                                val = str(nrow['value'] or '').strip()
+                                if not val:
+                                    continue
+                                ncode = str(nrow['module_code']).strip().upper()
+                                notes_by_module.setdefault(ncode, {})[nrow['field_id']] = val
+
+                    def _field_display(module_code, field_id):
+                        code = str(module_code).strip().upper()
+                        return notes_by_module.get(code, {}).get(field_id, "")
+
                     shown = sc_df.copy()
                     shown['Module Name'] = shown['module_code'].map(names)
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown['Agreement'] = shown.apply(_agreement_display, axis=1)
+                    shown[comments_label] = shown['module_code'].map(lambda c: _field_display(c, 'comments'))
+                    shown[lm_note_label] = shown['module_code'].map(lambda c: _field_display(c, 'lm_note'))
                     shown = shown.reset_index(drop=True)
                     # 'id' stays out of the visible table but is kept aligned by
                     # position so a selected row can be deleted by primary key.
                     sc_ids = shown['id']
                     sc_display_df = shown.rename(columns={
-                        'module_code': 'Module', 'flagged_by': 'Flagged By',
-                        'flagged_on': 'Flagged On', 'checked_on': 'Checked On'})[
-                        ['Module', 'Module Name', 'Flagged By', 'Flagged On',
-                         'Status', 'Checked On', 'Agreement']]
+                        'module_code': 'Module', 'checked_on': 'Checked On'})[
+                        ['Module', 'Module Name', 'Status', 'Checked On',
+                         'Agreement', comments_label, lm_note_label]]
 
                     st.caption("Select a row to jump to that module, or remove its flag.")
                     sc_selection = st.dataframe(
                         sc_display_df, hide_index=True, width="stretch",
                         on_select="rerun", selection_mode="single-row",
+                        column_config={
+                            comments_label: st.column_config.TextColumn(comments_label, width="medium"),
+                            lm_note_label: st.column_config.TextColumn(lm_note_label, width="medium"),
+                        },
                         key="school_dashboard_spot_check_dataframe")
 
                     # Streamlit keeps a dataframe's selection (by row position)
@@ -861,11 +932,20 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             if st.button("📊 Jump to Report Card", width="stretch", type="primary",
                                         key="btn_school_sc_rc"):
                                 st.session_state.selected_module_code = sc_clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_module)
                         with sc_c2:
                             if can_audit and st.button("✅ Open Audit Portal", width="stretch",
                                                        key="btn_school_sc_ap"):
                                 st.session_state.selected_module_code = sc_clicked_code
+                                # Carries the school being viewed here into the
+                                # Audit Portal's own context so a DLA covering
+                                # another school doesn't land there only to have
+                                # it silently filtered back to their own school -
+                                # see "School context locking" in CLAUDE.md.
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_audit)
                         with sc_c3:
                             if can_audit:

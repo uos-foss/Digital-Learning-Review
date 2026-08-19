@@ -13,7 +13,7 @@ from database import (
     get_audit_responses,
     get_audit_response_history,
     save_audit_response,
-    get_spot_checks_for_user,
+    get_spot_checks_for_schools,
     get_pending_spot_check,
     mark_spot_check_checked,
 )
@@ -40,53 +40,97 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
         school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
         st.markdown(f"### VLE Audit Portal{school_context_badge}", unsafe_allow_html=True)
         combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
+        schools_in_scope = user_schools
     else:
         st.markdown("### VLE Audit Portal")
-        # Optional multi-tenant school filter to focus without siloing
+        # Optional multi-tenant school filter to focus without siloing.
+        # `context_focus_own` / `context_school` are plain session-state
+        # values (never a widget's own `key=`) shared with School Dashboard's
+        # and Module Report's equivalent controls, read here and written
+        # back below. A widget's *own* state does not survive
+        # `st.switch_page()` navigation in this app's
+        # st.navigation()/st.Page(function) setup, so `value=`/`index=`
+        # always reseed from these plain keys rather than relying on `key=`
+        # continuity across pages - see "School context locking" in
+        # CLAUDE.md.
         user_schools = parse_user_schools(st.session_state.saved_school)
         if user_schools != ["All"]:
             label = format_user_schools(user_schools)
-            filter_by_school = st.checkbox(f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})", value=True, key="ap_focus_school")
+            filter_by_school = st.checkbox(
+                f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})",
+                value=st.session_state.get("context_focus_own", True),
+                key="ap_context_focus_own_widget",
+                help="Uncheck to work in another school's context - this stays locked "
+                     "across pages until you re-check this or pick your own school "
+                     "again, so covering a colleague's school doesn't keep reverting "
+                     "back to yours.")
+            st.session_state.context_focus_own = filter_by_school
             if filter_by_school:
                 combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
+                schools_in_scope = user_schools
             else:
+                options = ["All Schools"] + schools_list
+                persisted_school = st.session_state.get("context_school")
+                default_idx = options.index(persisted_school) if persisted_school in options else 0
                 selected_school = st.selectbox(
                     "Select School to Focus",
-                    ["All Schools"] + schools_list,
-                    index=0,
-                    key="ap_school_select",
+                    options,
+                    index=default_idx,
+                    key="ap_context_school_widget",
                     help="Switch to another school's module list."
                 )
+                st.session_state.context_school = selected_school
                 if selected_school != "All Schools":
                     combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
+                    schools_in_scope = [selected_school]
+                else:
+                    schools_in_scope = ["All"]
         else:
-            # Fallback for "All Schools" users (e.g. FACULTY) to filter module list by school
+            # Fallback for "All Schools" users (e.g. FACULTY, and most real
+            # DLA accounts - see "DLA accounts are faculty-wide" in project
+            # memory) to filter module list by school. Shares `context_school`
+            # with School Dashboard's and Module Report's equivalent fallback
+            # branch, same reasoning as the checkbox branch above.
+            options = ["All Schools"] + schools_list
+            persisted_school = st.session_state.get("context_school")
+            default_idx = options.index(persisted_school) if persisted_school in options else 0
             selected_school = st.selectbox(
                 "Filter by School",
-                ["All Schools"] + schools_list,
-                index=0,
+                options,
+                index=default_idx,
                 key="ap_school_select_all",
-                help="Filter the module selection list by a specific school."
+                help="Filter the module selection list by a specific school. This "
+                     "choice is shared with School Dashboard and Module Report."
             )
+            st.session_state.context_school = selected_school
             if selected_school != "All Schools":
                 combined_options = [opt for opt in combined_options if opt.startswith(selected_school)]
+                schools_in_scope = [selected_school]
+            else:
+                schools_in_scope = ["All"]
 
     username_upper = str(st.session_state.get("username", "")).strip().upper()
-    pending_spot_checks = (get_spot_checks_for_user(username_upper, status='pending')
-                           if username_upper else pd.DataFrame())
+    # School-scoped, not just this DLA's own flags - a spot-check belongs to
+    # whichever school it's in, so any DLA currently working that school
+    # (their own, or one they've locked into to cover a colleague) sees the
+    # whole pending queue, not only the modules they personally flagged.
+    pending_spot_checks = get_spot_checks_for_schools(
+        schools_in_scope, CURRENT_ACADEMIC_YEAR, status='pending')
     if not pending_spot_checks.empty:
-        with st.expander(f"🎯 Your Spot-Checks ({len(pending_spot_checks)} pending)", expanded=True):
+        with st.expander(f"🎯 Spot-Checks to Complete ({len(pending_spot_checks)} pending)", expanded=True):
             st.caption(
-                "Modules you flagged for spot-check on the School Dashboard. Open "
-                "one and complete the checklist as normal - saving it records "
-                "whether your answers matched what the Blackboard Template data "
-                "suggested when you flagged it.")
+                "Modules flagged for spot-check in the school(s) you're currently "
+                "working in - not just ones you flagged yourself, so covering a "
+                "colleague's school surfaces their flags too. Open one and complete "
+                "the checklist as normal - saving it records whether the answers "
+                "matched what the Blackboard Template data suggested when it was "
+                "flagged.")
             for _, sc_row in pending_spot_checks.iterrows():
                 sc_code = sc_row['module_code']
                 sc_name = module_mapping.get(sc_code, sc_code)
                 sc_c1, sc_c2 = st.columns([4, 1])
                 with sc_c1:
-                    st.write(f"**{sc_code}** — {sc_name}  ·  flagged {sc_row['flagged_on']}")
+                    st.write(f"**{sc_code}** — {sc_name}")
                 with sc_c2:
                     if st.button("Open", key=f"sc_open_{sc_row['id']}", use_container_width=True):
                         st.session_state.selected_module_code = sc_code
@@ -292,20 +336,22 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                     else:
                         action = "saved as draft"
 
-                    # If this module was flagged for spot-check by the person
-                    # saving it, the first save closes it out - comparing what
-                    # they just answered against the suggestion frozen at the
-                    # moment they flagged it. A save by someone other than the
-                    # flagger (e.g. covering an absence) leaves it pending, so
-                    # the agreement rate stays a measure of the flagger's own
-                    # judgement, not whoever happened to save the module.
+                    # A spot-check belongs to the school it was flagged in,
+                    # not to whoever flagged it - any DLA saving a real audit
+                    # for a flagged module closes it out, comparing what they
+                    # just answered against the suggestion frozen at the
+                    # moment it was flagged, whether or not they're the one
+                    # who flagged it. This lets a DLA cover a colleague's
+                    # school without the spot-check just sitting there
+                    # unclosed. checked_by records who actually closed it,
+                    # separately from flagged_by.
                     pending_sc = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
-                    if pending_sc and pending_sc.get('flagged_by') == username_upper:
+                    if pending_sc:
                         agreement = compute_spot_check_agreement(
                             pending_sc.get('data_verdict_snapshot'), responses_input)
                         mark_spot_check_checked(
                             selected_code, CURRENT_ACADEMIC_YEAR, timestamp,
-                            agreement['agreed'], agreement['total'],
+                            agreement['agreed'], agreement['total'], username_upper,
                             notes=f"Closed via Audit Portal save on {timestamp}.")
                         logging.info(
                             "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",

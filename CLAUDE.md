@@ -359,7 +359,7 @@ the corrected project memory on this. The schema has no field for a DLA's
 actual school alignment(s) today.
 
 `spot_checks` (owned by this portal) tracks flags through to outcome —
-`database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_user()`,
+`database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_schools()`,
 `get_school_spot_checks()`, `get_pending_spot_check()`,
 `mark_spot_check_checked()`, `get_spot_check_agreement_summary()`,
 `purge_spot_checks()`. The flagging action and the school's history table
@@ -367,20 +367,30 @@ live in `views/school_dashboard.py`'s new "🎯 Spot-Checks" view; the
 snapshot/diff logic is I/O-free in `processing.py`
 (`build_spot_check_snapshot()`, `compute_spot_check_agreement()`).
 
-- **A flag has no separate recording UI.** Flagging a module just adds it to
-  the flagger's normal Audit Portal queue (`views/audit_portal.py`'s "Your
-  Spot-Checks" panel). Saving a real audit response for it — Save Draft or
-  Submit, whichever comes first — is what closes it out:
-  `compute_spot_check_agreement()` diffs what was actually ticked against
-  `readiness_prefill_for_module()`'s suggestion as it was frozen into
-  `data_verdict_snapshot` at the moment of flagging, not against whatever the
-  data says by the time the advisor opens it. Only the flagger's own save
-  closes their spot-check — a different person saving the same module leaves
-  it pending, so the agreement rate stays a measure of the flagger's own
-  judgement.
-- **There is no `assigned_to` distinct from `flagged_by`.** The person who
-  chooses a module is the person who checks it; nothing round-robins or
-  auto-assigns.
+- **A flag belongs to the school it was raised in, not to the DLA who raised
+  it.** Changed 19-08-2026: any DLA currently working that school — their
+  own, or one they've deliberately switched context into to cover a
+  colleague, see "School context locking" below — sees it in their Audit
+  Portal queue and can close it out, not only the original flagger. A flag
+  has no separate recording UI; opening one from the queue and saving a real
+  audit response for it — Save Draft or Submit, whichever comes first — is
+  what closes it out. `compute_spot_check_agreement()` diffs what was
+  actually ticked against `readiness_prefill_for_module()`'s suggestion as it
+  was frozen into `data_verdict_snapshot` at the moment of flagging, not
+  against whatever the data says by the time it's opened — that part is
+  unchanged. `checked_by` (added alongside this change) records who actually
+  closed it, separately from `flagged_by`, since the two are now routinely
+  different people. This reverses the pre-19-08-2026 design, where only the
+  flagger's own save could close their spot-check specifically so the
+  agreement rate measured the flagger's own judgement; that guarantee is
+  gone — the rate now reflects whoever ends up completing the module, which
+  was the deliberate trade-off for making cover-for-a-colleague workable. The
+  underlying human-judgement principle this feature was built on (see
+  [[feedback_prefer-human-judgment-over-automation]]) is unaffected: a person
+  still chooses which modules get spot-checked, nothing auto-samples.
+- **There is still no `assigned_to` distinct from `flagged_by`.** Any DLA
+  working the school can pick up a flag from the shared queue; nothing
+  round-robins or auto-assigns a specific person to a specific flag.
 - **A field the snapshot suggested but that is missing from what was saved**
   (e.g. the audit field has since been deactivated) is excluded from the
   agreement comparison entirely, not counted as disagreement - there is no
@@ -451,6 +461,56 @@ snapshot/diff logic is I/O-free in `processing.py`
   holders**, and `st.switch_page` raises on an unregistered page. Any button
   jumping there needs a `can_audit` guard, not just a permission check inside
   the destination.
+- **School context locking**: `views/school_dashboard.py`,
+  `views/audit_portal.py` and `views/module_report.py` all read/write two
+  **plain** session-state values — `context_school` (a school code, or the
+  literal `"All Schools"`) and `context_focus_own` (bool) — that are never
+  passed as any widget's own `key=`. Each page's checkbox/selectbox seeds its
+  `value=`/`index=` from these on every render and writes the result back
+  immediately after, e.g.:
+  ```python
+  filter_by_school = st.checkbox(label,
+      value=st.session_state.get("context_focus_own", True),
+      key="sd_context_focus_own_widget", ...)
+  st.session_state.context_focus_own = filter_by_school
+  ```
+  This applies to **both** branches that offer an override: the "Focus on my
+  school(s)" checkbox branch (accounts with specific own school(s)) and the
+  `["All Schools"]` fallback selectbox branch (faculty-wide accounts —
+  `sd_school_select_all` / `ap_school_select_all` / `rc_school_select_all` -
+  which is what most real DLA accounts actually hit day to day, since they're
+  provisioned `saved_school="All"` even when genuinely aligned with specific
+  schools; see the project memory on this). Both branches write the same
+  `context_school` key, so a school picked via either one is honoured by
+  every page regardless of which branch that page's own account type uses.
+  Added/corrected 19-08-2026.
+
+  **Why plain values, not a shared widget `key=`:** an earlier version of
+  this (same day) gave the checkbox/selectbox on all three pages the
+  identical `key=`, reasoning that Streamlit keys a widget's value by that
+  string across the whole session. That's true only for the page that most
+  recently rendered it — confirmed with a throwaway two-page
+  `st.navigation()`/`st.Page(function)` sandbox app: a widget's *own*
+  session-state entry is cleared the moment its page's function stops
+  executing for one run, even when a *different* page's function creates a
+  widget with the exact same `key=` moments later. A plain
+  `st.session_state[...] = value` write (never bound to any widget) is not
+  subject to that cleanup and survives navigation through any number of
+  other pages, including ones that never reference the key at all (also
+  confirmed in the sandbox, including through a page list built with
+  `position="hidden"` and manual `st.page_link()`s, matching this app's
+  actual sidebar exactly) - hence the two-tier design above. If this is ever
+  touched again: do not reach for a shared `key=` as the fix, it looks
+  correct and silently isn't once real page-to-page navigation is involved.
+
+  Every quick-action launcher on School Dashboard that jumps to the Report
+  Card or Audit Portal (the "All Modules" table, the Priority Action List,
+  and the Spot-Checks tab) sets `context_focus_own`/`context_school`
+  directly to the school currently being viewed before `st.switch_page`, so
+  the destination page shows that exact school even before the DLA touches
+  its own controls. Default behaviour (own school(s), checkbox ticked) is
+  unchanged. `only_own_school` (`view_school` without `view_all`) accounts
+  have no override at all and are unaffected by any of this.
 - **Date formatting**: User-facing dates always display as `DD-MM-YYYY`
   (e.g., "06-08-2026") using `strftime('%d-%m-%Y')`. Internal storage and
   database columns use ISO format (`YYYY-MM-DD HH:MM:SS`) for sortability.

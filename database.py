@@ -346,6 +346,17 @@ def init_db():
         ON spot_checks (module_code, academic_year, status)
     """)
 
+    # A spot-check belongs to the school it was flagged in, not to whoever
+    # flagged it - any DLA covering that school can close it out, not just
+    # the original flagger. checked_by records who actually did, separately
+    # from flagged_by (who chose to flag it), for traceability now that the
+    # two can differ.
+    cursor.execute("PRAGMA table_info(spot_checks)")
+    spot_check_columns = [row[1] for row in cursor.fetchall()]
+    if 'checked_by' not in spot_check_columns:
+        cursor.execute("ALTER TABLE spot_checks ADD COLUMN checked_by TEXT")
+        logging.info("Migrated spot_checks table: added checked_by column.")
+
     # Create blackboard_links table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS blackboard_links (
@@ -1437,19 +1448,6 @@ def flag_module_for_spot_check(module_code: str, academic_year: str, flagged_by:
                  module_code, flagged_by, academic_year)
     return new_id
 
-def get_spot_checks_for_user(username: str, status: str = None):
-    """One user's own flagged modules, most recently flagged first."""
-    with get_db_connection() as conn:
-        if not table_exists(conn, 'spot_checks'):
-            return pd.DataFrame()
-        sql = "SELECT * FROM spot_checks WHERE flagged_by = ?"
-        params = [str(username).strip().upper()]
-        if status:
-            sql += " AND status = ?"
-            params.append(status)
-        sql += " ORDER BY flagged_on DESC"
-        return pd.read_sql_query(sql, conn, params=params)
-
 def get_school_spot_checks(school: str, academic_year: str = None):
     """Every spot-check flagged for modules in one school - not just the
     signed-in user's own, so a team can see what's already been covered
@@ -1464,6 +1462,34 @@ def get_school_spot_checks(school: str, academic_year: str = None):
         if academic_year:
             sql += " AND academic_year = ?"
             params.append(academic_year)
+        sql += " ORDER BY flagged_on DESC"
+        return pd.read_sql_query(sql, conn, params=params)
+
+def get_spot_checks_for_schools(schools, academic_year: str = None, status: str = None):
+    """Every spot-check flagged for modules across one or more schools - the
+    A flag belongs to whichever school(s) it's in, not to whoever raised it
+    (see 'Spot-check flagging' in CLAUDE.md), so this is scoped by school
+    rather than by flagged_by. ["All"] (or an empty list) returns every
+    school's flags, same sentinel convention as processing.parse_user_schools().
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        codes = [str(s).strip().upper() for s in (schools or []) if s]
+        sql = "SELECT * FROM spot_checks"
+        clauses = []
+        params = []
+        if codes and "ALL" not in codes:
+            clauses.append("(" + " OR ".join(["module_code LIKE ?"] * len(codes)) + ")")
+            params.extend(f"{c}%" for c in codes)
+        if academic_year:
+            clauses.append("academic_year = ?")
+            params.append(academic_year)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY flagged_on DESC"
         return pd.read_sql_query(sql, conn, params=params)
 
@@ -1505,19 +1531,23 @@ def delete_spot_check(spot_check_id: int) -> bool:
     return deleted
 
 def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: str,
-                            agreement_agreed: int, agreement_total: int, notes: str = ""):
-    """Closes out the pending spot-check row for a module once the DLA who
-    flagged it saves a real audit response for it - called from the Audit
-    Portal's save path, not a separate button. Returns the number of rows
-    updated (0 or 1)."""
+                            agreement_agreed: int, agreement_total: int, checked_by: str,
+                            notes: str = ""):
+    """Closes out the pending spot-check row for a module once any DLA saves
+    a real audit response for it - called from the Audit Portal's save path,
+    not a separate button. A spot-check belongs to the school it was flagged
+    in, not to whoever flagged it (see 'Spot-check flagging' in CLAUDE.md),
+    so checked_by can differ from flagged_by - that's the normal case of one
+    DLA covering another's flagged module, not an edge case. Returns the
+    number of rows updated (0 or 1)."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE spot_checks
             SET status = 'checked', checked_on = ?, agreement_agreed = ?,
-                agreement_total = ?, notes = ?
+                agreement_total = ?, checked_by = ?, notes = ?
             WHERE module_code = ? AND academic_year = ? AND status = 'pending'
-        """, (checked_on, agreement_agreed, agreement_total, notes,
+        """, (checked_on, agreement_agreed, agreement_total, checked_by, notes,
               module_code.strip().upper(), academic_year))
         conn.commit()
         return cursor.rowcount
