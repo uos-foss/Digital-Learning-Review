@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
-                        reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot,
+                        resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
@@ -345,7 +345,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 render_maturity_banner(school_df)
 
                 ally_tabs = st.tabs([
-                    "🔧 What to fix", "🔴 Severe issues", "📋 By module", "🔗 Reconciliation",
+                    "🔧 What to fix", "🔴 Severe issues", "📋 By module",
                 ])
 
                 df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
@@ -395,31 +395,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                 'Ally Students': st.column_config.NumberColumn("Students", format="%d"),
                             },
                             width="stretch", hide_index=True)
-
-                with ally_tabs[3]:
-                    st.markdown("##### Where Ally and SITS disagree")
-                    st.caption(
-                        "Programme-level and community Blackboard sites have no SITS module, "
-                        "and a few SITS modules have no Blackboard course. Both used to "
-                        "disappear silently at import."
-                    )
-                    df_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
-                    if df_courses.empty:
-                        st.info("No Ally courses loaded.")
-                    else:
-                        ally_here = df_courses[
-                            df_courses['module_code'].astype(str).str[:3] == school]
-                        rec = reconcile_ally_modules(ally_here['module_code'], school_codes)
-                        r1, r2, r3 = st.columns(3)
-                        r1.metric("Matched", len(rec['matched']))
-                        r2.metric("Ally only", len(rec['ally_only']))
-                        r3.metric("SITS only", len(rec['sits_only']))
-                        if rec['ally_only']:
-                            st.write("**Blackboard courses with no SITS module this semester**")
-                            st.code(", ".join(rec['ally_only']))
-                        if rec['sits_only']:
-                            st.write("**SITS modules with no Blackboard course**")
-                            st.code(", ".join(rec['sits_only']))
 
             elif selected_view == "📈 Trends":
                 st.subheader(f"Accessibility Trends ({school})")
