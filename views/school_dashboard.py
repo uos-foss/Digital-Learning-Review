@@ -128,7 +128,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 Modules Overview", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
+            # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
+            # disabled - add them back to this list to restore. Their view code
+            # below is untouched.
+            view_options = ["📋 Modules Overview", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
