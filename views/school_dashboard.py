@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from processing import (calculate_compliance_gap, calculate_module_compliance, resolve_semester_df,
+from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         reconcile_ally_modules, resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools)
@@ -156,7 +156,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             st.divider()
             
             # Segmented view navigation control
-            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Compliance Gap", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
+            view_options = ["📋 All Modules", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "📝 Assessment Types", "🤖 AI in the Curriculum", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -485,62 +485,52 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             "so each point is a real movement. Early in the year the upload "
                             "line matters more than the score line."
                         )
-            elif selected_view == "✅ Compliance Gap":
-                st.subheader(f"Compliance Gap Analysis ({semester})")
-                
-                audit_source = st.radio(
-                    "Select Audit Dataset:",
-                    ["New Audit Checklist (SQLite Primary)", "Legacy VLE Audit (25/26 Reference)"],
-                    horizontal=True,
-                    key="sd_compliance_dataset_selector"
-                )
-                
-                if audit_source == "Legacy VLE Audit (25/26 Reference)":
-                    gaps = calculate_compliance_gap(school_df)
-                else:
-                    from processing import calculate_dynamic_compliance_gap
-                    gaps = calculate_dynamic_compliance_gap(school_code=school)
+            elif selected_view == "✅ Checklist Completion":
+                st.subheader(f"Checklist Completion Analysis ({semester})")
+
+                from processing import calculate_dynamic_compliance_gap
+                gaps = calculate_dynamic_compliance_gap(school_code=school)
                 
                 if gaps:
-                    gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])
-                    gap_df['Compliance %'] = gap_df['Compliance %'] * 100
-                    
+                    gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', '% Complete'])
+                    gap_df['% Complete'] = gap_df['% Complete'] * 100
+
                     import altair as alt
                     chart_base = alt.Chart(gap_df).encode(
-                        y=alt.Y('Category:N', 
-                                sort='x', 
+                        y=alt.Y('Category:N',
+                                sort='x',
                                 title=None,
                                 axis=alt.Axis(labelLimit=500, labelFontSize=12)),
-                        x=alt.X('Compliance %:Q', 
-                                scale=alt.Scale(domain=[0, 100]), 
-                                title="Percentage Compliant"),
-                        tooltip=['Category', alt.Tooltip('Compliance %', format='.1f')]
+                        x=alt.X('% Complete:Q',
+                                scale=alt.Scale(domain=[0, 100]),
+                                title="% Complete"),
+                        tooltip=['Category', alt.Tooltip('% Complete', format='.1f')]
                     )
-                    
+
                     bars = chart_base.mark_bar(cornerRadiusEnd=5, height=28).encode(
-                        color=alt.Color('Compliance %:Q', 
-                                       scale=alt.Scale(scheme='redyellowgreen'), 
+                        color=alt.Color('% Complete:Q',
+                                       scale=alt.Scale(scheme='redyellowgreen'),
                                        legend=None)
                     )
-                    
+
                     text_overlay = chart_base.mark_text(
                         align='left',
                         baseline='middle',
                         dx=6,
                         fontWeight='bold'
                     ).encode(
-                        text=alt.Text('Compliance %:Q', format='.1f')
+                        text=alt.Text('% Complete:Q', format='.1f')
                     )
-                    
+
                     final_chart = (bars + text_overlay).properties(
                         height=450
                     ).configure_view(
                         strokeWidth=0
                     )
-                    
+
                     st.altair_chart(final_chart, use_container_width=True)
                 else:
-                    st.write("No compliance data available.")
+                    st.write("No checklist completion data available.")
 
             elif selected_view == "⚠️ Priority Action List":
                 st.subheader("🎯 Focus Priority Lenses")
@@ -548,7 +538,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 
                 lens = st.radio(
                     "Choose inspection criteria:",
-                    ["⚠️ Accessibility Risk", "🔍 Critical Compliance Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
+                    ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
                     horizontal=True,
                     label_visibility="collapsed",
                     key="school_priority_lens_selector"
@@ -566,7 +556,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     render_df, render_configs, render_status, render_status_type = \
                         build_accessibility_risk_list(source_data)
 
-                elif lens == "🔍 Critical Compliance Gaps":
+                elif lens == "🔍 Critical Checklist Gaps":
                     counts, max_items = calculate_module_compliance(
                         get_all_audit_responses(), get_active_audit_fields()
                     )
@@ -575,7 +565,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         render_status = "No scorable audit fields are configured."
                         render_status_type = "error"
                     elif counts.empty:
-                        render_status = "No audits submitted yet, so there are no compliance gaps to show."
+                        render_status = "No audits submitted yet, so there are no checklist gaps to show."
                         render_status_type = "info"
                     else:
                         source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
@@ -598,7 +588,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             render_df = gap_df[display_cols].copy()
                             render_configs = {
                                 "New module code": "Code", "Module name": "Module Name",
-                                "Mod. lead": "Lead", "DisplayValue": "Compliance Count"
+                                "Mod. lead": "Lead", "DisplayValue": "Items Complete"
                             }
                         elif scored_df.empty:
                             render_status = "No modules in this school have been audited yet."

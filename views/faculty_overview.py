@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from processing import (aggregate_faculty_stats, calculate_compliance_gap, calculate_module_compliance,
+from processing import (aggregate_faculty_stats, calculate_module_compliance,
                         get_school_comparison, resolve_semester_df, summarise_ai_declarations,
                         FACULTY_SCHOOLS)
 from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
@@ -331,19 +331,9 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
 
     elif selected_view == "✅ Compliance Gap":
         st.subheader(f"Compliance Gap Analysis ({semester})")
-        
-        audit_source = st.radio(
-            "Select Audit Dataset:",
-            ["New Audit Checklist (SQLite Primary)", "Legacy VLE Audit (25/26 Reference)"],
-            horizontal=True,
-            key="fo_compliance_dataset_selector"
-        )
-        
-        if audit_source == "Legacy VLE Audit (25/26 Reference)":
-            gaps = calculate_compliance_gap(active_df)
-        else:
-            from processing import calculate_dynamic_compliance_gap
-            gaps = calculate_dynamic_compliance_gap(school_code='All')
+
+        from processing import calculate_dynamic_compliance_gap
+        gaps = calculate_dynamic_compliance_gap(school_code='All')
         
         if gaps:
             gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])

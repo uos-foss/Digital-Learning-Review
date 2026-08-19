@@ -66,8 +66,9 @@ this page has All Modules and Trends, and does not have School Comparison.
   SITS.
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
-* **Compliance Gap**, **Priority Action List**, **Assessment Types** — As on
-  the Faculty Overview, scoped to this school.
+* **Checklist Completion** (Faculty Overview's Compliance Gap, renamed here),
+  **Priority Action List**, **Assessment Types** — As on the Faculty Overview,
+  scoped to this school.
 
 > **Reading Ally scores correctly.** Ally reports three scores, and the portal
 > shows all three because they mean different things:
