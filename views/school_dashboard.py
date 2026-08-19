@@ -4,13 +4,13 @@ import datetime
 from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
-                        parse_user_schools, format_user_schools)
+                        parse_user_schools, format_user_schools, prepare_ally_issues)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
 from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_issue_profile,
-    render_severe_register, build_accessibility_risk_list,
+    build_accessibility_risk_list,
 )
 
 def to_sentence_case(name: str) -> str:
@@ -343,43 +343,71 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             elif selected_view == "📊 Ally Analytics":
                 st.subheader(f"Accessibility Profile — {school} ({semester})")
                 render_maturity_banner(school_df)
-
-                ally_tabs = st.tabs([
-                    "🔧 What to fix", "🔴 Severe issues", "📋 By module",
-                ])
+                st.caption(
+                    "Counted in content items rather than modules, because that is the "
+                    "size of the job. One session on exporting tagged PDFs can clear "
+                    "hundreds of items at once."
+                )
 
                 df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
+                scoped_issues = prepare_ally_issues(df_issues, school_codes)
 
-                with ally_tabs[0]:
-                    st.markdown("##### The accessibility work this school is carrying")
-                    st.caption(
-                        "Counted in content items rather than modules, because that is the "
-                        "size of the job. One session on exporting tagged PDFs can clear "
-                        "hundreds of items at once."
-                    )
-                    render_issue_profile(df_issues, school_codes, top_n=12,
+                severity_options = ["Severe", "Major", "Minor", "Other"]
+                fcol1, fcol2 = st.columns(2)
+                with fcol1:
+                    severity_filter = st.multiselect(
+                        "Filter by severity", severity_options, default=severity_options,
+                        key=f"ally_severity_filter_{school}")
+                if not severity_filter:
+                    severity_filter = severity_options
+                severity_scoped = scoped_issues[scoped_issues['severity_label'].isin(severity_filter)]
+                with fcol2:
+                    issue_options = sorted(severity_scoped['label'].unique())
+                    issue_filter = st.multiselect(
+                        "Filter by issue", issue_options, default=[],
+                        key=f"ally_issue_filter_{school}",
+                        help="Narrows the module table to modules carrying one or more of "
+                             "the selected issues. Leave blank to include every issue at "
+                             "the severities chosen on the left.")
+
+                filters_active = set(severity_filter) != set(severity_options) or bool(issue_filter)
+
+                chart_col, table_col = st.columns([2, 3])
+
+                with chart_col:
+                    st.markdown("##### What to fix")
+                    render_issue_profile(severity_scoped, school_codes, top_n=8,
                                          key=f"school_issue_profile_{school}")
 
-                with ally_tabs[1]:
-                    st.markdown("##### Modules carrying a severe accessibility issue")
-                    render_severe_register(school_df, key=f"school_severe_{school}")
-
-                with ally_tabs[2]:
-                    st.markdown("##### Every module, with the detail behind its score")
+                with table_col:
+                    st.markdown("##### Modules")
                     if school_df.empty or 'Ally Overall' not in school_df.columns:
                         st.warning("No Ally data found for this school.")
                     else:
                         table = school_df.copy()
+                        table['_code'] = table['New module code'].astype(str).str.strip().str.upper()
                         table['Mod. lead'] = table['Mod. lead'].apply(to_sentence_case)
-                        table = table.sort_values(['Ally Severe', 'Ally Major'], ascending=False)
-                        show = [c for c in [
-                            'New module code', 'Module name', 'Mod. lead', 'Content Maturity',
-                            'Ally Overall', 'Ally Files', 'Ally WYSIWYG', 'Total Files',
-                            'Ally WYSIWYG Items', 'Ally Severe', 'Ally Major', 'Ally Minor',
-                            'Ally Students'] if c in table.columns]
-                        st.dataframe(
-                            table[show].reset_index(drop=True),
-                            column_config={
+
+                        if filters_active:
+                            table_issues = severity_scoped
+                            if issue_filter:
+                                table_issues = table_issues[table_issues['label'].isin(issue_filter)]
+                            matched_items = table_issues.groupby('module_code')['items'].sum()
+                            table = table[table['_code'].isin(matched_items.index)].copy()
+                            table['Matching Items'] = table['_code'].map(matched_items).fillna(0).astype(int)
+                            table = table.sort_values(['Matching Items', 'Ally Severe'], ascending=False)
+                        else:
+                            table = table.sort_values(['Ally Severe', 'Ally Major'], ascending=False)
+
+                        if table.empty:
+                            st.info("No modules match the selected filters.")
+                        else:
+                            show = [c for c in [
+                                'New module code', 'Module name', 'Mod. lead', 'Content Maturity',
+                                'Ally Overall', 'Ally Files', 'Ally WYSIWYG', 'Total Files',
+                                'Ally WYSIWYG Items', 'Ally Severe', 'Ally Major', 'Ally Minor',
+                                'Ally Students'] if c in table.columns]
+                            configs = {
                                 'New module code': "Module Code",
                                 'Module name': "Module Name",
                                 'Mod. lead': "Module Lead",
@@ -393,8 +421,17 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                                 'Ally Major': st.column_config.NumberColumn("Major", format="%d"),
                                 'Ally Minor': st.column_config.NumberColumn("Minor", format="%d"),
                                 'Ally Students': st.column_config.NumberColumn("Students", format="%d"),
-                            },
-                            width="stretch", hide_index=True)
+                            }
+                            if filters_active:
+                                show.append('Matching Items')
+                                configs['Matching Items'] = st.column_config.NumberColumn(
+                                    "Matching Items",
+                                    help="Content items matching the severity/issue filters "
+                                         "above.")
+                            st.dataframe(
+                                table[show].reset_index(drop=True),
+                                column_config=configs,
+                                width="stretch", hide_index=True)
 
             elif selected_view == "📈 Trends":
                 st.subheader(f"Accessibility Trends ({school})")

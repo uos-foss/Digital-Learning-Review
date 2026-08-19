@@ -193,33 +193,6 @@ def build_accessibility_risk_list(df):
     if skipped:
         note += f" {skipped} module(s) not yet started are excluded."
     return at_risk[cols].reset_index(drop=True), configs, note, "warning"
-
-
-def render_severe_register(df, key="severe_register"):
-    """Modules carrying a severe issue, worst and busiest first."""
-    if df is None or df.empty or 'Ally Severe' not in df.columns:
-        return
-    severe = df[pd.to_numeric(df['Ally Severe'], errors='coerce').fillna(0) > 0].copy()
-    if severe.empty:
-        st.success("✅ No modules in this scope carry a severe accessibility issue.")
-        return
-
-    severe['Students'] = pd.to_numeric(severe.get('Ally Students'), errors='coerce').fillna(0).astype(int)
-    severe['Severe items'] = pd.to_numeric(severe['Ally Severe'], errors='coerce').fillna(0).astype(int)
-    severe['Score'] = pd.to_numeric(severe.get('Ally Overall'), errors='coerce')
-    severe = severe.sort_values(['Severe items', 'Students'], ascending=False)
-
-    cols = [c for c in ['New module code', 'Module name', 'Mod. lead',
-                        'Severe items', 'Students', 'Score'] if c in severe.columns]
-    st.dataframe(
-        severe[cols].reset_index(drop=True),
-        column_config={
-            'New module code': "Module Code",
-            'Module name': "Module Name",
-            'Mod. lead': "Module Lead",
-            'Score': st.column_config.NumberColumn("Ally Overall", format="%.1f%%"),
-        },
-        width="stretch", hide_index=True, key=key)
     st.caption("Severe issues are unreadable scans, corrupt files, documents locked "
                "against screen readers, and images that can trigger seizures. These "
                "block access outright rather than making it harder.")
