@@ -1821,6 +1821,18 @@ def readiness_manual_override(audit_field_id, responses):
     return str(val).strip().upper() == 'TRUE'
 
 
+INERT_TEXT_FIELD_IDS = frozenset({'comments'})
+"""'text'-type audit_fields whose value is pure metadata for the auditor -
+never turned into a checklist finding, so it never shows as an Outstanding
+card and never counts toward Actionable Items. 'comments' ("Additional
+Comments") carries years of legacy tag/custom-observation JSON that used to
+drive real findings, but it's a general-purpose free-text box now with no
+input UI for that structure - a DLA typing an unrelated note into it should
+not silently create a permanent open action item. 'lm_note' ("Learning
+Materials note") is deliberately NOT here: it's meant to flag something
+about a module's Learning Materials that stays actionable until resolved,
+the same way every other 'text' field defaults to behaving."""
+
 def derive_module_findings(active_row, responses, active_fields, comment_bank):
     """
     Every checklist, Leganto, Ally and template-readiness finding for one
@@ -1871,7 +1883,7 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
                     'label': label if is_compliant else action_label,
                     'description': desc,
                 })
-            elif ftype == 'text' and val:
+            elif ftype == 'text' and val and fid not in INERT_TEXT_FIELD_IDS:
                 custom_val = val
                 tags = []
                 try:

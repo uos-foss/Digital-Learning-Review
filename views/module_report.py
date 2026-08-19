@@ -823,10 +823,4 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         with col_checks:
             _render_module_checks(pending_items, completed_items, has_audit, active_row, responses)
 
-        # Render confidential internal notes if user is an auditor
-        if is_dla_or_admin and has_audit:
-            auditor_notes = str(responses.get('auditor_notes', '')).strip()
-            if auditor_notes and auditor_notes.lower() != 'none':
-                st.info(f"🔒 **Auditor Notes (Internal/Auditors Only):**\n\n{auditor_notes}")
-
         st.caption(f"Last updated: {last_updated_str}")

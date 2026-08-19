@@ -216,25 +216,15 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                             def_val = False
                         tooltip = f"📋 Blackboard Template: {suggestion['evidence_text']}" if suggestion is not None else "N/A"
                         responses_input[fid] = st.checkbox(label, value=def_val, help=tooltip, key=f"ap_chk_{selected_code}_{fid}")
+                    elif ftype == 'text':
+                        responses_input[fid] = st.text_area(
+                            label,
+                            value=prev_val or '',
+                            help=field.get('description') or None,
+                            key=f"ap_txt_{selected_code}_{fid}"
+                        )
 
             st.markdown("---")
-
-            prev_module_notes = prev_responses.get('notes_to_lead', {}).get('value', '')
-            module_notes_val = st.text_area(
-                "Notes for Module Lead",
-                value=prev_module_notes,
-                placeholder="Share observations, recommendations, or next steps...",
-                key=f"ap_lead_notes_{selected_code}"
-            )
-
-            prev_auditor_notes = prev_responses.get('auditor_notes', {}).get('value', '')
-            auditor_notes_val = st.text_area(
-                "🔒 Internal Notes",
-                value=prev_auditor_notes,
-                help="Not visible to module leads.",
-                placeholder="Add internal context or reminders...",
-                key=f"ap_auditor_notes_{selected_code}"
-            )
 
             masquerading = is_masquerading()
             if masquerading:
@@ -282,9 +272,6 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                 try:
                     for fid, val in responses_input.items():
                         save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
-
-                    save_audit_response(selected_code, 'notes_to_lead', module_notes_val, username_upper, timestamp)
-                    save_audit_response(selected_code, 'auditor_notes', auditor_notes_val, username_upper, timestamp)
 
                     status = 'submitted' if save_submit else 'draft'
                     save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
