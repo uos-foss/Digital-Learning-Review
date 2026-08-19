@@ -146,8 +146,8 @@ def _render_ally_card(selected_code, active_row, ally_profile):
     """
     with st.container():
         st.subheader("Accessibility Report",
-                     help="Ally's own scores for this course, from the most recent "
-                          "institutional export. Files and editor pages are scored "
+                     help="Ally's own scores for this course, from the university's most "
+                          "recent Ally scan. Files and editor pages are scored "
                           "separately because they are fixed in completely different ways.")
 
         if active_row is None:
@@ -166,8 +166,8 @@ def _render_ally_card(selected_code, active_row, ally_profile):
         if maturity == "No data" or (n_files == 0 and n_wysiwyg == 0 and shells == 0):
             st.info(
                 f"No Ally record for this module in {CURRENT_ACADEMIC_YEAR}. That usually "
-                "means it has no Blackboard course, or its course sits under a different "
-                "code — the Admin Panel's Ally import reports both.")
+                "means it has no Blackboard course, or its course is filed under a "
+                "different code — ask a Digital Learning Advisor to check if this looks wrong.")
             return
 
         # 1. Maturity banner - only for states that need explaining. "In
@@ -196,7 +196,7 @@ def _render_ally_card(selected_code, active_row, ally_profile):
         for col, tile_label, tile_score, tile_sub, tile_key in (
             (c1, "Overall", overall, f"{n_files + n_wysiwyg} items", "overall"),
             (c2, "Files", files_score, f"{n_files} file{'' if n_files == 1 else 's'}", "files"),
-            (c3, "Ultra Documents", wysiwyg_score,
+            (c3, "Page Content", wysiwyg_score,
              f"{n_wysiwyg} document{'' if n_wysiwyg == 1 else 's'}", "wysiwyg"),
         ):
             fig, _, sub_text = _score_gauge(tile_label, tile_score, tile_sub, is_template)
@@ -214,7 +214,7 @@ def _render_ally_card(selected_code, active_row, ally_profile):
         _render_ally_trend(selected_code)
 
         st.caption(
-            "ℹ️ Ally figures come from periodic institutional exports and can lag the "
+            "ℹ️ Ally figures are updated on a regular schedule and can lag the "
             "live course. The module's own Ally Course Report inside Blackboard is "
             "always current.")
 
@@ -311,7 +311,7 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
             n = len(blocking)
             bullets.append(f"{n} template section{'s' if n != 1 else ''} "
                            f"{'have' if n != 1 else 'has'} been deleted from or "
-                           f"{'are' if n != 1 else 'is'} missing in the course shell")
+                           f"{'are' if n != 1 else 'is'} missing in the Blackboard course")
 
     if leganto_missing:
         bullets.append("no Leganto reading list connected")
@@ -366,7 +366,7 @@ def _render_pending_item_card(item):
                      f"<a href='{item['resource_url']}' target='_blank' "
                      f"style='color: #2563EB; text-decoration: underline;'>{label_link}</a>")
     elif item['type'] == 'legacy_tag':
-        title = "📌 Legacy Observation"
+        title = "📌 Observation (older system)"
         body = f"<strong>Observation:</strong> {item['comment']}"
     elif item['type'] == 'custom':
         title_text = item.get('label', '').strip() or item.get('category', 'Custom Observation')
@@ -471,7 +471,7 @@ def _render_module_checks(pending_items, completed_items, has_audit, active_row=
 
     st.markdown(f"#### Completed ({len(completed_items)})")
     if not completed_items:
-        st.caption("No completed checklist criteria recorded yet.")
+        st.caption("No completed checklist items recorded yet.")
     else:
         for item in completed_items:
             if item['type'] == 'boolean':
@@ -487,7 +487,7 @@ def _render_module_checks(pending_items, completed_items, has_audit, active_row=
                 <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.05); border-right: 1px solid rgba(16, 185, 129, 0.05); border-bottom: 1px solid rgba(16, 185, 129, 0.05);">
                     <span style="background:#10B9811A;color:#047857;font-size:10px;
                                  font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Complete</span>
-                    <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['category']} Compliant: {item['comment']}</h4>
+                    <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['category']}: {item['comment']}</h4>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -524,7 +524,8 @@ def _render_template_sections(active_row, responses=None, has_audit=False):
 
     st.markdown("#### Blackboard Template")
     st.caption(
-        f"{int(ready or 0)} of {total} module-lead sections visible to students"
+        f"{int(ready or 0)} of {total} sections the module lead needs to complete "
+        f"are visible to students"
         + (f" · as at {snapshot}" if snapshot else ""))
 
     for key in LEAD_OWNED_SECTIONS:
@@ -546,7 +547,7 @@ def _render_template_sections(active_row, responses=None, has_audit=False):
             else:
                 badge, colour = "Manually verified incomplete", STATE_TIER_COLOUR['fault']
                 action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
-            footer = f"Automated read at last import: {data_label}. {footer}"
+            footer = f"Automatically detected as of the last update: {data_label}. {footer}"
 
         st.markdown(
             f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05;
@@ -569,8 +570,9 @@ def _render_template_sections(active_row, responses=None, has_audit=False):
                  else f"Other template sections ({len(others)})")
         with st.expander(title):
             st.caption(
-                "These ship visible in the template and no one is expected to edit "
-                "them, so 'Visible' here is the default rather than evidence of work.")
+                "These sections are visible by default in every course and no one is "
+                "expected to edit them, so 'Visible' here is the default rather than "
+                "evidence of work.")
             rows = [{
                 'Section': TEMPLATE_SECTIONS.get(k, (k,))[0],
                 'Status': v.get('status', ''),
@@ -787,8 +789,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             if verdict:
                 v_icon, v_text = verdict_labels[verdict]
                 verdict_html = (
-                    f'<span title="Computed automatically from gating checklist items - '
-                    f'independent of whether a DLA has submitted the audit."><b>Readiness Outcome:</b> '
+                    f'<span title="Calculated automatically from specific required checklist '
+                    f'questions - independent of whether a DLA has submitted the audit."><b>Readiness Outcome:</b> '
                     f'{v_icon} {v_text}</span>')
 
             st.markdown(
@@ -797,7 +799,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                             gap:6px 28px;align-items:baseline;">
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
-                    <span><b>VLE Link:</b> {vle_value}</span>
+                    <span><b>Module Site:</b> {vle_value}</span>
                     <span title="Whether a Digital Learning Advisor has reviewed and submitted this checklist."><b>Audit Status:</b> {sa_status}</span>
                     {verdict_html}
                 </div>""", unsafe_allow_html=True)
