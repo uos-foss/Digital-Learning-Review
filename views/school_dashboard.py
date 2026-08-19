@@ -188,11 +188,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 # untouched template scores near 100% and would otherwise read as
                 # the best module in the school.
                 if 'Ally Overall' in display_df.columns:
-                    display_df['Ally Score'] = display_df.apply(
-                        lambda r: f"{r['Ally Overall']:.1%}" if pd.notna(r.get('Ally Overall')) else "",
-                        axis=1)
+                    display_df['Ally Score'] = display_df['Ally Overall'].apply(
+                        lambda v: v * 100 if pd.notna(v) else None)
                     cols.append('Ally Score')
-                    configs['Ally Score'] = "Ally Score"
+                    configs['Ally Score'] = st.column_config.NumberColumn("Ally Score", format="%.1f%%")
                 if 'Content Maturity' in display_df.columns:
                     cols.append('Content Maturity')
                     configs['Content Maturity'] = "Build Stage"
