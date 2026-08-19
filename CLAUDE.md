@@ -249,6 +249,21 @@ worth as of 19-08-2026) — that data still round-trips through
 it's just not read into findings while inert. Decide new `'text'` fields'
 membership deliberately; don't default new ones into this set without reason.
 
+**`NOTE_OVERRIDE_FIELDS` lets a `'text'` field veto a `boolean` field's
+tick.** `learning_materials` is asked to mean two things at once — "present"
+and "present and acceptable" — with `lm_note` as the escape valve for when
+they diverge. Added 19-08-2026: an auditor who ticks `learning_materials`
+but still writes a problem into `lm_note` should not have the module read as
+fully compliant just because the box is ticked — a non-empty `lm_note`
+always forces `learning_materials` to `'pending'` in
+`derive_module_findings()`, regardless of the checkbox value. This is
+deliberately one-directional and doesn't catch the opposite failure — an
+inexperienced auditor who ticks with nothing in `lm_note` at all reads
+identically to "materials fine, nothing to note"; there is no way to tell
+those apart from the stored data. That gap is what spot-check flagging (see
+"Spot-check flagging" below) exists to catch via a second reviewer's
+judgement, not something this mapping can close on its own.
+
 **Ally and readiness findings are produced but never rendered generically** —
 both already have their own richer display (the accessibility card, the
 Blackboard Template block), so `view_module_report()` deliberately excludes
