@@ -948,17 +948,28 @@ def _iso_date(series):
     parsed = pd.to_datetime(series, dayfirst=True, errors='coerce')
     return parsed.dt.strftime('%Y-%m-%d').fillna("")
 
+
+# The vendor's overall-status column has been renamed at least once
+# (Alignment_STATUS -> COMPLIANCE_STATUS in the 2026-27 export refresh) with
+# no notice - it's the same "43 of 45 courses stuck on the untouched rollover
+# default" field either way, still stored verbatim in the alignment_status
+# DB column regardless of which header name it arrived under. Recognised by
+# trying each candidate in turn rather than a rename, since a prior year's
+# export can still show up in a fresh upload (e.g. a reference re-import).
+STATUS_COLUMN_CANDIDATES = ('Alignment_STATUS', 'COMPLIANCE_STATUS')
+
 def parse_readiness_export(df, academic_year, snapshot_date):
     """
     Turns the faculty Template Alignment Report into the frames
     database.save_readiness_snapshot() writes.
 
     Sections are discovered from the column names rather than a fixed list:
-    every column ending `_STATUS` other than `Alignment_STATUS` is a template
-    section, paired with its `_LAST_MODIFIED` sibling. The template is versioned
-    and gains and loses sections between years, so discovering them means a new
-    template needs no code change here - only a TEMPLATE_SECTIONS entry to give
-    the new section a human label.
+    every column ending `_STATUS` other than the overall status column (see
+    STATUS_COLUMN_CANDIDATES) is a template section, paired with its
+    `_LAST_MODIFIED` sibling. The template is versioned and gains and loses
+    sections between years, so discovering them means a new template needs no
+    code change here - only a TEMPLATE_SECTIONS entry to give the new section
+    a human label.
 
     Kept I/O-free - the caller reads the CSV and writes the database.
 
@@ -974,16 +985,20 @@ def parse_readiness_export(df, academic_year, snapshot_date):
     df = df.copy()
     result['rows_in'] = len(df)
 
+    status_col = next((c for c in STATUS_COLUMN_CANDIDATES if c in df.columns), None)
+
     required = ['COURSE_NUMBER', 'EXPECTED_SECTION_COUNT', 'VISIBLE_SECTION_COUNT',
-                'COMPLETENESS_SCORE_PERCENT', 'Alignment_STATUS']
+                'COMPLETENESS_SCORE_PERCENT']
     missing = [c for c in required if c not in df.columns]
+    if status_col is None:
+        missing.append('/'.join(STATUS_COLUMN_CANDIDATES))
     if missing:
         raise ValueError(
             "This does not look like a Template Alignment Report - missing "
             + ", ".join(missing))
 
     section_keys = [c[:-len('_STATUS')] for c in df.columns
-                    if c.endswith('_STATUS') and c != 'Alignment_STATUS']
+                    if c.endswith('_STATUS') and c != status_col]
     if not section_keys:
         raise ValueError(
             "This Template Alignment Report has no per-section status columns "
@@ -1052,7 +1067,7 @@ def parse_readiness_export(df, academic_year, snapshot_date):
         'missing_sections': _num('MISSING_SECTION_COUNT'),
         'completeness_score': pd.to_numeric(df['COMPLETENESS_SCORE_PERCENT'],
                                             errors='coerce'),
-        'alignment_status': _text('Alignment_STATUS'),
+        'alignment_status': _text(status_col),
         'template_version': _text('TEMPLATE_VERSION_INDICATOR'),
     })
     # One export can list the same course twice; the later row wins.
