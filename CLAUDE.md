@@ -339,6 +339,23 @@ counterpart and are never suggested on).
   was duplicated identically in `views/audit_portal.py` and
   `views/module_report.py` before being centralised for `views/
   school_dashboard.py`'s spot-check flagging to reuse too.
+- **`processing.calculate_dynamic_compliance_gap()`** (School Dashboard's
+  "Checklist Completion Analysis") is the second consumer of this same
+  ready/not-ready read, at school-wide scale rather than one module at a
+  time. Manual auditing only ever covers a handful of modules a year - the
+  data is meant to do the bulk of the compliance checking automatically,
+  with manual spot-checks as a sample-and-anomaly check on top, not the
+  primary source (see "Spot-check flagging" below). Before 07-09-2026 this
+  metric counted only literal `audit_responses` rows, so an unaudited
+  module was always counted as a gap for all 8 boolean fields even when the
+  Template Alignment Report already showed most of its sections Visible -
+  understating whole-school compliance by orders of magnitude for the 7
+  fields `TEMPLATE_SECTIONS` maps (all but `learning_materials`, which has
+  no template counterpart and stays manual-only). It now uses
+  `readiness_manual_override()` per module/field - the same "a real answer
+  always wins over the data" rule `derive_module_findings()` already
+  applies - so this metric can never disagree with what an advisor has
+  actually verified.
 
 ## Spot-check flagging
 

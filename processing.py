@@ -889,6 +889,12 @@ TEMPLATE_SECTIONS = {
 # Derived from the catalogue rather than written out a second time.
 LEAD_OWNED_SECTIONS = tuple(k for k, v in TEMPLATE_SECTIONS.items() if v[1] == 'lead')
 
+# audit_fields.id -> TEMPLATE_SECTIONS key, the reverse of the mapping above.
+# Lets code that starts from an audit field (calculate_dynamic_compliance_gap)
+# find its section, the same way readiness_prefill_for_module() starts from a
+# module's sections and finds their audit fields.
+SECTION_KEY_BY_AUDIT_FIELD = {v[2]: k for k, v in TEMPLATE_SECTIONS.items() if v[2]}
+
 # Worst-wins ordering when a module carries several Blackboard shells: a section
 # missing from one shell is worse than hidden in it, which is worse than
 # visible. Note Deleted ranks below Hidden - somebody removed the section
@@ -1569,20 +1575,42 @@ def sanitize_row_data(row_data):
 
 def calculate_dynamic_compliance_gap(school_code=None):
     """
-    Calculates compliance gap metrics dynamically from active SQLite audit fields and responses.
+    Compliance gap per active boolean/yes-no audit field, across every SITS
+    module in the school - not just the handful that have been manually
+    audited.
+
+    Manual auditing does not scale past a small sample a year (see
+    "Spot-check flagging" in CLAUDE.md) - the data is meant to answer most of
+    the checklist automatically, with manual review as a spot-check on top,
+    not the primary source of compliance. So for the 7 of 8 boolean fields
+    that map to a Template Alignment Report section (TEMPLATE_SECTIONS), a
+    module counts as compliant either because an advisor recorded it as such,
+    or - absent a manual answer - because the data already shows the section
+    Visible (state in READINESS_READY_STATES), exactly the same read
+    readiness_prefill_for_module() offers the Audit Portal as a suggestion.
+    Before this, an unaudited module was always a gap here even when the
+    Template report already showed the section done for it, understating
+    whole-school compliance by orders of magnitude. 'learning_materials' has
+    no template counterpart, so it stays manual-only, like it always has.
+
+    A manual answer always wins over the data-driven read for a given module
+    and field - readiness_manual_override() is the same override rule
+    derive_module_findings() and the Audit Portal already use, so this metric
+    can never disagree with what an advisor has actually verified.
     """
-    from database import get_db_connection, get_active_audit_fields
+    from database import (get_db_connection, get_active_audit_fields,
+                          get_readiness_courses_latest, get_readiness_sections_latest)
     import pandas as pd
-    
+
     active_fields = get_active_audit_fields()
     if not active_fields:
         return {}
-        
+
     # We compute compliance only for boolean and yes/no audit fields
     boolean_fields = [f for f in active_fields if f['field_type'] in ['boolean', 'yes/no']]
     if not boolean_fields:
         return {}
-        
+
     with get_db_connection() as conn:
         # Check if SITS and response tables exist
         cursor = conn.cursor()
@@ -1592,11 +1620,11 @@ def calculate_dynamic_compliance_gap(school_code=None):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_responses'")
         if not cursor.fetchone():
             return {}
-            
+
         # Get SITS unique modules
         df_sits = pd.read_sql_query("SELECT DISTINCT [CIS unit code] FROM sits_assessment_2026_27", conn)
-        
-        # Get active responses. Field IDs are passed as bound parameters - they
+
+        # Get manual responses. Field IDs are passed as bound parameters - they
         # originate from audit_fields, which is writable via admin CSV import,
         # so they must never be interpolated into the SQL text.
         field_ids = [f['id'] for f in boolean_fields]
@@ -1606,43 +1634,64 @@ def calculate_dynamic_compliance_gap(school_code=None):
             conn,
             params=field_ids,
         )
-        
+
     if df_sits.empty:
         return {}
-        
+
     df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
-    
+
     # Filter modules by school if specified
     if school_code and school_code != 'All':
         df_sits = df_sits[df_sits['CIS unit code'].str.startswith(school_code, na=False)]
-        
+
     total_modules = len(df_sits)
     if total_modules == 0:
         return {}
-        
+
+    valid_codes = set(df_sits['CIS unit code'])
+
+    df_resp['module_code'] = df_resp['module_code'].astype(str).str.strip().str.upper()
+    df_resp = df_resp[df_resp['module_code'].isin(valid_codes)]
+    # module_code -> {field_id: value}, so a manual answer can be looked up
+    # per module/field below without re-filtering df_resp in the field loop.
+    manual_by_module = {
+        code: dict(zip(sub['field_id'], sub['value']))
+        for code, sub in df_resp.groupby('module_code')
+    }
+
+    # Same data-driven source the Audit Portal's own suggestions read from -
+    # see readiness_prefill_for_module(). Missing/unavailable readiness data
+    # degrades every field to manual-only, matching that function's own
+    # "no readiness data -> no suggestion" rule.
+    section_states_by_module = {}
+    try:
+        rc = get_readiness_courses_latest(CURRENT_ACADEMIC_YEAR)
+        rs = get_readiness_sections_latest(CURRENT_ACADEMIC_YEAR)
+        rm = aggregate_readiness_to_modules(rc, rs)
+        if not rm.empty:
+            section_states_by_module = rm.set_index('module_code')['section_states'].to_dict()
+    except Exception:
+        section_states_by_module = {}
+
     # Calculate compliance gap for each field
     gaps = {}
     for field in boolean_fields:
         fid = field['id']
         label = field['label']
-        
-        # Filter responses for this field
-        field_resps = df_resp[df_resp['field_id'] == fid].copy()
-        field_resps['module_code'] = field_resps['module_code'].astype(str).str.strip().str.upper()
-        
-        # Keep only responses that correspond to our filtered modules list
-        valid_codes = set(df_sits['CIS unit code'])
-        field_resps = field_resps[field_resps['module_code'].isin(valid_codes)]
-        
-        # Count true/yes values. Guard the no-responses-yet case explicitly and
-        # coerce to int rather than trusting Series.sum()'s return type: on an
-        # empty/object-dtype Series (e.g. a school with zero recorded answers
-        # for this field) some pandas versions hand back a non-numeric value,
-        # which broke the division below for most schools in production.
-        if field_resps.empty:
-            compliant_count = 0
-        else:
-            compliant_count = int(field_resps['value'].apply(lambda x: str(x).upper() in ['TRUE', 'YES', '1']).sum())
+        section_key = SECTION_KEY_BY_AUDIT_FIELD.get(fid)
+
+        compliant_count = 0
+        for code in valid_codes:
+            manual = readiness_manual_override(fid, manual_by_module.get(code, {}))
+            if manual is not None:
+                is_compliant = manual
+            elif section_key:
+                state = section_states_by_module.get(code, {}).get(section_key, {}).get('state')
+                is_compliant = state in READINESS_READY_STATES
+            else:
+                is_compliant = False
+            if is_compliant:
+                compliant_count += 1
 
         gaps[label] = float(compliant_count) / total_modules
 

@@ -516,6 +516,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         )
             elif selected_view == "✅ Checklist Completion":
                 st.subheader(f"Checklist Completion Analysis ({semester})")
+                st.caption(
+                    "Counts a module as compliant where the Template Alignment Report "
+                    "already shows a section visible, even without a manual audit - a "
+                    "manual answer always overrides the data where one has been recorded. "
+                    "'Learning Materials' has no template counterpart, so it reflects "
+                    "manual audits only."
+                )
 
                 from processing import calculate_dynamic_compliance_gap
                 gaps = calculate_dynamic_compliance_gap(school_code=school)
