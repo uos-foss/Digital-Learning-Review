@@ -339,8 +339,12 @@ counterpart and are never suggested on).
   was duplicated identically in `views/audit_portal.py` and
   `views/module_report.py` before being centralised for `views/
   school_dashboard.py`'s spot-check flagging to reuse too.
-- **`processing.calculate_dynamic_compliance_gap()`** (School Dashboard's
-  "Checklist Completion Analysis") is the second consumer of this same
+- **`processing.calculate_dynamic_compliance_gap()`** (the "Template
+  Alignment" tab on both Faculty Overview and School Dashboard - renamed
+  from "Compliance Gap"/"Checklist Completion" on 07-09-2026 to name what
+  it's actually measuring: how well modules follow the template that gives
+  students a consistent, accessible experience, not a punitive checklist)
+  is the second consumer of this same
   ready/not-ready read, at school-wide scale rather than one module at a
   time. Manual auditing only ever covers a handful of modules a year - the
   data is meant to do the bulk of the compliance checking automatically,

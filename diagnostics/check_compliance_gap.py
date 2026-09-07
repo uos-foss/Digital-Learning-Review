@@ -1,6 +1,6 @@
 """
-Diagnoses why calculate_dynamic_compliance_gap() (School Dashboard's
-"Checklist Completion Analysis") shows 0.0% for a school.
+Diagnoses why calculate_dynamic_compliance_gap() (the "Template Alignment"
+tab on Faculty Overview / School Dashboard) shows 0.0% for a school.
 
 That function's denominator (total_modules) and numerator (compliant_count)
 are BOTH scoped to module codes found in sits_assessment_2026_27 - a module

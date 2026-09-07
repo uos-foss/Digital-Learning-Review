@@ -41,7 +41,10 @@ Five tabs:
 * **Ally Analytics** — The faculty's accessibility profile, in five tabs: the
   issue league table, build-out tracker, severity load by school, score
   distribution and a data-coverage check.
-* **Compliance Gap** — Which audit checks are most often failed.
+* **Template Alignment** — How well modules follow the Blackboard template
+  that gives students a consistent, accessible experience across the
+  faculty, combining the Template Alignment Report's data with manual audit
+  answers where recorded.
 * **Priority Action List** — Modules most in need of attention.
 * **Assessment Types** — SITS assessment strategy overall, or compared across
   schools as absolute counts or normalised percentages, with a cross-tab pivot
@@ -71,9 +74,8 @@ has Modules Overview and Trends, and does not have School Comparison.
   check, not an accessibility metric.)
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
-* **Checklist Completion** (Faculty Overview's Compliance Gap, renamed here),
-  **Priority Action List**, **Assessment Types** — As on the Faculty Overview,
-  scoped to this school.
+* **Template Alignment**, **Priority Action List**, **Assessment Types** —
+  As on the Faculty Overview, scoped to this school.
 
 > **Reading Ally scores correctly.** Ally reports three scores, and the portal
 > shows all three because they mean different things:

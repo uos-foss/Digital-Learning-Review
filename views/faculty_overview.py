@@ -58,7 +58,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
     # disabled - add them back to this list to restore. Their view code below
     # is untouched.
-    view_options = ["🏫 School Comparison", "📊 Ally Analytics", "✅ Compliance Gap", "⚠️ Priority Action List"]
+    view_options = ["🏫 School Comparison", "✅ Template Alignment", "📊 Ally Analytics", "⚠️ Priority Action List"]
     
     selected_view = st.segmented_control(
         "Navigate View:", 
@@ -323,8 +323,15 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         "as Ally last saw it, not as it stands right now."
                     )
 
-    elif selected_view == "✅ Compliance Gap":
-        st.subheader(f"Compliance Gap Analysis ({semester})")
+    elif selected_view == "✅ Template Alignment":
+        st.subheader(f"Template Alignment Analysis ({semester})")
+        st.caption(
+            "Counts a module as compliant where the Template Alignment Report "
+            "already shows a section visible, even without a manual audit - a "
+            "manual answer always overrides the data where one has been recorded. "
+            "'Learning Materials' has no template counterpart, so it reflects "
+            "manual audits only."
+        )
 
         from processing import calculate_dynamic_compliance_gap
         gaps = calculate_dynamic_compliance_gap(school_code='All')

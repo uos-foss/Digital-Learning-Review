@@ -161,7 +161,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
             # disabled - add them back to this list to restore. Their view code
             # below is untouched.
-            view_options = ["📋 Modules Overview", "📊 Ally Analytics", "📈 Trends", "✅ Checklist Completion", "⚠️ Priority Action List", "🎯 Spot-Checks"]
+            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List", "🎯 Spot-Checks"]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -514,8 +514,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             "so each point is a real movement. Early in the year the upload "
                             "line matters more than the score line."
                         )
-            elif selected_view == "✅ Checklist Completion":
-                st.subheader(f"Checklist Completion Analysis ({semester})")
+            elif selected_view == "✅ Template Alignment":
+                st.subheader(f"Template Alignment Analysis ({semester})")
                 st.caption(
                     "Counts a module as compliant where the Template Alignment Report "
                     "already shows a section visible, even without a manual audit - a "
