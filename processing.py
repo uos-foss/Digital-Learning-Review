@@ -1634,10 +1634,17 @@ def calculate_dynamic_compliance_gap(school_code=None):
         valid_codes = set(df_sits['CIS unit code'])
         field_resps = field_resps[field_resps['module_code'].isin(valid_codes)]
         
-        # Count true/yes values
-        compliant_count = field_resps['value'].apply(lambda x: str(x).upper() in ['TRUE', 'YES', '1']).sum()
+        # Count true/yes values. Guard the no-responses-yet case explicitly and
+        # coerce to int rather than trusting Series.sum()'s return type: on an
+        # empty/object-dtype Series (e.g. a school with zero recorded answers
+        # for this field) some pandas versions hand back a non-numeric value,
+        # which broke the division below for most schools in production.
+        if field_resps.empty:
+            compliant_count = 0
+        else:
+            compliant_count = int(field_resps['value'].apply(lambda x: str(x).upper() in ['TRUE', 'YES', '1']).sum())
 
-        gaps[label] = float(compliant_count / total_modules)
+        gaps[label] = float(compliant_count) / total_modules
 
     return gaps
 
