@@ -29,7 +29,6 @@ from database import (
     get_audit_responses,
     save_audit_response,
     get_comment_bank,
-    update_module_lead_sqlite,
     get_ally_history,
 )
 

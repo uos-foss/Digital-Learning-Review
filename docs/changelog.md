@@ -29,6 +29,13 @@ Recent updates and releases for the Digital Learning Review portal.
   each time); every place that actually changes the data already tells the
   cache to refresh immediately, so a much longer cache lifetime costs nothing
   in freshness and removes most of that wait.
+* **The Admin Panel's Inactive Modules tab is now Module Manager**, and can
+  also fix module lead names. A new Module Leads sub-tab shows every lead
+  grouped by name - so inconsistent spellings or casing for the same person
+  show up as separate rows instead of being hidden - and renaming a group
+  updates every module under it in one action. A per-module list below
+  covers one-off corrections, including on modules currently marked
+  inactive.
 
 ### 🚀 Version 1.19.0 — *The Audit Portal suggests answers from Blackboard*
 *12 August 2026*

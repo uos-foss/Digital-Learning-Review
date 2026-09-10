@@ -70,7 +70,7 @@ has Modules Overview and Trends, and does not have School Comparison.
   module table side by side, both driven by the severity and issue filters
   above them. No filters shows every module; narrowing to Severe replaces
   the old dedicated severe-issues list. (Reconciliation against SITS moved
-  to the Admin Panel's Inactive Modules tab, since it's a data-integrity
+  to the Admin Panel's Module Manager tab, since it's a data-integrity
   check, not an accessibility metric.)
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
@@ -147,17 +147,27 @@ back to a spreadsheet. Google Sheets is now used only as an **upstream source**:
 an administrator refreshes from it on demand using **Trigger Full Sync** in the
 Admin Panel. This is why the portal no longer runs into spreadsheet API limits.
 
-### 🚫 Inactive Modules
+### 🗂️ Module Manager
 
-Some modules in SITS are not really running — skeleton shells, modules merged
-into another, or archived records. Administrators can mark these as inactive in
-the Admin Panel, which removes them from every dashboard, count and analytic so
-they do not drag down a school's figures. They can be restored at any time.
+The Admin Panel's Module Manager tab covers two things: which modules are
+active, and who leads them.
 
-The same tab also shows the Ally/SITS reconciliation: Blackboard courses Ally
-tracks with no matching SITS module (usually shell, custom or programme-level
-sites — candidates for marking inactive, but occasionally real provision SITS
-hasn't caught up on), and SITS modules with no Blackboard course.
+**Inactive Modules** — Some modules in SITS are not really running — skeleton
+shells, modules merged into another, or archived records. Administrators can
+mark these as inactive, which removes them from every dashboard, count and
+analytic so they do not drag down a school's figures. They can be restored at
+any time. The same sub-tab also shows the Ally/SITS reconciliation: Blackboard
+courses Ally tracks with no matching SITS module (usually shell, custom or
+programme-level sites — candidates for marking inactive, but occasionally real
+provision SITS hasn't caught up on), and SITS modules with no Blackboard
+course.
+
+**Module Leads** — An overview of every module lead, grouped by name, so
+inconsistent spellings or casing for the same person are visible as separate
+rows rather than hidden — renaming a group updates every module carrying that
+exact name in one action. A second, per-module list below covers active and
+inactive modules alike for one-off corrections, such as reassigning a single
+module to a different lead.
 
 ### 📜 Activity Logging
 
