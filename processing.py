@@ -1196,43 +1196,63 @@ def classify_edit_evidence(last_modified, created_date, is_bulk):
 #   tier    - ok | attention | action | fault, for colour and ordering
 #   action  - what an advisor would actually say about it
 #
-# 'drafted_hidden' is the one worth knowing about. In the 2026-27 export 34
-# lead-owned sections had a genuine per-module edit date and were still hidden:
-# the work exists and no student can see it. That is a one-click fix and nothing
-# like "this has not been started", which is what a status-only reading of
-# Hidden would have called it.
+# Both Visible and Hidden split on the same question - is there *any* edit
+# evidence at all (evidence in ('lead_edit', 'bulk')), regardless of which of
+# those two it is:
+#   'visible_edited' / 'drafted_hidden' - edited.
+#   'visible_unedited' / 'not_started'  - not edited (never_modified/unknown).
 #
-# 'visible_unattributed' is the mirror case: visible, but the only date on it is
-# a batch edit or the course creation date, so nothing records anyone preparing
-# it on this module specifically. Students can see it, which is what matters
-# for readiness - and per Phase 4 (readiness_prefill_for_module()), it is
-# also what matters for the audit checklist suggestion: "is this section done"
-# is a status question, not a "did the lead personally do it" question, and a
-# batch date is frequently genuine Professional Services work completed on the
-# lead's behalf rather than nobody's work at all. So visible_edited and
-# visible_unattributed are treated alike for suggesting a tick - the evidence
-# text is what tells the advisor which one they are looking at.
+# 'drafted_hidden' is the one worth knowing about on its own. In the 2026-27
+# export dozens of lead-owned sections had an edit date and were still hidden:
+# the work exists and no student can see it. That is a one-click fix and
+# nothing like "this has not been started", which is what a status-only
+# reading of Hidden would have called it.
 #
-# In the 2026-27 export only 2 lead-owned sections were visible_unattributed
-# (both batch-dated), and none were visible with the course-creation date.
-# That will not hold. The moment a template revision ships these three
+# 'visible_unedited' is the mirror case: visible, but nothing on record shows
+# it was ever edited - it may still hold the untouched template placeholder
+# text. NOT ready, even though a student can technically see it.
+#
+# Changed 08-09-2026, twice in one day. The first pass kept lead_edit and bulk
+# as separate ready states (visible_edited vs visible_bulk_edited) so a batch
+# date could still be called out as such. DLAs pushed back on the resulting
+# footer text - "most likely Professional Services staff working through a
+# batch..." - as both too long and not something the data actually supports:
+# a bulk date (many courses changed the same day) looks identical whether
+# it's Professional Services running a worklist or several module leads
+# independently hitting the same faculty deadline, and there is no way to
+# tell which from the export alone. Naming a specific, possibly wrong,
+# culprit was worse than not naming one. The second pass dropped the
+# lead_edit/bulk distinction from this function entirely - edited or not is
+# the only question a "ready" check needs - and, in doing that, fixed a real
+# self-contradiction it had been masking: a bulk-evidenced Hidden section
+# fell into 'not_started' ("no sign of being edited") while its own footer
+# said "Last changed <date>..." - genuinely edited, just not by the lead
+# specifically, and the two lines flatly disagreed with each other on one
+# card. classify_edit_evidence()'s lead_edit/bulk split still exists and
+# still feeds detect_bulk_edit_dates() and diagnostics - it just isn't read
+# here or narrated in the UI any more.
+#
+# In the 2026-27 export only 2 lead-owned sections were visible with no
+# per-module edit date at all, and none were visible with the course-creation
+# date. That will not hold. The moment a template revision ships these three
 # sections visible by default, or an availability change lands without
-# touching last_modified, visible_unattributed becomes the mass default - and
-# a module would read "3 of 3 ready" with no work done, exactly as the 11
-# institutional sections read today. check_readiness_export.py alarms when its
-# share climbs.
-READINESS_READY_STATES = ('visible_edited', 'visible_unattributed')
+# touching last_modified, visible_unedited becomes the mass default - and a
+# module would read "3 of 3 ready" with no work done, exactly as the 11
+# institutional sections read today. check_readiness_export.py alarms when
+# its share climbs.
+READINESS_READY_STATES = ('visible_edited',)
 SECTION_STATES = {
     'visible_edited': (
         "Visible to students", 'ok',
         "Visible and prepared on this module. Nothing outstanding."),
-    'visible_unattributed': (
-        "Visible to students", 'ok',
-        "Visible to students, but nothing records anyone preparing it on this "
-        "module - it may still hold template placeholder text."),
+    'visible_unedited': (
+        "Visible, unedited", 'attention',
+        "Visible to students, but nothing on record shows this section was "
+        "ever edited - it may still hold the untouched template placeholder "
+        "text. Worth a look before treating this as done."),
     'drafted_hidden': (
         "Hidden from students", 'action',
-        "This has been worked on but is still hidden, so no student can see it. "
+        "This has been edited but is still hidden, so no student can see it. "
         "Making it visible is all that is outstanding."),
     'not_started': (
         "Not started", 'attention',
@@ -1256,18 +1276,54 @@ def classify_section_state(status, evidence):
 
     Kept separate from classify_edit_evidence() because that answers "who moved
     it" and status answers "can a student see it". Both are needed: a section
-    can be genuinely worked on and still invisible.
+    can be genuinely worked on and still invisible - and, since 08-09-2026,
+    genuinely visible with no edit evidence at all (see READINESS_READY_STATES).
+
+    "Edited" means only *some* edit evidence - lead_edit or bulk alike. Who did
+    it is a separate question classify_edit_evidence() still answers; this
+    function deliberately doesn't care (see the comment above
+    READINESS_READY_STATES for why bulk stopped being called out on its own).
     """
     status = str(status or "").strip()
     if status == 'Missing':
         return 'missing'
     if status == 'Deleted':
         return 'deleted'
+    edited = evidence in ('lead_edit', 'bulk')
     if status == 'Visible':
-        return 'visible_edited' if evidence == 'lead_edit' else 'visible_unattributed'
+        return 'visible_edited' if edited else 'visible_unedited'
     if status == 'Hidden':
-        return 'drafted_hidden' if evidence == 'lead_edit' else 'not_started'
+        return 'drafted_hidden' if edited else 'not_started'
     return 'unknown'
+
+def readiness_section_is_ready(section_key, state_key):
+    """Whether one section counts as 'ready' for the audit-suggestion
+    (readiness_prefill_for_module()) and Template Alignment %
+    (calculate_dynamic_compliance_gap()) questions - the one place both share
+    this read so they can't drift apart.
+
+    Deliberately not just `state_key in READINESS_READY_STATES`.
+    Institutional sections were never the lead's to edit ("Only 3 of the 14
+    sections carry any signal" in CLAUDE.md), so visible_unedited is their
+    normal, correct resting state - most modules' Skills Development SGAs,
+    Student Voice, Assessment Overview and Encore Lecture Capture sections
+    have sat untouched since course creation since nobody was ever meant to
+    touch them, and that's fine. Visible is enough for them regardless of
+    edit evidence. visible_unedited on a LEAD-owned section is the actual red
+    flag READINESS_READY_STATES exists to catch - only there does it fail
+    ready. Added 09-09-2026 after the 08-09-2026 edited-vs-unedited split
+    turned out to silently zero out ~55-70% of these four institutional
+    fields' readiness (490-628 of 904 modules each in the 2026-27 export) by
+    applying a lead-only distinction faculty-wide - caught before it shipped.
+    An unrecognised section_key (not in TEMPLATE_SECTIONS) is treated as
+    lead-owned, the stricter read, rather than silently passing.
+    """
+    if state_key == 'visible_edited':
+        return True
+    if state_key != 'visible_unedited':
+        return False
+    info = TEMPLATE_SECTIONS.get(section_key)
+    return info is not None and info[1] != 'lead'
 
 def fmt_report_date(value):
     """ISO storage to the DD-MM-YYYY the portal shows users. Blank if unusable."""
@@ -1282,24 +1338,21 @@ def readiness_evidence_words(state, created_date):
     Portal's pre-fill caption (readiness_prefill_for_module()) so the two
     surfaces never describe the same section differently.
 
-    Deliberately explicit about the limits. A 'Visible' section only proves
-    somebody unhid it - it is not claimed as proof the content is right, and a
-    'bulk' date is not claimed to be an IT job. Aside from the original
-    template rollout, a same-day batch edit across many courses is usually
-    Professional Services / school admin staff working through a batch of
-    modules on the lead's behalf, not a central push - see
-    detect_bulk_edit_dates().
+    Deliberately just "edited or not, and when" - lead_edit and bulk read
+    identically here. Until 08-09-2026 a 'bulk' date got its own sentence
+    naming Professional Services as the likely editor; DLAs asked for that to
+    go, since a batch date can't actually distinguish PS running a worklist
+    from several module leads independently hitting the same faculty deadline
+    - see the comment above READINESS_READY_STATES. classify_edit_evidence()
+    still tracks lead_edit vs bulk separately for diagnostics and
+    detect_bulk_edit_dates(); this function just no longer says which.
     """
     modified = fmt_report_date(state.get('last_modified'))
     evidence = state.get('evidence')
     if evidence == 'never_modified':
         created = fmt_report_date(created_date) or modified
         return f"Unchanged since the course was created{f' on {created}' if created else ''}."
-    if evidence == 'bulk':
-        return (f"Last changed {modified}, the same day as many other courses in the "
-                "school - most likely Professional Services staff working through a "
-                "batch on the lead's behalf, not evidence from this module alone.")
-    if evidence == 'lead_edit':
+    if evidence in ('lead_edit', 'bulk'):
         return f"Last changed {modified}."
     return "No modification date recorded."
 
@@ -1585,9 +1638,11 @@ def calculate_dynamic_compliance_gap(school_code=None):
     not the primary source of compliance. So for the 7 of 8 boolean fields
     that map to a Template Alignment Report section (TEMPLATE_SECTIONS), a
     module counts as compliant either because an advisor recorded it as such,
-    or - absent a manual answer - because the data already shows the section
-    Visible (state in READINESS_READY_STATES), exactly the same read
-    readiness_prefill_for_module() offers the Audit Portal as a suggestion.
+    or - absent a manual answer - because readiness_section_is_ready() already
+    reads the section as done, exactly the same read readiness_prefill_for_
+    module() offers the Audit Portal as a suggestion (Visible-and-edited for
+    the 3 lead-owned fields; Visible alone for the 4 institution-owned ones,
+    which were never the lead's to edit).
     Before this, an unaudited module was always a gap here even when the
     Template report already showed the section done for it, understating
     whole-school compliance by orders of magnitude. 'learning_materials' has
@@ -1687,7 +1742,7 @@ def calculate_dynamic_compliance_gap(school_code=None):
                 is_compliant = manual
             elif section_key:
                 state = section_states_by_module.get(code, {}).get(section_key, {}).get('state')
-                is_compliant = state in READINESS_READY_STATES
+                is_compliant = readiness_section_is_ready(section_key, state)
             else:
                 is_compliant = False
             if is_compliant:
@@ -2156,15 +2211,18 @@ def readiness_prefill_for_module(active_row):
     to an audit field (7 of 14 sections today; the rest have no audit_fields
     counterpart and are not suggested on at all).
 
-    'suggested' is True whenever the section is Visible (state in
-    READINESS_READY_STATES). This is a status question - "can a student see
-    it" - not a "did the lead do this personally" question, and applies alike
-    to the 3 lead-owned fields and the 4 institution-owned-but-mapped ones: a
-    batch-dated lead-owned section is frequently genuine work by someone other
-    than the lead (see READINESS_READY_STATES), and institutional sections
-    were never the lead's to edit in the first place. evidence_text still
-    names which case it is, so the advisor is never just told "checked" with
-    no reason.
+    'suggested' comes from readiness_section_is_ready(section_key, state) -
+    see that function. For the 3 lead-owned fields it's True only when the
+    section is Visible AND edited (state == 'visible_edited'; edited means
+    only some edit evidence exists, lead-attributed or a batch date alike,
+    not a "did the lead do this personally" test). For the 4
+    institution-owned-but-mapped fields, Visible is enough on its own,
+    edited or not - those sections were never the lead's to edit, so sitting
+    untouched since course creation (visible_unedited) is their normal,
+    correct state, not a red flag; treating it as one would falsely suggest
+    unticked on the majority of modules for those four fields. evidence_text
+    still gives the date either way, so the advisor is never just told
+    "checked" with no reason.
 
     A module with no readiness data at all (active_row is None, or has no
     'Template Sections') returns an empty dict. Callers must treat a missing
@@ -2187,7 +2245,7 @@ def readiness_prefill_for_module(active_row):
         if not audit_field_id:
             continue
         prefill[audit_field_id] = {
-            'suggested': sec.get('state', 'unknown') in READINESS_READY_STATES,
+            'suggested': readiness_section_is_ready(key, sec.get('state', 'unknown')),
             'evidence_text': readiness_evidence_words(sec, created),
             'section_key': key,
         }

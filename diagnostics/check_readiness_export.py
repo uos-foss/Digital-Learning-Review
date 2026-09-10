@@ -233,13 +233,15 @@ def main(path, academic_year):
 
     # If these sections ever ship visible by default, every module reads as
     # ready with no work done. That is the same trap the 11 institutional
-    # sections are already in, and it would arrive silently.
-    unattributed = state_counts.get('visible_unattributed', 0)
-    check("visible lead sections are attributable, not a new default",
-          unattributed <= 0.10 * total_states,
-          f"{unattributed} of {total_states} visible with no per-module edit"
+    # sections are already in, and it would arrive silently. A bulk-dated
+    # section is still edit evidence and counts as visible_edited - only
+    # visible_unedited (no edit evidence at all) is the risk.
+    unedited = state_counts.get('visible_unedited', 0)
+    check("visible lead sections have edit evidence, not a new default",
+          unedited <= 0.10 * total_states,
+          f"{unedited} of {total_states} visible with no edit evidence at all"
           + ("  <- has the template changed to ship these visible? "
-             "recheck LEAD_OWNED_SECTIONS" if unattributed > 0.10 * total_states else ""))
+             "recheck LEAD_OWNED_SECTIONS" if unedited > 0.10 * total_states else ""))
     print()
 
     print("Reconciliation against SITS")

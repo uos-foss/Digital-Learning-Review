@@ -138,21 +138,47 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   the visible-section count — 43 of the 45 courses in the first excerpt sat on
   exactly 78.6% / "Needs Review", the untouched post-rollover default.
 - **Status and edit evidence are separate questions, and both are needed.**
-  Status says whether a student can see the section; evidence says who moved it.
-  `classify_section_state()` combines them into the `SECTION_STATES` model, and
-  the combinations are not variations on a theme:
-  - `drafted_hidden` — worked on and *still hidden*. 34 sections across 25
+  Status says whether a student can see the section; evidence says whether
+  *anyone* edited it. `classify_section_state()` combines them into the
+  `SECTION_STATES` model — `edited = evidence in ('lead_edit', 'bulk')`,
+  applied the same way to both Visible and Hidden:
+  - `drafted_hidden` — edited, and *still hidden*. 359 sections across 202
     modules in the 2026-27 export. The work exists and no student can see it, so
     the remedy is one click. A status-only reading calls this "not started",
     which is both wrong and insulting to whoever did the work.
-  - `visible_unattributed` — visible, but the only date is a bulk push or the
-    course creation date. Counted as ready, because students really can see it,
-    but it is *not* evidence anyone prepared it and auto-complete must never
-    key off it. Only 2 sections today — but if a template revision ever ships
-    these three visible by default, this becomes the mass default and every
-    module reads "3 of 3 ready" with no work done. Two checks in
-    `diagnostics/check_readiness_export.py` guard that: the attribution share
-    alarm, and the most-hidden-sections drift check.
+  - `visible_unedited` — visible, but nothing on record shows it was ever
+    edited (evidence is `never_modified` or `unknown`). **Not** counted as
+    ready, even though students can technically see it — the section may
+    still hold template placeholder text. 0 sections in the 2026-27 export
+    today — but if a template revision ever ships these three visible by
+    default, this becomes the mass default and every module reads "3 of 3
+    ready" with no work done. Two checks in
+    `diagnostics/check_readiness_export.py` guard that: the visible-and-unedited
+    share alarm, and the most-hidden-sections drift check.
+  Changed 08-09-2026, twice in one day. The question used to be "does the
+  data attribute this to the lead" (`visible_edited` vs one combined
+  `visible_unattributed` covering both bulk and never-edited alike). DLAs
+  found that misleading: a section with zero edit evidence read identically —
+  same green badge, same pre-ticked checklist box — to one a lead had
+  genuinely finished. The fix that followed first re-split `bulk` out on its
+  own with a footer naming Professional Services as the likely editor, which
+  DLAs also rejected — a bulk date (many courses changed the same day) can't
+  actually distinguish PS running a worklist from several leads independently
+  hitting the same faculty deadline, so naming a specific, possibly wrong,
+  culprit was worse than not naming one, and it was needlessly long besides.
+  The question that stuck is simpler than either attempt: **edited at all, or
+  not** — `lead_edit` and `bulk` are now treated identically everywhere a
+  human reads them (badge, tooltip, ready/not-ready), full stop.
+  `classify_edit_evidence()` still tracks the lead_edit/bulk split
+  internally, for `detect_bulk_edit_dates()` and diagnostics — it's just not
+  read by `classify_section_state()` or narrated in the UI any more.
+  Fixing this also caught a real bug: because only `lead_edit` used to count
+  as "edited" for Hidden sections, a bulk-edited-but-still-hidden section
+  read `not_started` ("no sign of being edited") while its own footer said
+  "Last changed \<date>..." — a literal contradiction on one card. That's
+  exactly why `drafted_hidden`'s count jumped from 34/25 to 359/202 sections/
+  modules: every bulk-hidden section was being told "not started" when it had
+  genuinely been worked on, just not made visible.
 - **`TEMPLATE_SECTIONS` maps each section to the `audit_fields.id` it answers.**
   That mapping is the point: the data pre-answers the existing checklist rather
   than sitting beside it as a rival score. Keep it in step with `audit_fields`.
@@ -189,7 +215,9 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   ticked exactly like a `lead_edit`-evidenced one — see "Audit Portal
   pre-fill" below. This is a different question from *lead-engagement*
   evidence, which `classify_edit_evidence()` still tracks separately and
-  unchanged.
+  unchanged. It is also a different question from *edited at all* — a
+  Visible section with no date evidence whatsoever (`visible_unedited`) is
+  not suggested ticked; see the `visible_unedited` bullet above.
 - **Both primary keys include `academic_year`** (`leganto_lists`'s reasoning,
   not `ally_courses`'s) so a reference import of a prior year cannot collide
   with the real one on a shared snapshot date.
@@ -304,20 +332,35 @@ Portal: `{audit_field_id: {'suggested': bool, 'evidence_text': str,
 an `audit_fields.id` (7 of 14 sections; the other 7 have no checklist
 counterpart and are never suggested on).
 
-- **The suggestion is a status question, not a "did the lead do it" question.**
-  `suggested` is `True` whenever the section's state is in
-  `READINESS_READY_STATES` (`visible_edited` or `visible_unattributed`) —
-  i.e. whenever it is Visible, regardless of which evidence class produced
-  that state. This applies identically to the 3 lead-owned fields
-  (`welcome_outline`, `contacts_complete`, `assessment_brief`) and the 4
-  institution-owned-but-mapped ones (`sga`, `student_voice`,
-  `assessment_overview`, `encore_link`) — a deliberate decision, not an
-  oversight: a batch-dated lead-owned section is frequently genuine
-  Professional Services work rather than untouched (see "Module readiness"
-  above), and institutional sections were never the lead's to edit in the
-  first place. `evidence_text` (from `readiness_evidence_words()`) still
-  names which case it is, so an advisor is never shown a bare tick with no
-  reason — see `views/audit_portal.py`'s checkbox loop.
+- **The suggestion comes from `processing.readiness_section_is_ready(section_key,
+  state)`, not a bare `state in READINESS_READY_STATES` check** — the two
+  differ by section ownership, and the difference matters. For the 3
+  lead-owned fields (`welcome_outline`, `contacts_complete`,
+  `assessment_brief`), `suggested` requires Visible **and** edited
+  (`state == 'visible_edited'`) — a Visible section with no edit evidence at
+  all (`visible_unedited`) is not suggested. For the 4
+  institution-owned-but-mapped fields (`sga`, `student_voice`,
+  `assessment_overview`, `encore_link`), Visible is enough on its own,
+  `visible_unedited` included — those sections were never the lead's to
+  edit, so sitting untouched since course creation is their normal, correct
+  state. `evidence_text` (from `readiness_evidence_words()`) still gives the
+  date either way, so an advisor is never shown a bare tick with no reason —
+  see `views/audit_portal.py`'s checkbox loop.
+  Changed twice, 08/09-09-2026. First, `suggested` was a bare visibility
+  question (any Visible state); DLAs flagged that as misleading, since a
+  template-default section nobody had touched looked identical to genuinely
+  finished work — same green badge, same pre-ticked box (see the
+  `visible_unedited` bullet under "Module readiness" above). The fix that
+  followed made `suggested` require edited-too, applied uniformly to all 7
+  mapped fields — which silently broke the 4 institutional ones: since
+  nobody is expected to edit them, most modules' sections there are
+  genuinely `visible_unedited` (490–628 of 904 modules per field in the
+  2026-27 export), and the uniform rule would have suggested nearly all of
+  them unticked. Caught before it shipped. `readiness_section_is_ready()`
+  is the fix — same edited requirement for lead-owned fields, Visible-alone
+  for institutional ones — and both `readiness_prefill_for_module()` and
+  `calculate_dynamic_compliance_gap()` now call it instead of testing
+  `READINESS_READY_STATES` directly, so they can't diverge on this again.
 - **A suggestion never overwrites a saved answer.** `get_audit_responses()`'s
   value always wins when present; the suggestion only supplies the checkbox's
   default when the module has never been answered. Leaving a suggested box
@@ -344,7 +387,7 @@ counterpart and are never suggested on).
   from "Compliance Gap"/"Checklist Completion" on 07-09-2026 to name what
   it's actually measuring: how well modules follow the template that gives
   students a consistent, accessible experience, not a punitive checklist)
-  is the second consumer of this same
+  is the second consumer of `readiness_section_is_ready()`'s same
   ready/not-ready read, at school-wide scale rather than one module at a
   time. Manual auditing only ever covers a handful of modules a year - the
   data is meant to do the bulk of the compliance checking automatically,
