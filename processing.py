@@ -1296,6 +1296,35 @@ def classify_section_state(status, evidence):
         return 'drafted_hidden' if edited else 'not_started'
     return 'unknown'
 
+def readiness_section_is_ready(section_key, state_key):
+    """Whether one section counts as 'ready' for the audit-suggestion
+    (readiness_prefill_for_module()) and Template Alignment %
+    (calculate_dynamic_compliance_gap()) questions - the one place both share
+    this read so they can't drift apart.
+
+    Deliberately not just `state_key in READINESS_READY_STATES`.
+    Institutional sections were never the lead's to edit ("Only 3 of the 14
+    sections carry any signal" in CLAUDE.md), so visible_unedited is their
+    normal, correct resting state - most modules' Skills Development SGAs,
+    Student Voice, Assessment Overview and Encore Lecture Capture sections
+    have sat untouched since course creation since nobody was ever meant to
+    touch them, and that's fine. Visible is enough for them regardless of
+    edit evidence. visible_unedited on a LEAD-owned section is the actual red
+    flag READINESS_READY_STATES exists to catch - only there does it fail
+    ready. Added 09-09-2026 after the 08-09-2026 edited-vs-unedited split
+    turned out to silently zero out ~55-70% of these four institutional
+    fields' readiness (490-628 of 904 modules each in the 2026-27 export) by
+    applying a lead-only distinction faculty-wide - caught before it shipped.
+    An unrecognised section_key (not in TEMPLATE_SECTIONS) is treated as
+    lead-owned, the stricter read, rather than silently passing.
+    """
+    if state_key == 'visible_edited':
+        return True
+    if state_key != 'visible_unedited':
+        return False
+    info = TEMPLATE_SECTIONS.get(section_key)
+    return info is not None and info[1] != 'lead'
+
 def fmt_report_date(value):
     """ISO storage to the DD-MM-YYYY the portal shows users. Blank if unusable."""
     parsed = pd.to_datetime(str(value or ""), errors='coerce')
@@ -1609,9 +1638,11 @@ def calculate_dynamic_compliance_gap(school_code=None):
     not the primary source of compliance. So for the 7 of 8 boolean fields
     that map to a Template Alignment Report section (TEMPLATE_SECTIONS), a
     module counts as compliant either because an advisor recorded it as such,
-    or - absent a manual answer - because the data already shows the section
-    Visible (state in READINESS_READY_STATES), exactly the same read
-    readiness_prefill_for_module() offers the Audit Portal as a suggestion.
+    or - absent a manual answer - because readiness_section_is_ready() already
+    reads the section as done, exactly the same read readiness_prefill_for_
+    module() offers the Audit Portal as a suggestion (Visible-and-edited for
+    the 3 lead-owned fields; Visible alone for the 4 institution-owned ones,
+    which were never the lead's to edit).
     Before this, an unaudited module was always a gap here even when the
     Template report already showed the section done for it, understating
     whole-school compliance by orders of magnitude. 'learning_materials' has
@@ -1711,7 +1742,7 @@ def calculate_dynamic_compliance_gap(school_code=None):
                 is_compliant = manual
             elif section_key:
                 state = section_states_by_module.get(code, {}).get(section_key, {}).get('state')
-                is_compliant = state in READINESS_READY_STATES
+                is_compliant = readiness_section_is_ready(section_key, state)
             else:
                 is_compliant = False
             if is_compliant:
@@ -2180,17 +2211,18 @@ def readiness_prefill_for_module(active_row):
     to an audit field (7 of 14 sections today; the rest have no audit_fields
     counterpart and are not suggested on at all).
 
-    'suggested' is True whenever the section is Visible AND edited (state ==
-    'visible_edited'; see classify_section_state()). Edited means only some
-    edit evidence exists, lead-attributed or a batch date alike - not a "did
-    the lead do this personally" test, and applies identically to the 3
-    lead-owned fields and the 4 institution-owned-but-mapped ones, since
-    institutional sections were never the lead's to edit in the first place
-    either. A Visible section with no edit evidence at all
-    (visible_unedited) is not suggested, since nothing on record
-    distinguishes it from the untouched template default. evidence_text
-    still gives the date, so the advisor is never just told "checked" with
-    no reason.
+    'suggested' comes from readiness_section_is_ready(section_key, state) -
+    see that function. For the 3 lead-owned fields it's True only when the
+    section is Visible AND edited (state == 'visible_edited'; edited means
+    only some edit evidence exists, lead-attributed or a batch date alike,
+    not a "did the lead do this personally" test). For the 4
+    institution-owned-but-mapped fields, Visible is enough on its own,
+    edited or not - those sections were never the lead's to edit, so sitting
+    untouched since course creation (visible_unedited) is their normal,
+    correct state, not a red flag; treating it as one would falsely suggest
+    unticked on the majority of modules for those four fields. evidence_text
+    still gives the date either way, so the advisor is never just told
+    "checked" with no reason.
 
     A module with no readiness data at all (active_row is None, or has no
     'Template Sections') returns an empty dict. Callers must treat a missing
@@ -2213,7 +2245,7 @@ def readiness_prefill_for_module(active_row):
         if not audit_field_id:
             continue
         prefill[audit_field_id] = {
-            'suggested': sec.get('state', 'unknown') in READINESS_READY_STATES,
+            'suggested': readiness_section_is_ready(key, sec.get('state', 'unknown')),
             'evidence_text': readiness_evidence_words(sec, created),
             'section_key': key,
         }

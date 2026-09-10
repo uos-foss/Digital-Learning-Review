@@ -332,24 +332,35 @@ Portal: `{audit_field_id: {'suggested': bool, 'evidence_text': str,
 an `audit_fields.id` (7 of 14 sections; the other 7 have no checklist
 counterpart and are never suggested on).
 
-- **The suggestion is "visible and edited", not bare visibility.** `suggested`
-  is `True` whenever the section's state is `visible_edited` — i.e. Visible
-  **and** with some edit evidence behind it (lead-attributed or a batch date
-  alike, not a "did the lead do this personally" test). A Visible section
-  with no edit evidence at all (`visible_unedited`) is **not** suggested.
-  This applies identically to the 3 lead-owned fields (`welcome_outline`,
-  `contacts_complete`, `assessment_brief`) and the 4
-  institution-owned-but-mapped ones (`sga`, `student_voice`,
-  `assessment_overview`, `encore_link`). `evidence_text` (from
-  `readiness_evidence_words()`) still gives the date, so an advisor is never
-  shown a bare tick with no reason — see `views/audit_portal.py`'s checkbox
-  loop.
-  Changed 08-09-2026 — before this, `suggested` was a bare visibility
-  question (any Visible state, including one with zero edit evidence). DLAs
-  flagged that as misleading: a template-default section nobody had touched
-  looked identical to genuinely finished work, both in the green "Visible to
-  students" badge on the module report and in the pre-ticked checklist box.
-  See the `visible_unedited` bullet under "Module readiness" above.
+- **The suggestion comes from `processing.readiness_section_is_ready(section_key,
+  state)`, not a bare `state in READINESS_READY_STATES` check** — the two
+  differ by section ownership, and the difference matters. For the 3
+  lead-owned fields (`welcome_outline`, `contacts_complete`,
+  `assessment_brief`), `suggested` requires Visible **and** edited
+  (`state == 'visible_edited'`) — a Visible section with no edit evidence at
+  all (`visible_unedited`) is not suggested. For the 4
+  institution-owned-but-mapped fields (`sga`, `student_voice`,
+  `assessment_overview`, `encore_link`), Visible is enough on its own,
+  `visible_unedited` included — those sections were never the lead's to
+  edit, so sitting untouched since course creation is their normal, correct
+  state. `evidence_text` (from `readiness_evidence_words()`) still gives the
+  date either way, so an advisor is never shown a bare tick with no reason —
+  see `views/audit_portal.py`'s checkbox loop.
+  Changed twice, 08/09-09-2026. First, `suggested` was a bare visibility
+  question (any Visible state); DLAs flagged that as misleading, since a
+  template-default section nobody had touched looked identical to genuinely
+  finished work — same green badge, same pre-ticked box (see the
+  `visible_unedited` bullet under "Module readiness" above). The fix that
+  followed made `suggested` require edited-too, applied uniformly to all 7
+  mapped fields — which silently broke the 4 institutional ones: since
+  nobody is expected to edit them, most modules' sections there are
+  genuinely `visible_unedited` (490–628 of 904 modules per field in the
+  2026-27 export), and the uniform rule would have suggested nearly all of
+  them unticked. Caught before it shipped. `readiness_section_is_ready()`
+  is the fix — same edited requirement for lead-owned fields, Visible-alone
+  for institutional ones — and both `readiness_prefill_for_module()` and
+  `calculate_dynamic_compliance_gap()` now call it instead of testing
+  `READINESS_READY_STATES` directly, so they can't diverge on this again.
 - **A suggestion never overwrites a saved answer.** `get_audit_responses()`'s
   value always wins when present; the suggestion only supplies the checkbox's
   default when the module has never been answered. Leaving a suggested box
@@ -376,7 +387,7 @@ counterpart and are never suggested on).
   from "Compliance Gap"/"Checklist Completion" on 07-09-2026 to name what
   it's actually measuring: how well modules follow the template that gives
   students a consistent, accessible experience, not a punitive checklist)
-  is the second consumer of this same
+  is the second consumer of `readiness_section_is_ready()`'s same
   ready/not-ready read, at school-wide scale rather than one module at a
   time. Manual auditing only ever covers a handful of modules a year - the
   data is meant to do the bulk of the compliance checking automatically,
