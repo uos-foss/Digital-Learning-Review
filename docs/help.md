@@ -14,9 +14,9 @@ all of these.
 3. **Module report** — A single module in full: metadata, Ally accessibility
    profile, reading-list status, audit responses and SITS assessment strategy.
 4. **Audit Portal** — Where Digital Learning Advisors carry out a module's
-   audit on the module lead's behalf, recording findings, notes for the lead,
-   and internal notes that leads do not see. Audits can be saved as a draft and
-   submitted when complete. Requires the `edit_checklist` capability.
+   audit on the module lead's behalf, recording checklist findings and notes.
+   Audits can be saved as a draft and submitted when complete. Requires the
+   `edit_checklist` capability.
 5. **Resources & Support** — This page: help, the release changelog, and a form
    for reporting bugs or requesting features.
 6. **Admin Panel** — User and role management, audit field configuration, data
@@ -146,6 +146,35 @@ Audits are saved straight to the portal's own database — nothing is written
 back to a spreadsheet. Google Sheets is now used only as an **upstream source**:
 an administrator refreshes from it on demand using **Trigger Full Sync** in the
 Admin Panel. This is why the portal no longer runs into spreadsheet API limits.
+
+### 🎯 Data Reliability and Audit Rationale
+
+The portal draws on two different kinds of evidence, and they answer
+different questions.
+
+**Automated signals** come from institutional systems: Blackboard Ally
+(accessibility), the Template Alignment Report, and Leganto (reading lists).
+These are snapshots, refreshed when a new export is imported, not live
+feeds, so every figure on the portal carries the date it was captured. They
+measure presence and process: whether a section is visible, whether it has
+been edited, whether a reading list exists. They do not measure quality. A
+visible, edited section is evidence that someone did something to it. It is
+not evidence that the content is good, current, or pedagogically sound.
+
+**Human judgement**, recorded through the Audit Portal and spot-checks, is
+the other half. A saved audit answer always takes precedence over an
+automated signal wherever both exist for the same field, and the portal
+labels the two differently throughout ("Automatically detected" versus
+"Manually verified") so it is never ambiguous which one you are looking at.
+
+> **Why the audit does not aim to check everything itself.** Manually
+> auditing every module in the faculty does not scale to a small team. The
+> automated signals exist to direct that limited time toward the modules and
+> sections most likely to need it, not to replace the judgement of the
+> Digital Learning Advisor carrying out the review. When a finding is raised
+> with a module lead, it is a signal from the institution's own systems plus
+> the advisor's own review of it, not a personal verdict on the module
+> lead's teaching or expertise.
 
 ### 🗂️ Module Manager
 
