@@ -266,31 +266,27 @@ never shows as an Outstanding card and never counts toward `Actionable
 Items`. Added 19-08-2026 when `notes_to_lead`/`auditor_notes` were dropped in
 favour of ordinary `'text'` audit fields (see "Who does what" above): by
 default a `'text'` field is actionable (counted, like every other checklist
-field), which is right for something like `lm_note` ("Learning Materials
-note") — a flag that should stay open until resolved — but wrong for
-`comments` ("Additional Comments"), a catch-all note box that would
-otherwise turn any unrelated remark into a permanent open action item.
-`comments` carries years of legacy tag/custom-observation JSON from before
-the Audit Portal dropped the tag-picker UI for `'text'` fields (5 modules'
-worth as of 19-08-2026) — that data still round-trips through
-`parse_custom_observations()` if this field is ever made actionable again,
-it's just not read into findings while inert. Decide new `'text'` fields'
-membership deliberately; don't default new ones into this set without reason.
+field), which is right for a field meant to flag something that should stay
+open until resolved, but wrong for `comments` ("Additional Comments"), a
+catch-all note box that would otherwise turn any unrelated remark into a
+permanent open action item. `comments` carries years of legacy tag/custom-
+observation JSON from before the Audit Portal dropped the tag-picker UI for
+`'text'` fields (5 modules' worth as of 19-08-2026) — that data still
+round-trips through `parse_custom_observations()` if this field is ever made
+actionable again, it's just not read into findings while inert. Decide new
+`'text'` fields' membership deliberately; don't default new ones into this
+set without reason.
 
-**`NOTE_OVERRIDE_FIELDS` lets a `'text'` field veto a `boolean` field's
-tick.** `learning_materials` is asked to mean two things at once — "present"
-and "present and acceptable" — with `lm_note` as the escape valve for when
-they diverge. Added 19-08-2026: an auditor who ticks `learning_materials`
-but still writes a problem into `lm_note` should not have the module read as
-fully compliant just because the box is ticked — a non-empty `lm_note`
-always forces `learning_materials` to `'pending'` in
-`derive_module_findings()`, regardless of the checkbox value. This is
-deliberately one-directional and doesn't catch the opposite failure — an
-inexperienced auditor who ticks with nothing in `lm_note` at all reads
-identically to "materials fine, nothing to note"; there is no way to tell
-those apart from the stored data. That gap is what spot-check flagging (see
-"Spot-check flagging" below) exists to catch via a second reviewer's
-judgement, not something this mapping can close on its own.
+**`NOTE_OVERRIDE_FIELDS` (a `'text'` field vetoing a `boolean` field's
+tick) was added 19-08-2026 and removed 11-09-2026, unused.** It was built
+for `learning_materials`/`lm_note` — an auditor ticking `learning_materials`
+but still writing a problem into `lm_note` would keep the module `'pending'`
+regardless of the checkbox — but the `lm_note` field it depended on was
+never actually created in `audit_fields`, so the mechanism had no way to
+ever receive data. Decided not worth building out (the two-tick-meanings
+problem it was solving for `learning_materials` isn't being addressed this
+way). If a similar veto is wanted for some field in future, the pattern is
+straightforward to reintroduce — see git history around this date.
 
 **Ally and readiness findings are produced but never rendered generically** —
 both already have their own richer display (the accessibility card, the

@@ -30,7 +30,6 @@ from database import (
     get_active_audit_fields,
     get_audit_responses,
     save_audit_response,
-    get_comment_bank,
     get_ally_history,
 )
 
@@ -514,22 +513,9 @@ def _render_pending_item_card(item, prefill=None, responses=None):
             body += (f"<br/><br/>📊 <strong>Data already shows this as ready:</strong> "
                      f"{suggestion.get('evidence_text', '')} Still needs a Digital Learning "
                      f"Advisor to confirm it before this counts as complete.")
-    elif item['type'] == 'tag':
-        title = f"📌 {item['category']}"
-        body = f"<strong>Observation:</strong> {item['comment']}"
-        if item['advice']:
-            body += f"<br/><br/><strong>Action:</strong> {item['advice']}"
-        if item['resource_url']:
-            label_link = item['resource_text'] if item['resource_text'] else "Useful Link / Signpost"
-            body += (f"<br/><br/>🔗 <strong>Resource:</strong> "
-                     f"<a href='{item['resource_url']}' target='_blank' "
-                     f"style='color: #2563EB; text-decoration: underline;'>{label_link}</a>")
-    elif item['type'] == 'legacy_tag':
-        title = "📌 Observation (older system)"
-        body = f"<strong>Observation:</strong> {item['comment']}"
     elif item['type'] == 'custom':
-        # Content here is free text a DLA typed into a 'text' audit field
-        # (e.g. lm_note) - unlike the other branches above, it must not be
+        # Content here is free text a DLA typed into a 'text' audit field -
+        # unlike the other branches above, it must not be
         # interpolated into unsafe_allow_html HTML, or a note containing
         # "<script>..." would execute for anyone who opens this module's
         # report. st.container(border=True) is a real nested component
@@ -1050,7 +1036,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # Dashboard / Faculty Overview can no longer disagree about what a
         # module has outstanding.
         active_fields = get_active_audit_fields()
-        comment_bank = get_comment_bank()
 
         # checklist_sums now carries an entry for every module with ANY
         # outstanding finding - including data-only ones (Leganto, Ally,
@@ -1068,7 +1053,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             responses = {}
             last_updated_str = "Never"
 
-        findings = derive_module_findings(active_row, responses, active_fields, comment_bank)
+        findings = derive_module_findings(active_row, responses, active_fields)
 
         # Not gated on has_audit - a never-audited module has no responses at
         # all, so this already resolves to 'blank' correctly by itself;

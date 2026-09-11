@@ -1968,9 +1968,9 @@ def get_school_comparison(active_df, checklist_sums):
 # instead of recomputing its own answer.
 #
 # Item dicts use the exact shape views/module_report.py's card renderers
-# already expect (type: 'boolean'/'tag'/'legacy_tag'/'custom', with the keys
-# each type needs), plus 'source' and 'state' as the only new keys - so nothing
-# downstream needed new rendering code, only a new place to get the list from.
+# already expect (type: 'boolean'/'custom', with the keys each type needs),
+# plus 'source' and 'state' as the only new keys - so nothing downstream
+# needed new rendering code, only a new place to get the list from.
 
 def readiness_manual_override(audit_field_id, responses):
     """
@@ -2007,26 +2007,9 @@ card and never counts toward Actionable Items. 'comments' ("Additional
 Comments") carries years of legacy tag/custom-observation JSON that used to
 drive real findings, but it's a general-purpose free-text box now with no
 input UI for that structure - a DLA typing an unrelated note into it should
-not silently create a permanent open action item. 'lm_note' ("Learning
-Materials note") is deliberately NOT here: it's meant to flag something
-about a module's Learning Materials that stays actionable until resolved,
-the same way every other 'text' field defaults to behaving."""
+not silently create a permanent open action item."""
 
-NOTE_OVERRIDE_FIELDS = {'learning_materials': 'lm_note'}
-"""boolean audit_field id -> the 'text' field id that can veto a tick.
-
-'learning_materials' is asked to mean two different things at once -
-"materials are present" and "materials are acceptable" - with lm_note as
-the escape valve for the second when they diverge (present but flawed). An
-auditor who ticks the box anyway and still writes a note describing the
-problem should not have that note's module quietly read as fully compliant
-- a non-empty lm_note always keeps 'learning_materials' pending, regardless
-of the tickbox. This does not, and cannot, catch the opposite mistake - an
-inexperienced auditor who ticks with no note at all - a missing note is
-indistinguishable from "no issues to note"; that gap is what spot-check
-flagging (see 'Spot-check flagging' in CLAUDE.md) is for, not this."""
-
-def derive_module_findings(active_row, responses, active_fields, comment_bank):
+def derive_module_findings(active_row, responses, active_fields):
     """
     Every checklist, Leganto, Ally and template-readiness finding for one
     module, as one flat list of {'source', 'state', 'type', ...} dicts.
@@ -2040,9 +2023,9 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
     gracefully to "nothing from that source" rather than raising, since a
     module can legitimately be absent from any one of these datasets.
     responses: {field_id: value} for this module, from audit_responses.
-    active_fields, comment_bank: from get_active_audit_fields() /
-    get_comment_bank() - passed in rather than fetched here to keep this
-    I/O-free and callable once per module without re-querying each time.
+    active_fields: from get_active_audit_fields() - passed in rather than
+    fetched here to keep this I/O-free and callable once per module without
+    re-querying each time.
 
     Only Ally and readiness findings are never rendered as generic cards -
     both already have their own richer, source-specific display (the Ally
@@ -2054,10 +2037,6 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
 
     # --- checklist: one finding per active audit field -----------------
     if active_fields:
-        compliant_tag_ids = {c['id'] for c in (comment_bank or [])
-                             if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
-        cb_lookup = {c['id']: c for c in (comment_bank or [])}
-
         for field in active_fields:
             fid = field['id']
             label = field['label']
@@ -2069,9 +2048,6 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
             if ftype in ('boolean', 'yes/no'):
                 is_compliant = (str(val).upper() == 'TRUE' if ftype == 'boolean'
                                else str(val).upper() == 'YES')
-                note_field_id = NOTE_OVERRIDE_FIELDS.get(fid)
-                if note_field_id and str((responses or {}).get(note_field_id, '') or '').strip():
-                    is_compliant = False
                 findings.append({
                     'source': 'checklist',
                     'state': 'completed' if is_compliant else 'pending',
@@ -2082,34 +2058,12 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
                 })
             elif ftype == 'text' and val and fid not in INERT_TEXT_FIELD_IDS:
                 custom_val = val
-                tags = []
                 try:
                     data = json.loads(val)
                     if isinstance(data, dict):
-                        tags = data.get("tags", [])
                         custom_val = data.get("custom", "")
                 except Exception:
                     pass  # legacy plain-text value - falls through to parse_custom_observations below
-
-                for tag_id in tags:
-                    tag_info = cb_lookup.get(tag_id)
-                    if tag_info:
-                        is_compliant = tag_id in compliant_tag_ids
-                        findings.append({
-                            'source': 'checklist',
-                            'state': 'completed' if is_compliant else 'pending',
-                            'type': 'tag',
-                            'category': tag_info.get('category', 'General'),
-                            'comment': tag_info.get('comment', ''),
-                            'advice': tag_info.get('advice', ''),
-                            'resource_url': tag_info.get('resource_url', ''),
-                            'resource_text': tag_info.get('resource_text', ''),
-                        })
-                    else:
-                        findings.append({
-                            'source': 'checklist', 'state': 'pending',
-                            'type': 'legacy_tag', 'comment': str(tag_id),
-                        })
 
                 for obs in parse_custom_observations(custom_val):
                     findings.append({

@@ -448,7 +448,7 @@ def load_checklist_data():
     """
     logging.info("📥 Fetching dynamic audit checklist data from SQLite...")
     try:
-        from database import (get_db_connection, get_active_audit_fields, get_comment_bank,
+        from database import (get_db_connection, get_active_audit_fields,
                               get_ally_courses_latest, get_ally_issues_latest,
                               get_leganto_lists_latest, get_readiness_courses_latest,
                               get_readiness_sections_latest)
@@ -456,7 +456,6 @@ def load_checklist_data():
                                 aggregate_readiness_to_modules, derive_module_findings)
 
         active_fields = get_active_audit_fields()
-        comment_bank = get_comment_bank()
 
         with get_db_connection() as conn:
             if not table_exists(conn, "audit_responses"):
@@ -531,7 +530,7 @@ def load_checklist_data():
             free-text observations) without also changing that."""
             findings = derive_module_findings(
                 module_row(m_code), responses,
-                active_fields if count_checklist else [], comment_bank)
+                active_fields if count_checklist else [])
             pending = [f for f in findings if f['state'] == 'pending']
 
             audit_status = responses.get('audit_status', '')

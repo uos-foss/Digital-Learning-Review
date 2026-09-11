@@ -6,7 +6,7 @@ from processing import (
     get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module,
     resolve_active_row, compute_spot_check_agreement, CURRENT_ACADEMIC_YEAR,
     compute_audit_verdict, parse_user_schools, format_user_schools,
-    module_matches_user_schools, NOTE_OVERRIDE_FIELDS,
+    module_matches_user_schools,
 )
 from database import (
     get_active_audit_fields,
@@ -260,19 +260,11 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                             def_val = False
                         if suggestion is not None:
                             tooltip = f"📋 Blackboard Template: {suggestion['evidence_text']}"
-                        elif fid in NOTE_OVERRIDE_FIELDS:
-                            tooltip = ("Tick only if this is present and in good shape. If it's present "
-                                       "but has issues, leave this unticked and describe the issue in the "
-                                       "note field below — a note there always keeps this flagged as "
-                                       "outstanding, even if this box is ticked.")
                         else:
                             tooltip = "N/A"
                         responses_input[fid] = st.checkbox(label, value=def_val, help=tooltip, key=f"ap_chk_{selected_code}_{fid}")
                     elif ftype == 'text':
                         help_text = field.get('description') or None
-                        if fid in NOTE_OVERRIDE_FIELDS.values():
-                            help_text = help_text or ("Adding a note here always keeps the related checkbox "
-                                                       "flagged as outstanding, even if that box is ticked.")
                         responses_input[fid] = st.text_area(
                             label,
                             value=prev_val or '',

@@ -41,6 +41,7 @@ from processing import (
     ally_term_to_academic_year,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
+    SECTION_KEY_BY_AUDIT_FIELD,
     parse_user_schools,
     format_user_schools,
 )
@@ -1202,12 +1203,10 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         st.write("Configure the fields (questions) that appear in the module auditing checklist directly in the table below.")
         
         try:
-            field_tabs = st.tabs(["📋 Checklist Fields", "💬 Quick Comment Bank"])
-            
-            with field_tabs[0]:
+            with st.container():
                 fields = get_audit_fields()
                 df_fields = pd.DataFrame(fields)
-                
+
                 if df_fields.empty:
                     df_fields = pd.DataFrame(columns=["id", "label", "action_label", "description", "field_type", "is_active", "display_order", "is_gating"])
                 else:
@@ -1215,16 +1214,34 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     df_fields['is_active'] = df_fields['is_active'].apply(lambda x: bool(x))
                     df_fields['is_gating'] = df_fields['is_gating'].apply(lambda x: bool(x))
                     df_fields['display_order'] = pd.to_numeric(df_fields['display_order'], errors='coerce').fillna(10).astype(int)
-                    
+
+                # Read-only: which Template Alignment section (if any) this
+                # field's answer overrides via readiness_manual_override().
+                # Shown so an admin editing a linked field's label can see the
+                # connection before typing something that no longer matches
+                # what the data underneath it actually verifies - the exact
+                # way 'student_voice' silently ended up mapped to the wrong
+                # section (see CLAUDE.md's "Module readiness" notes). The
+                # label itself is locked to this section's name at save time
+                # below, not just flagged here.
+                df_fields['linked_section'] = df_fields['id'].map(
+                    lambda fid: TEMPLATE_SECTIONS.get(SECTION_KEY_BY_AUDIT_FIELD.get(fid), (None,))[0])
+
                 st.markdown("##### **Audit Fields Configuration Table**")
                 st.caption("💡 **How to edit:** Double-click a cell to edit. Use the controls at the bottom of the table to add new rows. Select a row and press **Delete** on your keyboard to delete it.")
-                
+                st.caption("🔗 A field with a **Linked Template Section** has its Question/Label kept in sync with "
+                           "that section's name automatically when you save - editing the label here won't stick, "
+                           "since the wording has to match what the Template Alignment data actually verifies.")
+
                 edited_df = st.data_editor(
                     df_fields,
                     num_rows="dynamic",
+                    column_order=["id", "label", "linked_section", "action_label", "description",
+                                 "field_type", "is_gating", "is_active", "display_order"],
                     column_config={
                         "id": st.column_config.TextColumn("Field ID (Slug)", help="Unique ID: lowercase letters and underscores only. E.g. welcome_message", required=True),
-                        "label": st.column_config.TextColumn("Question / Label", help="Text shown to auditors in checklist.", required=True),
+                        "label": st.column_config.TextColumn("Question / Label", help="Text shown to auditors in checklist. Locked to the Linked Template Section's name, if any.", required=True),
+                        "linked_section": st.column_config.TextColumn("Linked Template Section", help="Read-only. The Blackboard Template Alignment section this field's answer overrides, if any - see processing.TEMPLATE_SECTIONS.", disabled=True),
                         "action_label": st.column_config.TextColumn("Action Item Label", help="Rephrased action item header shown for pending/incomplete tasks.", required=False),
                         "description": st.column_config.TextColumn("Tooltip Description", help="Instructional details/tips."),
                         "field_type": st.column_config.SelectboxColumn("Field Type", options=["boolean", "text", "yes/no"], required=True),
@@ -1260,7 +1277,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     errors = []
                     valid_rows = []
                     seen_ids = set()
-                    
+                    relabelled = []
+
                     for idx, row in edited_df.iterrows():
                         fid = str(row.get('id', '')).strip().lower()
                         label = str(row.get('label', '')).strip()
@@ -1274,6 +1292,22 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             order = int(row.get('display_order', 10))
                         except Exception:
                             order = 10
+
+                        # A field mapped to a Template Alignment section
+                        # always shows that section's own name - never a
+                        # separately-typed label that can silently drift from
+                        # what the section underneath it actually verifies.
+                        # This is the fix for 'student_voice' ending up
+                        # mapped to the wrong section: its label had been
+                        # edited (here or via the Google Sheets sync) to
+                        # describe a different section than TEMPLATE_SECTIONS
+                        # actually points it at, with nothing to catch it.
+                        section_key = SECTION_KEY_BY_AUDIT_FIELD.get(fid)
+                        if section_key:
+                            canonical_label = TEMPLATE_SECTIONS[section_key][0]
+                            if label != canonical_label:
+                                relabelled.append((fid, label, canonical_label))
+                                label = canonical_label
 
                         # Fallback for action label if empty
                         if not act_label:
@@ -1330,6 +1364,11 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             push_err_msg = str(e)
                             
                         st.cache_data.clear()
+                        if relabelled:
+                            notes = "; ".join(
+                                f"'{fid}' ({old!r} → {new!r})" for fid, old, new in relabelled)
+                            st.info(
+                                f"🔗 Kept in sync with their Linked Template Section, not saved as typed: {notes}.")
                         if push_success:
                             st.success("Audit fields configuration saved locally and synchronized to Google Sheets successfully!")
                         else:
@@ -1337,93 +1376,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         st.balloons()
                         st.rerun()
 
-
-            with field_tabs[1]:
-                st.markdown("##### **Audit Comments Bank (Predefined Tags)**")
-                st.write("Configure the library of quick comments available for auditors to pick as tags.")
-                
-                with get_db_connection() as conn:
-                    df_tags = pd.read_sql_query("SELECT id, category, comment, advice, resource_url, resource_text FROM comment_bank ORDER BY category, comment", conn)
-                    
-                edited_tags_df = st.data_editor(
-                    df_tags,
-                    num_rows="dynamic",
-                    column_config={
-                        "id": None, # Hide the ID column
-                        "category": st.column_config.TextColumn("Category", help="Category of the comment"),
-                        "comment": st.column_config.TextColumn("Standard Comment", help="A predefined common feedback comment.", required=True),
-                        "advice": st.column_config.TextColumn("Advice", help="Advice to append to the comment"),
-                        "resource_url": st.column_config.TextColumn("Resource URL", help="URL signposting a useful resource for the module lead."),
-                        "resource_text": st.column_config.TextColumn("Resource Text", help="Label or description of the resource link.")
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                    key="comment_bank_data_editor"
-                )
-
-                
-                st.divider()
-                tc1, tc2, tc3 = st.columns([1.5, 2.0, 4.5])
-                with tc1:
-                    save_tags = st.button("💾 Save Comment Bank", type="primary", use_container_width=True, key="save_tags_btn")
-                with tc2:
-                    sync_tags = st.button("🔄 Sync from Google Sheets", type="secondary", use_container_width=True, key="sync_tags_btn")
-                    
-                if sync_tags:
-                    try:
-                        from sync_data import sync_comment_bank
-                        with st.spinner("Connecting to Google Sheets and syncing Comment Bank..."):
-                            sync_comment_bank()
-                        st.success("Comment Bank synchronized successfully from Google Sheets!")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Sync failed: {e}")
-                        
-                if save_tags:
-                    valid_tags = []
-                    for idx, row in edited_tags_df.iterrows():
-                        comment_val = str(row.get('comment', '')).strip()
-                        category_val = str(row.get('category', '')).strip() if pd.notna(row.get('category')) else ''
-                        advice_val = str(row.get('advice', '')).strip() if pd.notna(row.get('advice')) else ''
-                        url_val = str(row.get('resource_url', '')).strip() if pd.notna(row.get('resource_url')) else ''
-                        text_val = str(row.get('resource_text', '')).strip() if pd.notna(row.get('resource_text')) else ''
-                        id_val = row.get('id')
-                        
-                        if pd.isna(id_val) or str(id_val).strip() == "":
-                            id_val = None
-                        else:
-                            id_val = int(id_val)
-                            
-                        if comment_val:
-                            valid_tags.append((id_val, category_val, comment_val, advice_val, url_val, text_val))
-                            
-                    with get_db_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("DELETE FROM comment_bank")
-                        cursor.executemany("INSERT INTO comment_bank (id, category, comment, advice, resource_url, resource_text) VALUES (?, ?, ?, ?, ?, ?)", valid_tags)
-                        conn.commit()
-
-                    # Push local changes to Google Sheets immediately
-                    push_success = True
-                    push_err_msg = ""
-                    try:
-                        from sync_data import push_comment_bank_to_sheets
-                        push_comment_bank_to_sheets()
-                    except Exception as e:
-                        push_success = False
-                        push_err_msg = str(e)
-                        
-                    st.cache_data.clear()
-                    if push_success:
-                        st.success("Quick comment bank tags updated locally and synchronized to Google Sheets successfully!")
-                    else:
-                        st.warning(f"Quick comment bank saved locally, but failed to sync to Google Sheets: {push_err_msg}")
-                    st.balloons()
-                    st.rerun()
-                    
         except Exception as e:
-            st.error(f"Error managing audit fields/comment bank: {e}")
+            st.error(f"Error managing audit fields: {e}")
 
     # ----------------------------------------------------
     # TAB 6: DATA IMPORT/EXPORT HUB
@@ -1434,7 +1388,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         
         tables_map = {
             "SITS 2026/27 Assessments": "sits_assessment_2026_27",
-            "Audit Comment Bank (Predefined Tags)": "comment_bank",
             "Audit Fields Config": "audit_fields",
             "Audit Responses Data": "audit_responses",
             "User Accounts": "users",
@@ -1541,25 +1494,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                 try:
                     df_import = pd.read_csv(uploaded_file)
                     
-                    if target_table == "comment_bank":
-                        # Normalize columns
-                        df_import.columns = [c.strip().lower() for c in df_import.columns]
-                        if 'tag' in df_import.columns and 'comment' not in df_import.columns:
-                            df_import = df_import.rename(columns={'tag': 'comment'})
-                        if 'resources' in df_import.columns and 'resource_url' not in df_import.columns:
-                            df_import = df_import.rename(columns={'resources': 'resource_url'})
-                        
-                        if 'comment' not in df_import.columns:
-                            raise ValueError("CSV must contain a 'comment' (or legacy 'tag') column.")
-                            
-                        # Add optional fields if not present
-                        for col in ['category', 'advice', 'resource_url', 'resource_text']:
-                            if col not in df_import.columns:
-                                df_import[col] = ""
-
-
-                                
-                    elif target_table in ("ally_scores", "ally_courses", "ally_issues", "ally_content"):
+                    if target_table in ("ally_scores", "ally_courses", "ally_issues", "ally_content"):
                         # The old path here guessed at column meanings, and guessed
                         # wrong once the institutional export arrived: it matched
                         # 'files score' to measured and 'overall score' to weighted,
@@ -1620,9 +1555,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             with get_db_connection() as conn:
                                 # No Ally tables here - they are import-blocked above
                                 # and handled by the dedicated Ally importer.
-                                predefined_tables = ["comment_bank", "audit_fields", "audit_responses", "users", "roles", "leganto_nolist"]
+                                predefined_tables = ["audit_fields", "audit_responses", "users", "roles", "leganto_nolist"]
                                 expected_cols = {
-                                    "comment_bank": ['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text'],
                                     "audit_fields": ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating'],
                                     "audit_responses": ['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'],
                                     "users": ['Username', 'PasswordHash', 'Role', 'School', 'Capabilities', 'Status'],
@@ -1631,19 +1565,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 }
 
                                 if import_mode.startswith("Replace"):
-                                    if target_table == "comment_bank":
-                                        if 'id' not in df_import.columns:
-                                            df_import['id'] = range(1, 1 + len(df_import))
-                                        else:
-                                            df_import['id'] = pd.to_numeric(df_import['id'], errors='coerce')
-                                            null_mask = df_import['id'].isna()
-                                            if null_mask.any():
-                                                max_id = df_import['id'].max()
-                                                if pd.isna(max_id):
-                                                    max_id = 0
-                                                df_import.loc[null_mask, 'id'] = range(int(max_id) + 1, int(max_id) + 1 + null_mask.sum())
-                                            df_import['id'] = df_import['id'].astype(int)
-                                        
                                     if target_table in expected_cols:
                                         cols = expected_cols[target_table]
                                         for c in cols:
@@ -1663,7 +1584,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                         
                                         pk_map = {
                                             "sits_assessment_2026_27": None,
-                                            "comment_bank": "id",
                                             "audit_fields": "id",
                                             "audit_responses": ["module_code", "field_id"],
                                             "users": "Username",
@@ -1672,96 +1592,35 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                             "main_vle_audit_aut": None,
                                             "main_vle_audit_spr": None
                                         }
-                                        
+
                                         pk = pk_map.get(target_table, None)
-                                        
-                                        if target_table == "comment_bank" and "id" not in df_import.columns:
-                                            # Custom merge by comment to avoid duplicating comments
-                                            existing_comments = {str(row['comment']).strip(): row['id'] for _, row in df_existing.iterrows()}
-                                            imported_rows = []
-                                            max_id = pd.to_numeric(df_existing['id'], errors='coerce').max()
-                                            if pd.isna(max_id):
-                                                max_id = 0
-                                            next_id = int(max_id) + 1
-                                            
-                                            for _, row in df_import.iterrows():
-                                                comment_str = str(row['comment']).strip()
-                                                category_val = str(row['category']).strip() if pd.notna(row['category']) else ""
-                                                advice_val = str(row['advice']).strip() if pd.notna(row['advice']) else ""
-                                                url_val = str(row['resource_url']).strip() if pd.notna(row['resource_url']) else ""
-                                                text_val = str(row['resource_text']).strip() if pd.notna(row['resource_text']) else ""
-                                                
-                                                if comment_str in existing_comments:
-                                                    match_id = existing_comments[comment_str]
-                                                    df_existing.loc[df_existing['id'] == match_id, ['category', 'advice', 'resource_url', 'resource_text']] = [category_val, advice_val, url_val, text_val]
-                                                else:
-                                                    new_row = {
-                                                        'id': next_id,
-                                                        'category': category_val,
-                                                        'comment': comment_str,
-                                                        'advice': advice_val,
-                                                        'resource_url': url_val,
-                                                        'resource_text': text_val
-                                                    }
-                                                    imported_rows.append(new_row)
-                                                    next_id += 1
-                                            
-                                            if imported_rows:
-                                                df_imported_new = pd.DataFrame(imported_rows)
-                                                df_merged = pd.concat([df_existing, df_imported_new], ignore_index=True)
-                                            else:
-                                                df_merged = df_existing
-                                                
+
+                                        if pk is None:
+                                            df_import.to_sql(target_table, conn, if_exists='append', index=False)
+                                        else:
+                                            # Ensure column alignment before concat for predefined tables
+                                            if target_table in expected_cols:
+                                                cols = expected_cols[target_table]
+                                                for c in cols:
+                                                    if c not in df_import.columns:
+                                                        df_import[c] = None
+                                                df_import = df_import[cols]
+
+                                                for c in cols:
+                                                    if c not in df_existing.columns:
+                                                        df_existing[c] = None
+                                                df_existing = df_existing[cols]
+
+                                            df_merged = pd.concat([df_existing, df_import], ignore_index=True)
+                                            df_merged = df_merged.drop_duplicates(subset=pk, keep='last')
+
                                             if target_table in predefined_tables:
                                                 conn.execute(f"DROP TABLE IF EXISTS {target_table}")
                                                 init_db()
                                                 df_merged.to_sql(target_table, conn, if_exists='append', index=False)
                                             else:
                                                 df_merged.to_sql(target_table, conn, if_exists='replace', index=False)
-                                        else:
-                                            if pk is None:
-                                                df_import.to_sql(target_table, conn, if_exists='append', index=False)
-                                            else:
-                                                if target_table == "comment_bank" and "id" in df_import.columns:
-                                                    df_import['id'] = pd.to_numeric(df_import['id'], errors='coerce')
-                                                    null_mask = df_import['id'].isna()
-                                                    if null_mask.any():
-                                                        max_existing_id = pd.to_numeric(df_existing['id'], errors='coerce').max()
-                                                        if pd.isna(max_existing_id):
-                                                            max_existing_id = 0
-                                                        df_import.loc[null_mask, 'id'] = range(int(max_existing_id) + 1, int(max_existing_id) + 1 + null_mask.sum())
-                                                    df_import['id'] = df_import['id'].astype(int)
-                                                    
-                                                # Ensure column alignment before concat for predefined tables
-                                                if target_table in expected_cols:
-                                                    cols = expected_cols[target_table]
-                                                    for c in cols:
-                                                        if c not in df_import.columns:
-                                                            df_import[c] = None
-                                                    df_import = df_import[cols]
-                                                    
-                                                    for c in cols:
-                                                        if c not in df_existing.columns:
-                                                            df_existing[c] = None
-                                                    df_existing = df_existing[cols]
-                                                    
-                                                df_merged = pd.concat([df_existing, df_import], ignore_index=True)
-                                                df_merged = df_merged.drop_duplicates(subset=pk, keep='last')
-                                                
-                                                if target_table in predefined_tables:
-                                                    conn.execute(f"DROP TABLE IF EXISTS {target_table}")
-                                                    init_db()
-                                                    df_merged.to_sql(target_table, conn, if_exists='append', index=False)
-                                                else:
-                                                    df_merged.to_sql(target_table, conn, if_exists='replace', index=False)
                                     else:
-                                        if target_table == "comment_bank":
-                                            if 'id' not in df_import.columns:
-                                                df_import['id'] = range(1, 1 + len(df_import))
-                                            else:
-                                                df_import['id'] = pd.to_numeric(df_import['id'], errors='coerce').fillna(0).astype(int)
-                                            df_import = df_import[['id', 'category', 'comment', 'advice', 'resource_url', 'resource_text']]
-                                            
                                         if target_table in expected_cols:
                                             cols = expected_cols[target_table]
                                             for c in cols:
