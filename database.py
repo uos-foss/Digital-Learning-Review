@@ -1771,6 +1771,34 @@ def is_module_inactive(module_code: str) -> bool:
         cursor.execute("SELECT 1 FROM inactive_modules WHERE module_code = ?", (module_code.strip().upper(),))
         return cursor.fetchone() is not None
 
+def get_all_sits_modules():
+    """Every module code/name/lead in the current SITS table, active and
+    inactive alike - unlike load_audit_data(), which filters inactive codes
+    out before the rest of the app ever sees them."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, "sits_assessment_2026_27"):
+            return pd.DataFrame(columns=['module_code', 'module_name', 'lead'])
+        df = pd.read_sql_query(
+            "SELECT [CIS unit code] AS module_code, [Module name] AS module_name, "
+            "[Academic contact] AS lead FROM sits_assessment_2026_27", conn)
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    return df.drop_duplicates(subset=['module_code']).reset_index(drop=True)
+
+def bulk_rename_module_lead(old_lead: str, new_lead: str):
+    """Renames every module currently carrying old_lead (exact string match)
+    to new_lead, across SITS and the legacy VLE audit tables."""
+    old_lead = old_lead.strip()
+    new_lead = new_lead.strip()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if table_exists(conn, "sits_assessment_2026_27"):
+            cursor.execute("UPDATE sits_assessment_2026_27 SET [Academic contact] = ? WHERE [Academic contact] = ?", (new_lead, old_lead))
+        if table_exists(conn, "main_vle_audit_aut"):
+            cursor.execute("UPDATE main_vle_audit_aut SET [Mod. lead] = ? WHERE [Mod. lead] = ?", (new_lead, old_lead))
+        if table_exists(conn, "main_vle_audit_spr"):
+            cursor.execute("UPDATE main_vle_audit_spr SET [Mod. lead] = ? WHERE [Mod. lead] = ?", (new_lead, old_lead))
+        conn.commit()
+
 
 # Automatically initialize/migrate database when imported
 init_db()

@@ -14,6 +14,7 @@ This document lists all components of the **Module Report Card** view rendered b
 | **4. VLE Accessibility (Ally)** | Visual representation of accessibility score, progress, and files scanned. | Ally Accessibility Scores | Color-codes and categorizes scores into 4 tiers with warning banners for low file counts. |
 | **5. Module Checklist** | Form for editing checklist (Admins) or view-only summary (Standard Users). | SQLite `audit_responses` / `audit_fields` | Fetches active fields from DB, maps boolean checkbox status, tag inputs, and text comments. |
 | **6. SITS Assessment Strategy** | Visual grid of assessments, weightings, and requirements. | SQLite `sits_assessment_2026_27` | Renders individual assessment components, weightings, final assessment flags, and duration. |
+| **7. Blackboard Template** | Per-section readiness badges for the faculty Template Alignment Report — Visible to students / Visible, unedited / Hidden from students / Not started / Deleted / Missing. | SQLite `readiness_courses` / `readiness_sections`, mapped via `processing.TEMPLATE_SECTIONS` | Rendered by `_render_template_sections()`; state per section from `processing.classify_section_state()` / `SECTION_STATES`, readiness from `readiness_section_is_ready()`. A real audit answer for the section's mapped checklist field overrides the data-driven badge (`readiness_manual_override()`). |
 
 ---
 
@@ -28,6 +29,7 @@ graph TD
         Checklists[(audit_responses Table)]
         Ally[(ally_courses / ally_issues / ally_content Tables)]
         Leganto[(leganto_nolist Table)]
+        Readiness[(readiness_courses / readiness_sections Tables)]
     end
 
     subgraph "Data Loading & ETL (app.py / database.py)"
@@ -37,7 +39,9 @@ graph TD
         AuditSpr --> Load
         Ally --> Load
         Leganto --> Load
-        
+        Readiness --> AggReadiness[aggregate_readiness_to_modules]
+        AggReadiness --> Load
+
         LoadChecklist[load_checklist_data / get_audit_responses]
         Checklists --> LoadChecklist
     end
@@ -49,6 +53,7 @@ graph TD
         VLE[VLE Accessibility Profile]
         ChecklistComponent[Module Checklist Edit/Summary]
         AssessComponent[SITS Assessment Strategy]
+        TemplateComponent[Blackboard Template]
     end
 
     Load --> Search
@@ -57,6 +62,8 @@ graph TD
     Load --> VLE
     LoadChecklist --> ChecklistComponent
     SITS --> AssessComponent
+    Load --> TemplateComponent
+    LoadChecklist --> TemplateComponent
 ```
 
 ---
@@ -141,3 +148,16 @@ graph TD
       - Reassessment format: `Reassessment` field.
       - Qualifying Mark: `Qualifying mark` field.
 * **Code Reference**: [views/module_report.py:L408-L448](file:///c:/Users/fs1hpc/Documents/GitHub/Digital-Learning-Review/views/module_report.py#L408-L448)
+
+### 7. Blackboard Template Section
+* **Purpose**: Shows, per required Blackboard template section, whether the module lead's own content is visible to students — the Module Report Card's read of the faculty Template Alignment Report. Rendered by `_render_template_sections()`.
+* **UI Elements**: A caption showing "N of Total sections ready" plus a snapshot date, then one styled card per lead-owned section (`Welcome & Module Outline`, `Key Staff Contacts`, `Assessment Detail`) with a status badge, action text, and a footer naming when it was last changed. The remaining institution-owned sections are collapsed behind an expander (title flags any deleted/missing count) and shown as a plain table.
+* **Data Origin**:
+  - `readiness_courses` / `readiness_sections`, rolled up to module grain by `processing.aggregate_readiness_to_modules()` and merged into `active_row` in `app.py` as `'Template Sections'` (the per-section state dict), `'Readiness Snapshot'`, `'Lead Sections Ready'` and `'Lead Sections Total'`.
+  - Section labels and which sections are lead-owned vs institution-owned come from `processing.TEMPLATE_SECTIONS` / `LEAD_OWNED_SECTIONS`.
+  - `responses` (this module's `audit_responses`, already loaded for the Module Checklist component) supplies the manual-override check.
+* **Derivation Logic**:
+  - Each section's badge/tier/action text comes from `processing.classify_section_state()` and the `SECTION_STATES` lookup table; whether a state counts as "ready" is decided by `processing.readiness_section_is_ready()`, not a bare status check.
+  - When the module has a real audit (`has_audit`) and a Digital Learning Advisor has recorded an answer for that section's mapped checklist field, `processing.readiness_manual_override()` replaces the data-driven badge with a "Manually verified complete/incomplete" badge instead, so this card can't contradict the Completed/To Do cards next to it.
+  - The full state-machine reasoning (`drafted_hidden`, `visible_unedited`, the lead-owned vs institution-owned edited-requirement split, bulk-edit detection) is documented in `CLAUDE.md`'s "Module readiness (template alignment) data" and "Audit Portal pre-fill" sections — not duplicated here.
+* **Code Reference**: [views/module_report.py:L510-L596](file:///c:/Users/fs1hpc/Documents/GitHub/Digital-Learning-Review/views/module_report.py#L510-L596)

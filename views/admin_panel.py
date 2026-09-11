@@ -26,7 +26,10 @@ from database import (
     save_readiness_snapshot,
     get_readiness_academic_years,
     purge_readiness,
-    init_db
+    init_db,
+    get_all_sits_modules,
+    update_module_lead_sqlite,
+    bulk_rename_module_lead
 )
 from processing import (
     FACULTY_SCHOOLS,
@@ -42,6 +45,7 @@ from processing import (
     format_user_schools,
 )
 from masquerade import start_masquerade
+from views.module_report import title_case_name
 
 def parse_log_line(line):
     """
@@ -705,7 +709,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         "👤 User Control",
         "📋 Audit Field Manager",
         "📂 Data Import/Export",
-        "🚫 Inactive Modules",
+        "🗂️ Module Manager",
         "⚙️ System Maintenance",
         "🗄️ Database Explorer"
     ]
@@ -1784,127 +1788,252 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
 
     # ----------------------------------------------------
-    # TAB 7: INACTIVE MODULES MANAGER
+    # TAB 7: MODULE MANAGER (Inactive Modules + Module Leads)
     # ----------------------------------------------------
-    elif selected_tab == "🚫 Inactive Modules":
-        st.subheader("🚫 Inactive Modules Manager")
-        st.write("Mark modules as inactive (skeleton modules, not used, etc.) to exclude them from audits and analytics.")
+    elif selected_tab == "🗂️ Module Manager":
+        st.subheader("🗂️ Module Manager")
+        st.write("Manage which modules are active, and keep module lead names correct.")
 
-        try:
-            from database import get_inactive_modules, mark_module_inactive, mark_module_active
+        mm_tabs = st.tabs(["🚫 Inactive Modules", "🧑‍🏫 Module Leads"])
 
-            # Load all modules from the dataframes
-            all_modules_set = set()
-            if not df_aut.empty:
-                all_modules_set.update(df_aut['New module code'].dropna().astype(str).str.strip().str.upper())
-            if not df_spr.empty:
-                all_modules_set.update(df_spr['New module code'].dropna().astype(str).str.strip().str.upper())
+        with mm_tabs[0]:
+            st.markdown("##### **Inactive Modules Manager**")
+            st.write("Mark modules as inactive (skeleton modules, not used, etc.) to exclude them from audits and analytics.")
 
-            all_modules = sorted(list(all_modules_set))
-            inactive_modules = get_inactive_modules()
-            inactive_codes = {m['module_code'] for m in inactive_modules}
+            try:
+                from database import get_inactive_modules, mark_module_inactive, mark_module_active
 
-            st.divider()
-            st.markdown("##### **Currently Inactive Modules**")
+                # Load all modules from the dataframes
+                all_modules_set = set()
+                if not df_aut.empty:
+                    all_modules_set.update(df_aut['New module code'].dropna().astype(str).str.strip().str.upper())
+                if not df_spr.empty:
+                    all_modules_set.update(df_spr['New module code'].dropna().astype(str).str.strip().str.upper())
 
-            if inactive_modules:
-                inactive_df = pd.DataFrame(inactive_modules)
-                st.dataframe(
-                    inactive_df,
-                    column_config={
-                        "module_code": "Module Code",
-                        "reason": "Reason",
-                        "marked_date": "Marked Date",
-                        "marked_by": "Marked By"
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
+                all_modules = sorted(list(all_modules_set))
+                inactive_modules = get_inactive_modules()
+                inactive_codes = {m['module_code'] for m in inactive_modules}
 
                 st.divider()
-                st.markdown("##### **Restore Active Modules**")
-                selected_restore = st.selectbox(
-                    "Select an inactive module to restore:",
-                    options=sorted([m['module_code'] for m in inactive_modules]),
-                    key="restore_module_select"
-                )
+                st.markdown("##### **Currently Inactive Modules**")
 
-                if st.button("✅ Restore to Active", type="secondary", use_container_width=True):
+                if inactive_modules:
+                    inactive_df = pd.DataFrame(inactive_modules)
+                    st.dataframe(
+                        inactive_df,
+                        column_config={
+                            "module_code": "Module Code",
+                            "reason": "Reason",
+                            "marked_date": "Marked Date",
+                            "marked_by": "Marked By"
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    st.divider()
+                    st.markdown("##### **Restore Active Modules**")
+                    selected_restore = st.selectbox(
+                        "Select an inactive module to restore:",
+                        options=sorted([m['module_code'] for m in inactive_modules]),
+                        key="restore_module_select"
+                    )
+
+                    if st.button("✅ Restore to Active", type="secondary", use_container_width=True):
+                        try:
+                            mark_module_active(selected_restore)
+                            logging.info(f"Module {selected_restore} restored to active status.")
+                            st.success(f"Module **{selected_restore}** has been restored to active status!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error restoring module: {e}")
+                else:
+                    st.info("No inactive modules currently marked.")
+
+                st.divider()
+                st.markdown("##### **Mark Module as Inactive**")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    selected_module = st.selectbox(
+                        "Select a module to mark as inactive:",
+                        options=[m for m in all_modules if m not in inactive_codes],
+                        key="mark_inactive_select"
+                    )
+
+                with col2:
+                    reason = st.selectbox(
+                        "Reason for marking as inactive:",
+                        options=[
+                            "Skeleton module",
+                            "Not used this year",
+                            "Merged with another module",
+                            "Archived",
+                            "Other"
+                        ],
+                        key="mark_inactive_reason"
+                    )
+
+                if st.button("🚫 Mark as Inactive", type="primary", use_container_width=True):
                     try:
-                        mark_module_active(selected_restore)
-                        logging.info(f"Module {selected_restore} restored to active status.")
-                        st.success(f"Module **{selected_restore}** has been restored to active status!")
+                        username = st.session_state.get("username", "Unknown")
+                        mark_module_inactive(selected_module, reason, username)
+                        logging.info(f"Module {selected_module} marked as inactive. Reason: {reason}")
+                        st.success(f"Module **{selected_module}** has been marked as inactive!")
                         st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error restoring module: {e}")
-            else:
-                st.info("No inactive modules currently marked.")
+                        st.error(f"Error marking module as inactive: {e}")
 
-            st.divider()
-            st.markdown("##### **Mark Module as Inactive**")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                selected_module = st.selectbox(
-                    "Select a module to mark as inactive:",
-                    options=[m for m in all_modules if m not in inactive_codes],
-                    key="mark_inactive_select"
+                st.divider()
+                st.markdown("##### **Ally / SITS Reconciliation**")
+                st.caption(
+                    "Blackboard courses Ally tracks that have no matching SITS module, and SITS "
+                    "modules with no Blackboard course. The Ally-only list is usually shell, "
+                    "custom, or programme-level courses - candidates for marking inactive above - "
+                    "but some are real provision SITS just doesn't have a code for yet, so check "
+                    "before assuming one can be ignored."
                 )
+                df_ally_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
+                if df_ally_courses.empty:
+                    st.info("No Ally courses loaded. Import the institutional report to see this.")
+                elif not all_modules:
+                    st.info("No SITS modules loaded to reconcile against.")
+                else:
+                    rec = reconcile_ally_modules(df_ally_courses['module_code'], all_modules)
+                    r1, r2, r3 = st.columns(3)
+                    r1.metric("Matched", f"{len(rec['matched']):,}")
+                    r2.metric("Ally only", f"{len(rec['ally_only']):,}")
+                    r3.metric("SITS only", f"{len(rec['sits_only']):,}")
+                    if rec['ally_only']:
+                        st.write("**Blackboard courses with no SITS module**")
+                        st.code(", ".join(rec['ally_only']))
+                    if rec['sits_only']:
+                        st.write("**SITS modules with no Blackboard course**")
+                        st.code(", ".join(rec['sits_only']))
 
-            with col2:
-                reason = st.selectbox(
-                    "Reason for marking as inactive:",
-                    options=[
-                        "Skeleton module",
-                        "Not used this year",
-                        "Merged with another module",
-                        "Archived",
-                        "Other"
-                    ],
-                    key="mark_inactive_reason"
-                )
+            except Exception as e:
+                st.error(f"Error managing inactive modules: {e}")
 
-            if st.button("🚫 Mark as Inactive", type="primary", use_container_width=True):
-                try:
-                    username = st.session_state.get("username", "Unknown")
-                    mark_module_inactive(selected_module, reason, username)
-                    logging.info(f"Module {selected_module} marked as inactive. Reason: {reason}")
-                    st.success(f"Module **{selected_module}** has been marked as inactive!")
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error marking module as inactive: {e}")
+        with mm_tabs[1]:
+            st.markdown("##### **Module Leads**")
+            st.write("Every module in SITS, active or inactive, with its current lead.")
 
-            st.divider()
-            st.markdown("##### **Ally / SITS Reconciliation**")
-            st.caption(
-                "Blackboard courses Ally tracks that have no matching SITS module, and SITS "
-                "modules with no Blackboard course. The Ally-only list is usually shell, "
-                "custom, or programme-level courses - candidates for marking inactive above - "
-                "but some are real provision SITS just doesn't have a code for yet, so check "
-                "before assuming one can be ignored."
-            )
-            df_ally_courses = st.session_state.get("df_ally_courses", pd.DataFrame())
-            if df_ally_courses.empty:
-                st.info("No Ally courses loaded. Import the institutional report to see this.")
-            elif not all_modules:
-                st.info("No SITS modules loaded to reconcile against.")
-            else:
-                rec = reconcile_ally_modules(df_ally_courses['module_code'], all_modules)
-                r1, r2, r3 = st.columns(3)
-                r1.metric("Matched", f"{len(rec['matched']):,}")
-                r2.metric("Ally only", f"{len(rec['ally_only']):,}")
-                r3.metric("SITS only", f"{len(rec['sits_only']):,}")
-                if rec['ally_only']:
-                    st.write("**Blackboard courses with no SITS module**")
-                    st.code(", ".join(rec['ally_only']))
-                if rec['sits_only']:
-                    st.write("**SITS modules with no Blackboard course**")
-                    st.code(", ".join(rec['sits_only']))
+            try:
+                from database import get_inactive_modules
 
-        except Exception as e:
-            st.error(f"Error managing inactive modules: {e}")
+                df_modules = get_all_sits_modules()
+                inactive_codes = {m['module_code'] for m in get_inactive_modules()}
+
+                if df_modules.empty:
+                    st.info("No SITS module data loaded yet.")
+                else:
+                    st.markdown("##### **By Lead** — rename everywhere a name is used")
+                    st.caption(
+                        "Grouped by the exact text currently stored (shown here in regular case "
+                        "for readability). Different spellings/casing for the same person can "
+                        "still show as separate rows with the same displayed name - check the "
+                        "module list below before assuming two rows are identical, and rename "
+                        "one to match the other to merge them."
+                    )
+
+                    named = df_modules[df_modules['lead'].fillna('').str.strip() != '']
+                    grouped = (named.groupby('lead')['module_code']
+                                     .apply(lambda s: sorted(s.tolist()))
+                                     .reset_index(name='modules'))
+                    grouped['Module Count'] = grouped['modules'].apply(len)
+                    grouped['Lead Name'] = grouped['lead'].apply(title_case_name)
+                    grouped = grouped.sort_values('Module Count', ascending=False).reset_index(drop=True)
+
+                    sel_leads = st.dataframe(
+                        grouped[['Lead Name', 'Module Count']],
+                        use_container_width=True, hide_index=True,
+                        on_select="rerun", selection_mode="single-row", key="admin_leads_grouped_dataframe"
+                    )
+
+                    if not sel_leads.selection.rows:
+                        st.info("💡 Select a lead row above to rename them across all their modules.")
+                    else:
+                        old_lead = grouped.iloc[sel_leads.selection.rows[0]]['lead']
+                        affected_codes = grouped.iloc[sel_leads.selection.rows[0]]['modules']
+                        st.markdown(f"**Renaming `{title_case_name(old_lead)}`** — used on {len(affected_codes)} module(s):")
+                        st.code(", ".join(affected_codes))
+                        new_lead_bulk = st.text_input(
+                            "New name:", value=title_case_name(old_lead), key=f"bulk_new_{old_lead}"
+                        )
+                        confirm_bulk = st.checkbox(
+                            f"Apply this rename to all {len(affected_codes)} module(s) listed above",
+                            key=f"bulk_confirm_{old_lead}"
+                        )
+                        if st.button("💾 Rename Everywhere", type="primary", disabled=not confirm_bulk, key=f"bulk_btn_{old_lead}"):
+                            if not new_lead_bulk.strip():
+                                st.warning("Lead name cannot be empty.")
+                            else:
+                                try:
+                                    bulk_rename_module_lead(old_lead, new_lead_bulk)
+                                    logging.info(
+                                        f"Bulk-renamed module lead '{old_lead}' -> '{new_lead_bulk}' "
+                                        f"across {len(affected_codes)} modules by "
+                                        f"'{st.session_state.get('username', 'Unknown')}'."
+                                    )
+                                    st.success(f"Renamed **{old_lead}** to **{new_lead_bulk.strip()}** across {len(affected_codes)} module(s).")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error renaming module lead: {e}")
+
+                    st.divider()
+                    st.markdown("##### **By Module** — edit a single module's lead")
+                    search_q = st.text_input("🔍 Search (code, name, or lead):", key="module_leads_search")
+                    view_df = df_modules.copy()
+                    view_df['module_name'] = view_df['module_name'].fillna('')
+                    view_df['lead'] = view_df['lead'].fillna('')
+                    if search_q.strip():
+                        q = search_q.strip().lower()
+                        view_df = view_df[
+                            view_df['module_code'].str.lower().str.contains(q, na=False) |
+                            view_df['module_name'].str.lower().str.contains(q, na=False) |
+                            view_df['lead'].str.lower().str.contains(q, na=False)
+                        ]
+
+                    view_df = view_df.assign(
+                        School=view_df['module_code'].str[:3],
+                        Status=view_df['module_code'].apply(lambda c: "🚫 Inactive" if c in inactive_codes else "✅ Active"),
+                        **{"Current Lead": view_df['lead'].apply(title_case_name)}
+                    ).rename(columns={'module_code': 'Module Code', 'module_name': 'Module Name'})
+
+                    display_cols = ['Module Code', 'Module Name', 'School', 'Status', 'Current Lead']
+                    selection = st.dataframe(
+                        view_df[display_cols], use_container_width=True, hide_index=True,
+                        on_select="rerun", selection_mode="single-row", key="admin_module_leads_dataframe"
+                    )
+
+                    if not selection.selection.rows:
+                        st.info("💡 Select a module row above to edit its lead name.")
+                    else:
+                        sel_code = view_df.iloc[selection.selection.rows[0]]['Module Code']
+                        current_lead = df_modules.loc[df_modules['module_code'] == sel_code, 'lead'].iloc[0]
+                        st.markdown(f"**Editing lead for `{sel_code}`**")
+                        new_lead = st.text_input("Module Lead Name:", value=current_lead or "", key=f"edit_lead_{sel_code}")
+                        if st.button("💾 Update Module Lead", type="primary", key=f"btn_lead_{sel_code}"):
+                            if not new_lead.strip():
+                                st.warning("Lead name cannot be empty.")
+                            else:
+                                try:
+                                    update_module_lead_sqlite(sel_code, new_lead)
+                                    logging.info(
+                                        f"Module lead updated for '{sel_code}' by "
+                                        f"'{st.session_state.get('username', 'Unknown')}'."
+                                    )
+                                    st.success(f"Module lead for **{sel_code}** updated to **{new_lead.strip()}**.")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error updating module lead: {e}")
+
+            except Exception as e:
+                st.error(f"Error managing module leads: {e}")
 
     # ----------------------------------------------------
     # TAB 7: SYSTEM MAINTENANCE
