@@ -304,6 +304,7 @@ def load_audit_data():
             leganto_list = leganto_lists_map.get(code, {})
             leganto_list_status = leganto_list.get('status', '')
             leganto_list_items = int(leganto_list.get('total_items', 0) or 0)
+            leganto_list_draft_items = int(leganto_list.get('draft_items', 0) or 0)
 
             # Template alignment. 'Lead Sections Ready' is the part that
             # discriminates: the vendor completeness score restates the visible
@@ -355,6 +356,8 @@ def load_audit_data():
                 'Leganto Missing': leganto_missing,
                 'Leganto List Status': leganto_list_status,
                 'Leganto List Items': leganto_list_items,
+                'Leganto Draft Items': leganto_list_draft_items,
+                'Leganto Snapshot': leganto_list.get('snapshot_date', ''),
 
                 'Template Completeness': None if pd.isna(readiness_score) else float(readiness_score),
                 'Template Alignment Status': readiness.get('alignment_status', ''),

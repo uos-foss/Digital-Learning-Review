@@ -12,9 +12,11 @@ from processing import (
     summarise_ally_issues,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
+    TEMPLATE_SECTION_TREE,
     SECTION_STATES,
     derive_module_findings,
     readiness_manual_override,
+    readiness_prefill_for_module,
     compute_audit_verdict,
     fmt_report_date,
     readiness_evidence_words,
@@ -73,6 +75,108 @@ STATE_TIER_COLOUR = {
     'action': "#F59E0B",
     'attention': "#6B7280",
     'fault': "#EF4444",
+}
+
+# Card copy for sections nobody expects a module lead to edit - every section
+# except the 3 in LEAD_OWNED_SECTIONS. For these, edited-or-not is noise (see
+# readiness_section_is_ready()): only whether it's Visible or Hidden is
+# actionable, so both "edited" and "unedited" collapse to one Visible message
+# and both "drafted" and "not started" collapse to one Hidden message, unlike
+# lead-owned sections where that distinction is the whole point. Each entry is
+# (visible_text, hidden_text); sections without an entry yet fall back to
+# _INSTITUTION_DEFAULT_COPY. Filled in one section at a time as wording is
+# agreed, not guessed wholesale.
+INSTITUTION_SECTION_COPY = {
+    'MODULE_INFORMATION': (
+        "Visible to students.",
+        "Hidden from students. The Learning Module should not be hidden - "
+        "check and make sure it's visible."),
+}
+_INSTITUTION_DEFAULT_COPY = (
+    "Visible to students. This is set centrally rather than written by the "
+    "module lead, so being visible is all that's needed here.",
+    "Hidden from students. This is set centrally rather than written by the "
+    "module lead, but it still needs to be visible to students.")
+
+# Icons matching Blackboard Ultra's own course content list, so a card reads
+# as "this is a folder" / "this is a link" at a glance the same way Ultra's
+# own content list does. The plain outline ones (learning_module, folder,
+# document, link) are fixed neutral grey regardless of the card's status
+# colour - these indicate what the section *is*, not its current state. The
+# LTI tools each carry their own brand mark in Blackboard rather than a
+# shared generic icon, so those are approximations of the actual badges
+# (colour and glyph) from the module lead's own screenshots, not literal
+# traces of the originals.
+_ICON_STROKE = (
+    'fill="none" stroke="#6B7280" stroke-width="1.8" '
+    'stroke-linecap="round" stroke-linejoin="round"')
+CONTENT_TYPE_ICONS = {
+    'learning_module': (
+        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
+        '<rect x="3" y="3" width="18" height="18" rx="2"/>'
+        '<line x1="7" y1="8" x2="17" y2="8"/>'
+        '<line x1="7" y1="12" x2="17" y2="12"/>'
+        '<line x1="7" y1="16" x2="17" y2="16"/></svg>'),
+    'folder': (
+        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
+        '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 '
+        '1H4a1 1 0 0 1-1-1V6z"/></svg>'),
+    'document': (
+        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
+        '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 '
+        '1-1V8z"/><path d="M14 3v5h5"/>'
+        '<line x1="8" y1="13" x2="16" y2="13"/>'
+        '<line x1="8" y1="17" x2="16" y2="17"/></svg>'),
+    'link': (
+        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
+        '<path d="M9 15l6-6"/>'
+        '<path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/>'
+        '<path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg>'),
+    # Purple "S" badge - Skills Development (SGAs) tool.
+    'sga': (
+        '<svg width="16" height="16" viewBox="0 0 24 24">'
+        '<rect x="1" y="1" width="22" height="22" rx="5" fill="#6D28D9"/>'
+        '<text x="12" y="17" text-anchor="middle" font-family="Arial, sans-serif" '
+        'font-size="14" font-weight="700" fill="#ffffff">S</text></svg>'),
+    # Green list badge - Module Reading List tool.
+    'reading_list': (
+        '<svg width="16" height="16" viewBox="0 0 24 24">'
+        '<rect x="1" y="1" width="22" height="22" rx="5" fill="#127A52"/>'
+        '<line x1="6" y1="8" x2="18" y2="8" stroke="#fff" stroke-width="2" stroke-linecap="round"/>'
+        '<line x1="6" y1="12" x2="18" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>'
+        '<line x1="6" y1="16" x2="14" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>'),
+    # Pink circle "e" badge - Encore Lecture Capture.
+    'encore': (
+        '<svg width="16" height="16" viewBox="0 0 24 24">'
+        '<circle cx="12" cy="12" r="11" fill="#D6006F"/>'
+        '<text x="12" y="17" text-anchor="middle" font-family="Georgia, serif" '
+        'font-size="15" font-weight="700" font-style="italic" fill="#ffffff">e</text></svg>'),
+    # Graduation cap outline - Assessment Overview.
+    'assessment_cap': (
+        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
+        '<path d="M12 4 2 9l10 5 10-5-10-5z"/>'
+        '<path d="M6 11.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-4.5"/>'
+        '<path d="M22 9v6"/></svg>'),
+}
+
+# Which Blackboard Ultra content type each section is, purely for the card
+# icon - confirmed against the module lead's own screenshots where noted,
+# best guess everywhere else pending confirmation.
+SECTION_CONTENT_TYPE = {
+    'MODULE_INFORMATION': 'learning_module',       # confirmed
+    'WELCOME_MODULE_OUTLINE': 'document',          # guess
+    'KEY_STAFF_CONTACTS': 'document',              # guess
+    'SKILLS_DEVELOPMENT_SGAS': 'sga',              # confirmed
+    'STUDENT_VOICE': 'folder',                     # confirmed
+    'HOW_YOUR_FEEDBACK_SHAPES': 'document',        # guess
+    'ACCESSIBILITY_STATEMENT': 'link',             # confirmed
+    'SCHOOL_HANDBOOK': 'link',                     # confirmed
+    'ASSESSMENT_OVERVIEW': 'assessment_cap',       # confirmed
+    'ASSESSMENT_DETAIL': 'document',               # guess
+    'ASSESSMENT_SUPPORT_GUIDANCE': 'folder',        # confirmed
+    'MODULE_READING_LIST': 'reading_list',         # confirmed
+    'ENCORE_LECTURE_CAPTURE': 'encore',            # confirmed
+    'UNIVERSITY_HELP_SUPPORT': 'folder',           # guess
 }
 
 
@@ -145,11 +249,6 @@ def _render_ally_card(selected_code, active_row, ally_profile):
     section.
     """
     with st.container():
-        st.subheader("Accessibility Report",
-                     help="Ally's own scores for this course, from the university's most "
-                          "recent Ally scan. Files and editor pages are scored "
-                          "separately because they are fixed in completely different ways.")
-
         if active_row is None:
             st.info("No Ally accessibility data is available for this module.")
             return
@@ -214,9 +313,7 @@ def _render_ally_card(selected_code, active_row, ally_profile):
         _render_ally_trend(selected_code)
 
         st.caption(
-            "ℹ️ Ally figures are updated on a regular schedule and can lag the "
-            "live course. The module's own Ally Course Report inside Blackboard is "
-            "always current.")
+            "ℹ️ The module's own Ally Course Report inside Blackboard is always current.")
 
         st.caption(
             "Need help? "
@@ -262,7 +359,8 @@ def _render_ally_trend(selected_code):
 
 
 def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit,
-                           leganto_draft=False, leganto_items=0, active_row=None):
+                           leganto_draft=False, leganto_items=0, active_row=None,
+                           leganto_status='', leganto_draft_items=0):
     """
     A short, neutral summary of what's outstanding across Ally, the checklist,
     Leganto and the Blackboard template - the one place these add up to a single
@@ -315,6 +413,13 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
 
     if leganto_missing:
         bullets.append("no Leganto reading list connected")
+    elif leganto_status == 'Mixed':
+        # Distinct from plain Draft below - a Mixed module already has most
+        # or all of its items published on at least one course shell, and
+        # "still in Draft" alone would misreport that as nothing published.
+        bullets.append(f"reading list partly published in Leganto "
+                       f"({leganto_draft_items} of {leganto_items} item{'s' if leganto_items != 1 else ''} "
+                       f"still in Draft)")
     elif leganto_draft:
         bullets.append(f"reading list still in Draft in Leganto ({leganto_items} item{'s' if leganto_items != 1 else ''})")
     if not has_audit:
@@ -334,6 +439,41 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
         </div>""", unsafe_allow_html=True)
 
 
+def _render_data_reliability_block(active_row):
+    """
+    What the automated data on this page does and doesn't show, and when it
+    was captured - condensed from the "Data Reliability and Audit Rationale"
+    section of the Help page.
+
+    Placed once, near the top, above both tabs: it's context for everything
+    below, not something specific to Accessibility or Module Checks alone.
+    The ingestion date line is always visible - the fuller explanation is
+    collapsed, since most readers only need it once.
+    """
+    ally_date = fmt_report_date(active_row.get('Ally Last Checked')) if active_row is not None else ""
+    readiness_date = fmt_report_date(active_row.get('Readiness Snapshot')) if active_row is not None else ""
+    leganto_date = fmt_report_date(active_row.get('Leganto Snapshot')) if active_row is not None else ""
+
+    st.caption(
+        f"📅 Data last refreshed — Ally: {ally_date or '—'} · "
+        f"Template Alignment: {readiness_date or '—'} · "
+        f"Reading list: {leganto_date or '—'}")
+
+    with st.expander("ℹ️ About this data"):
+        st.markdown(
+            "This report combines two kinds of evidence. **Automated signals** "
+            "(Ally, Template Alignment, Leganto) are snapshots from institutional "
+            "systems, refreshed when a new export is imported rather than live - "
+            "they show whether something is present or has been edited, not "
+            "whether it's good, current or pedagogically sound. **A Digital "
+            "Learning Advisor's own recorded judgement**, from a full audit or a "
+            "spot-check, always takes precedence where both exist, and this "
+            "report always labels which one you're looking at (\"Automatically "
+            "detected\" vs \"Manually verified\"). Manual auditing does not scale "
+            "to every module every year, so the automated signals exist to direct "
+            "that limited time to where it's needed - not to replace it.")
+
+
 def _render_ally_issue_card(row):
     """One Ally issue type, in the same card shape as checklist items."""
     icon, where = SURFACE_WORDS.get(row['surface'], ("📄", ""))
@@ -350,11 +490,30 @@ def _render_ally_issue_card(row):
         </div>""", unsafe_allow_html=True)
 
 
-def _render_pending_item_card(item):
-    """One outstanding checklist-origin item, as used inside the unified worklist."""
+def _render_pending_item_card(item, prefill=None, responses=None):
+    """
+    One outstanding checklist-origin item, as used inside the unified worklist.
+
+    For a boolean item that has never actually been answered (as opposed to
+    answered False), `prefill` - the same readiness_prefill_for_module()
+    suggestions the Audit Portal's checkboxes default from - lets this card
+    say what the Blackboard Template data already shows for it. Without
+    this, a never-audited module could show every mapped section green
+    above and every one of the same 7 fields "outstanding" immediately
+    below, reading as a flat contradiction rather than what it actually is:
+    the data looks good, but nobody has recorded a human answer yet.
+    """
     if item['type'] == 'boolean':
         title = f"📌 {item['label']}"
         body = f"{item['description']}"
+        fid = item.get('field_id')
+        raw_val = (responses or {}).get(fid) if fid else None
+        never_answered = raw_val is None or str(raw_val).strip() == ''
+        suggestion = (prefill or {}).get(fid) if fid else None
+        if never_answered and suggestion and suggestion.get('suggested'):
+            body += (f"<br/><br/>📊 <strong>Data already shows this as ready:</strong> "
+                     f"{suggestion.get('evidence_text', '')} Still needs a Digital Learning "
+                     f"Advisor to confirm it before this counts as complete.")
     elif item['type'] == 'tag':
         title = f"📌 {item['category']}"
         body = f"<strong>Observation:</strong> {item['comment']}"
@@ -449,80 +608,262 @@ def _render_ally_issues(ally_profile, active_row, is_template=False):
         st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
 
 
-def _render_module_checks(pending_items, completed_items, has_audit, active_row=None, responses=None):
+def _render_module_checks(pending_items, has_audit, active_row=None, responses=None,
+                          leganto_missing=False, leganto_status='', leganto_items=0,
+                          leganto_draft_items=0):
     """
-    Checklist, Leganto and Blackboard template readiness, outstanding items
-    first then completed.
+    Checklist, Leganto and Blackboard template readiness - what's still
+    outstanding on this module.
 
     Everything that isn't Ally accessibility - the module-lead-facing
     checklist, the Leganto reading-list gap/status, and the template section
     states - lives in this one column so "what's left to sort out on this
-    module" and "what's already done" read together instead of across two
-    page-halves.
+    module" reads as one list instead of split across two page-halves.
 
-    pending_items/completed_items already carry both checklist and Leganto
-    findings - both come from processing.derive_module_findings(), the single
-    place that decides what counts as outstanding for every source, so this
-    function only renders, it does not classify.
+    pending_items already carries both checklist and Leganto findings - both
+    come from processing.derive_module_findings(), the single place that
+    decides what counts as outstanding for every source, so this function
+    only renders, it does not classify. There is deliberately no matching
+    "Completed" list here any more - a module lead came to this tab to see
+    what's left to do, and a growing list of everything already fine just
+    pushed that further down the page without answering that question.
 
     The template block is reported separately from the generic worklist rather
     than folded into it: those states are observations from an export, and a
     checklist item still means something a Digital Learning Advisor recorded.
     """
-    st.subheader("Module Checks and Readiness")
-
-    _render_template_sections(active_row, responses, has_audit)
+    _render_template_sections(active_row, responses, has_audit,
+                              leganto_missing, leganto_status, leganto_items, leganto_draft_items)
 
     st.markdown(f"#### To Do ({len(pending_items)})")
     if not pending_items:
         st.success("✅ Nothing outstanding right now.")
     else:
         if not has_audit:
-            st.caption("This module hasn't had a Digital Learning Advisor audit yet, so checklist "
-                       "items are shown as outstanding until one is completed.")
+            st.caption(
+                "This module hasn't been audited or spot-checked yet - most modules "
+                "won't be in any given cycle, since manual review doesn't scale to the "
+                "whole faculty. These items stay listed as outstanding until a Digital "
+                "Learning Advisor actually records an answer, even where the Blackboard "
+                "Template data above already looks good - a card marked '📊 Data already "
+                "shows this as ready' below means exactly that: still needs a human to "
+                "confirm it, not that anything is wrong.")
+        # readiness_prefill_for_module() is the same computation the Audit
+        # Portal's suggested checkboxes use - reused here so a pending
+        # checklist card can say what the Blackboard Template section above
+        # already shows for it, instead of reading as a contradiction.
+        prefill = readiness_prefill_for_module(active_row) if active_row is not None else {}
         for item in pending_items:
-            _render_pending_item_card(item)
-
-    st.markdown(f"#### Completed ({len(completed_items)})")
-    if not completed_items:
-        st.caption("No completed checklist items recorded yet.")
-    else:
-        for item in completed_items:
-            if item['type'] == 'boolean':
-                st.markdown(f"""
-                <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.05); border-right: 1px solid rgba(16, 185, 129, 0.05); border-bottom: 1px solid rgba(16, 185, 129, 0.05);">
-                    <span style="background:#10B9811A;color:#047857;font-size:10px;
-                                 font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Complete</span>
-                    <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['label']}</h4>
-                </div>
-                """, unsafe_allow_html=True)
-            elif item['type'] == 'tag':
-                st.markdown(f"""
-                <div style="border-left: 4px solid #10B981; background-color: rgba(16, 185, 129, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(16, 185, 129, 0.05); border-right: 1px solid rgba(16, 185, 129, 0.05); border-bottom: 1px solid rgba(16, 185, 129, 0.05);">
-                    <span style="background:#10B9811A;color:#047857;font-size:10px;
-                                 font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;">Complete</span>
-                    <h4 style="margin: 6px 0 0 0; color: #1F2937; font-size: 15px; font-weight: 600;">✅ {item['category']}: {item['comment']}</h4>
-                </div>
-                """, unsafe_allow_html=True)
+            _render_pending_item_card(item, prefill, responses)
 
 
-def _render_template_sections(active_row, responses=None, has_audit=False):
+def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0):
+    """
+    One template section, as a styled card: status badge, what it means, and
+    when it was last changed.
+
+    Most of the 14 sections are institutional content a module lead never
+    edits directly - an LTI link, a folder, a fixed-text page - so for them
+    only visibility is actionable: edited-or-not is noise, and both the
+    Visible states and both the Hidden states collapse to one message each
+    (INSTITUTION_SECTION_COPY). Only the 3 lead-owned sections keep the
+    edited/unedited and drafted/not-started distinctions SECTION_STATES
+    draws, because for them it's the whole point - real free-text content a
+    lead writes themselves, where "visible but never edited" plausibly means
+    untouched template placeholder text.
+
+    Applies processing.readiness_manual_override() whenever the section has a
+    mapped checklist field - not only the three lead-owned sections. That
+    function is already generic (it keys off audit_field_id and responses,
+    with no lead-only restriction); restricting it to lead-owned sections was
+    only ever a call-site choice here, and it left sga/student_voice/
+    assessment_overview/encore_link unable to show "Manually verified" even
+    when a Digital Learning Advisor had recorded a real answer for them.
+
+    Without either fix, the card could show a section as a problem ("Visible,
+    unedited" or "Not started") while the Completed cards next to it show the
+    same section ticked off from a real audit or read as fine everywhere else
+    on the page - the contradiction that confused advisors reading a
+    spot-checked module's report.
+
+    `leganto` (only ever passed for MODULE_READING_LIST) layers the reading
+    list's own Published/Draft status on top of Blackboard visibility: unlike
+    every other institutional section, being visible in Blackboard is not by
+    itself the finish line here - the connected list also has to be published
+    in Leganto.
+
+    The action/footer lines are dropped (`show_detail = False`) for the one
+    case where they add nothing: a plain institution "Visible to students"
+    with no further news. With every one of the 14 sections now a full card
+    (no lead-owned/other split any more - see TEMPLATE_SECTION_TREE), a
+    fully-compliant module was reading as a long scroll of cards each saying
+    the same generic sentence the badge already said. Every other path here
+    re-asserts `show_detail = True`, since it always has something the badge
+    alone doesn't: a caution, a fault, a DLA's manual verification, or
+    Reading List's Leganto status.
+    """
+    # Unrecognised keys default to lead-owned, the stricter read, rather than
+    # silently getting the lenient institution treatment below.
+    label, owner, audit_field_id = TEMPLATE_SECTIONS.get(key, (key, 'lead', None))
+    state_key = state.get('state', 'unknown')
+    badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
+    footer = readiness_evidence_words(state, created)
+    # Whether the action/footer lines earn their vertical space. False only
+    # for the plain institution "visible, nothing more to say" case - every
+    # other path below that produces real information (a caution, a fault, a
+    # DLA's manual verification, Reading List's Leganto note) sets this back
+    # to True, since collapsing those would hide the one thing worth reading.
+    show_detail = True
+
+    if owner != 'lead':
+        visible_copy, hidden_copy = INSTITUTION_SECTION_COPY.get(key, _INSTITUTION_DEFAULT_COPY)
+        if state_key in ('visible_edited', 'visible_unedited'):
+            badge, tier, action = "Visible to students", 'ok', visible_copy
+            show_detail = False
+        elif state_key in ('drafted_hidden', 'not_started'):
+            badge, tier, action = "Hidden from students", 'action', hidden_copy
+
+    colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
+
+    if key == 'MODULE_READING_LIST' and leganto is not None and tier == 'ok':
+        status = leganto.get('status', '')
+        items = int(leganto.get('items', 0) or 0)
+        draft_items = int(leganto.get('draft_items', 0) or 0)
+        if leganto.get('missing'):
+            badge, tier = "Visible, no reading list", 'action'
+            action = ("Visible to students, but Leganto shows no reading list connected to "
+                      "this module. Being visible here isn't the finish line for this "
+                      "section - a reading list still needs to be added and published.")
+        elif status == 'Draft':
+            badge, tier = "Visible, list in Draft", 'action'
+            action = (f"Visible to students, but the connected reading list is still in "
+                      f"Draft in Leganto ({items} item{'s' if items != 1 else ''}). It needs "
+                      f"publishing before students can actually use it.")
+        elif status == 'Mixed':
+            # A module can have more than one Blackboard course shell (see
+            # "Leganto reading-list data" in CLAUDE.md), and this is the
+            # visible result when they disagree - most often one cohort's
+            # shell published while another's is still Draft. Naming both
+            # counts matters here: without it, "Draft" alone would read as
+            # nothing published yet, when what's actually true might be that
+            # nearly everything is - only a handful of items on one shell
+            # still need publishing.
+            badge, tier = "Visible, list partly published", 'action'
+            action = (f"Visible to students. The connected reading list is partly published in "
+                      f"Leganto - {draft_items} of {items} item{'s' if items != 1 else ''} "
+                      f"still in Draft, most likely on a different course shell for this "
+                      f"module. Those still need publishing.")
+        elif status == 'Published':
+            action = "Visible to students, and the connected reading list is Published in Leganto."
+        show_detail = True
+        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
+
+    manual = readiness_manual_override(audit_field_id, responses) if has_audit else None
+    if manual is not None:
+        data_label = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])[0]
+        if manual:
+            badge, colour = "Manually verified complete", STATE_TIER_COLOUR['ok']
+            action = "A Digital Learning Advisor has recorded this as complete in the audit."
+        else:
+            badge, colour = "Manually verified incomplete", STATE_TIER_COLOUR['fault']
+            action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
+        footer = f"Automatically detected as of the last update: {data_label}. {footer}"
+        show_detail = True
+
+    icon = CONTENT_TYPE_ICONS.get(SECTION_CONTENT_TYPE.get(key), '')
+    indent = depth * 24
+    # Built as one joined string, not a multi-line f-string, deliberately: a
+    # blank line left where {detail_html} would sit when show_detail is False
+    # makes Streamlit's markdown parser treat the raw HTML as two separate
+    # blocks, and the closing </div> after that blank line prints as literal
+    # text instead of closing the div - exactly the stray "</div>" that
+    # showed up on every collapsed card before this.
+    detail_html = (
+        f'<p style="margin:4px 0 4px 0;color:#374151;font-size:12px;">{action}</p>'
+        f'<p style="margin:0;color:#9CA3AF;font-size:11px;">{footer}</p>'
+        if show_detail else "")
+
+    st.markdown(
+        f'<div style="border-left: 4px solid {colour}; background-color: {colour}05; '
+        f'padding: 8px 12px; margin-bottom: 6px; margin-left: {indent}px; border-radius: 4px;">'
+        f'<h4 style="margin:0;color:#1F2937;font-size:14px;font-weight:600;'
+        f'display:flex;align-items:center;">'
+        f'<span style="display:inline-block;vertical-align:middle;margin-right:10px;">{icon}</span>'
+        f'<span style="flex:1;">{label}</span>'
+        f'<span style="background:{colour}1A;color:{colour};font-size:10px;'
+        f'font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;'
+        f'white-space:nowrap;margin-left:8px;">{badge}</span>'
+        f'</h4>'
+        f'{detail_html}'
+        f'</div>', unsafe_allow_html=True)
+
+
+def _render_label_node(name, depth, has_children_data):
+    """
+    A Learning Module heading with no readiness data of its own - only
+    its contents are tracked (Assessment Information), or nothing under it
+    is tracked yet at all (Learning Materials). Never a status card: there
+    is no visibility state to show a badge for.
+    """
+    indent = depth * 24
+    icon = CONTENT_TYPE_ICONS.get('learning_module', '')
+    st.markdown(
+        f"""<div style="margin:14px 0 6px {indent}px;">
+            <span style="display:inline-block;vertical-align:middle;
+                         margin-right:12px;opacity:0.6;">{icon}</span>
+            <span style="font-weight:700;font-size:14px;color:#374151;">{name}</span>
+        </div>""", unsafe_allow_html=True)
+    if not has_children_data:
+        st.markdown(
+            f"""<p style="margin:0 0 8px {indent}px;color:#9CA3AF;font-size:11px;">
+                Not part of the readiness data yet.</p>""", unsafe_allow_html=True)
+
+
+def _render_section_tree(nodes, states, responses, has_audit, created, leganto, depth=0):
+    """
+    Walks processing.TEMPLATE_SECTION_TREE, rendering each node at its
+    nesting depth - a status card for a tracked section, a plain heading for
+    a Learning Module folder with no data of its own. Nesting mirrors where a
+    lead actually finds each item in their own course menu.
+
+    A node's own data (or lack of it) never gates its children: Assessment
+    Information itself carries no state, but its three children do, and each
+    is checked independently against `states`.
+    """
+    for node_type, value, children in nodes:
+        if node_type == 'section':
+            state = states.get(value)
+            if state:
+                _render_section_card(value, state, responses, has_audit, created,
+                                     leganto=leganto if value == 'MODULE_READING_LIST' else None,
+                                     depth=depth)
+        else:
+            _render_label_node(value, depth, has_children_data=bool(children))
+        if children:
+            _render_section_tree(children, states, responses, has_audit, created, leganto, depth + 1)
+
+
+def _render_template_sections(active_row, responses=None, has_audit=False,
+                              leganto_missing=False, leganto_status='', leganto_items=0,
+                              leganto_draft_items=0):
     """
     The Blackboard template's required sections, from the faculty Template
     Alignment Report.
 
-    Lead-owned sections first and in full, because those are the three that ship
-    hidden and carry all the signal. The other eleven ship visible and nobody is
-    expected to touch them, so "Visible" there says nothing - they are collapsed
-    behind an expander and shown only so a deleted or missing one is findable.
+    Nested to match where a module lead actually finds each item in their own
+    course menu (processing.TEMPLATE_SECTION_TREE) - Module Information's
+    Learning Module with its contents nested beneath it, Module Reading List
+    and Encore Lecture Capture as standalone top-level items, Assessment
+    Information's contents nested under its own (untracked) heading, and
+    University Help & Support standalone - rather than the lead/
+    institution-owner split that only matters for readiness logic elsewhere.
+    Every tracked section renders as a full card; there is no catch-all
+    "other sections" table.
 
-    When a Digital Learning Advisor has actually recorded an answer for a
-    section's mapped checklist field (has_audit), that answer overrides the
-    data-driven badge below - see processing.readiness_manual_override().
-    Otherwise this block could show a section "Not started" here while the
-    Completed cards beside it show the same section ticked off from a real
-    audit, which is exactly the contradiction that confused advisors reading
-    a spot-checked module's report.
+    leganto_missing/leganto_status/leganto_items are the same values the
+    health banner and worklist already use - passed through so the Module
+    Reading List card (the one section where Blackboard visibility isn't the
+    whole story) can say whether the connected list is actually published.
     """
     if active_row is None:
         return
@@ -535,6 +876,8 @@ def _render_template_sections(active_row, responses=None, has_audit=False):
     ready = active_row.get('Lead Sections Ready')
     total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
     created = readiness_created_date(states)
+    leganto = {'missing': leganto_missing, 'status': leganto_status, 'items': leganto_items,
+               'draft_items': leganto_draft_items}
 
     st.markdown("#### Blackboard Template")
     st.caption(
@@ -542,57 +885,7 @@ def _render_template_sections(active_row, responses=None, has_audit=False):
         f"are visible to students"
         + (f" · as at {snapshot}" if snapshot else ""))
 
-    for key in LEAD_OWNED_SECTIONS:
-        state = states.get(key)
-        if not state:
-            continue
-        label, _owner, audit_field_id = TEMPLATE_SECTIONS.get(key, (key, None, None))
-        state_key = state.get('state', 'unknown')
-        badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
-        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
-        footer = readiness_evidence_words(state, created)
-
-        manual = readiness_manual_override(audit_field_id, responses) if has_audit else None
-        if manual is not None:
-            data_label = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])[0]
-            if manual:
-                badge, colour = "Manually verified complete", STATE_TIER_COLOUR['ok']
-                action = "A Digital Learning Advisor has recorded this as complete in the audit."
-            else:
-                badge, colour = "Manually verified incomplete", STATE_TIER_COLOUR['fault']
-                action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
-            footer = f"Automatically detected as of the last update: {data_label}. {footer}"
-
-        st.markdown(
-            f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05;
-                        padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
-                <span style="background:{colour}1A;color:{colour};font-size:10px;
-                             font-weight:700;padding:2px 6px;border-radius:4px;
-                             text-transform:uppercase;">{badge}</span>
-                <h4 style="margin:6px 0 4px 0;color:#1F2937;font-size:15px;
-                           font-weight:600;">{label}</h4>
-                <p style="margin:0 0 4px 0;color:#374151;font-size:12px;">{action}</p>
-                <p style="margin:0;color:#9CA3AF;font-size:11px;">
-                    {footer}</p>
-            </div>""", unsafe_allow_html=True)
-
-    others = [(k, v) for k, v in states.items() if k not in LEAD_OWNED_SECTIONS]
-    if others:
-        problem = [k for k, v in others if v.get('status') in ('Deleted', 'Missing')]
-        title = (f"Other template sections ({len(others)}) — "
-                 f"{len(problem)} deleted or missing" if problem
-                 else f"Other template sections ({len(others)})")
-        with st.expander(title):
-            st.caption(
-                "These sections are visible by default in every course and no one is "
-                "expected to edit them, so 'Visible' here is the default rather than "
-                "evidence of work.")
-            rows = [{
-                'Section': TEMPLATE_SECTIONS.get(k, (k,))[0],
-                'Status': v.get('status', ''),
-                'Last changed': fmt_report_date(v.get('last_modified')) or "—",
-            } for k, v in others]
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto)
 
 
 def title_case_name(name: str) -> str:
@@ -748,6 +1041,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # not the same as 'Leganto Missing' above.
         leganto_status = str(active_row.get('Leganto List Status', '')).strip() if active_row is not None else ''
         leganto_items = int(active_row.get('Leganto List Items', 0) or 0) if active_row is not None else 0
+        leganto_draft_items = int(active_row.get('Leganto Draft Items', 0) or 0) if active_row is not None else 0
         leganto_draft = leganto_status in ('Draft', 'Mixed')
 
         # Checklist, Leganto, Ally and readiness findings all come from one
@@ -786,7 +1080,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # richer, source-specific displays (the accessibility card, the
         # Blackboard Template block) and are not duplicated here.
         pending_items = [f for f in findings if f['source'] in ('checklist', 'leganto') and f['state'] == 'pending']
-        completed_items = [f for f in findings if f['source'] in ('checklist', 'leganto') and f['state'] == 'completed']
 
         # The banner's "N checklist items outstanding" bullet is checklist-only
         # - Ally, Leganto and template readiness each already have their own
@@ -833,8 +1126,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 v_icon, v_text = verdict_labels[verdict]
                 verdict_html = (
                     f'<span title="Calculated automatically from specific required checklist '
-                    f'questions - independent of whether a DLA has submitted the audit."><b>Readiness Outcome:</b> '
-                    f'{v_icon} {v_text}</span>')
+                    f'questions, independent of whether a Digital Learning Advisor has submitted '
+                    f'the audit."><b>Readiness Outcome:</b> {v_icon} {v_text}</span>')
 
             st.markdown(
                 f"""<div style="border:1px solid rgba(49,51,63,0.2);border-radius:8px;
@@ -850,24 +1143,27 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             st.caption("🔎 Auditor Mode — you can record observations for this module in the Audit Portal (see sidebar).")
 
         _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
-                              leganto_draft, leganto_items, active_row)
+                              leganto_draft, leganto_items, active_row,
+                              leganto_status, leganto_draft_items)
+
+        _render_data_reliability_block(active_row)
 
         st.markdown(" ")
 
-        # 2. Two source-scoped columns: everything Ally on the left,
-        # everything checklist/Leganto (outstanding and completed together)
-        # on the right. gap="large" gives real visual separation - the
-        # default gap alone reads as one continuous block on wide screens.
-        col_accessibility, col_checks = st.columns(2, gap="large")
+        # 2. Module Checks and Readiness first - it's the actionable tab for
+        # a module lead - then Accessibility Report.
+        tab_checks, tab_accessibility = st.tabs(
+            ["📋 Module Checks and Readiness", "♿ Accessibility Report"])
 
-        with col_accessibility:
+        with tab_checks:
+            _render_module_checks(pending_items, has_audit, active_row, responses,
+                                  leganto_missing, leganto_status, leganto_items, leganto_draft_items)
+
+            comments_val = str(responses.get('comments', '') or '').strip()
+            if has_audit and comments_val:
+                st.info(f"**Additional Comments:**\n\n{comments_val}")
+
+        with tab_accessibility:
             _render_ally_card(selected_code, active_row, ally_profile)
-
-        with col_checks:
-            _render_module_checks(pending_items, completed_items, has_audit, active_row, responses)
-
-        comments_val = str(responses.get('comments', '') or '').strip()
-        if has_audit and comments_val:
-            st.info(f"**Additional Comments:**\n\n{comments_val}")
 
         st.caption(f"Last updated: {last_updated_str}")

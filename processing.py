@@ -866,8 +866,16 @@ TEMPLATE_SECTIONS = {
     'KEY_STAFF_CONTACTS':          ('Key Staff Contacts',                'lead',        'contacts_complete'),
     'SKILLS_DEVELOPMENT_SGAS':     ('Skills Development: Sheffield Graduate Attributes (SGAs)',
                                                                          'institution', 'sga'),
-    'STUDENT_VOICE':               ('Student Voice',                     'institution', 'student_voice'),
-    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'institution', None),
+    # The 'student_voice' checklist field's own label is "Student Voice >
+    # How Your Feedback Shapes This Module" - the ">" is a breadcrumb to
+    # where the DLA finds it in Blackboard, not a claim about both sections
+    # at once. The checkbox is about the document, not the folder that
+    # contains it, so the audit_field_id belongs on HOW_YOUR_FEEDBACK_SHAPES
+    # below, not here. Mapping it to the folder instead meant unticking it
+    # flagged Student Voice (unintended) while the actual document being
+    # audited stayed on its unmodified data-driven read.
+    'STUDENT_VOICE':               ('Student Voice',                     'institution', None),
+    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'institution', 'student_voice'),
     'ACCESSIBILITY_STATEMENT':     ('Accessibility Statement',           'institution', None),
     'SCHOOL_HANDBOOK':             ('School Handbook',                   'institution', None),
     'ASSESSMENT_OVERVIEW':         ('Assessment Overview',               'institution', 'assessment_overview'),
@@ -888,6 +896,51 @@ TEMPLATE_SECTIONS = {
 #
 # Derived from the catalogue rather than written out a second time.
 LEAD_OWNED_SECTIONS = tuple(k for k, v in TEMPLATE_SECTIONS.items() if v[1] == 'lead')
+
+# How the 14 sections nest on the Module Report - the actual Blackboard
+# Ultra course menu structure a lead recognises from their own course, not
+# the lead/institution-owner split LEAD_OWNED_SECTIONS uses for readiness
+# logic above. Each node is (node_type, value, children):
+#   ('section', TEMPLATE_SECTIONS key, children) - a real tracked section,
+#       rendered as a status card whenever the module's readiness data has
+#       an entry for it, regardless of whether it renders anything itself.
+#   ('label', display name, children) - a Learning Module folder with no
+#       readiness data of its own to show (only its contents are tracked,
+#       or - for "Learning Materials" - nothing under it is tracked at all
+#       yet): rendered as a plain heading, never a status card.
+# Nesting here is presentation only, mirroring where a lead actually finds
+# each item in their course menu - it has no bearing on
+# LEAD_OWNED_SECTIONS or any readiness calculation. Confirmed against the
+# module lead's own description of the template: Welcome & Module Outline
+# through School Handbook sit inside "Module Information"; How Your Feedback
+# Shapes This Module sits inside the Student Voice folder specifically;
+# Module Reading List and Encore Lecture Capture are standalone top-level
+# items, not inside any learning module; "Learning Materials" and
+# "Assessment Information" are learning modules Blackboard shows but the
+# readiness export does not track at the container level (Assessment
+# Information's three items are tracked individually; Learning Materials has
+# nothing tracked under it at all, at least for now).
+TEMPLATE_SECTION_TREE = [
+    ('section', 'MODULE_INFORMATION', [
+        ('section', 'WELCOME_MODULE_OUTLINE', []),
+        ('section', 'KEY_STAFF_CONTACTS', []),
+        ('section', 'SKILLS_DEVELOPMENT_SGAS', []),
+        ('section', 'STUDENT_VOICE', [
+            ('section', 'HOW_YOUR_FEEDBACK_SHAPES', []),
+        ]),
+        ('section', 'ACCESSIBILITY_STATEMENT', []),
+        ('section', 'SCHOOL_HANDBOOK', []),
+    ]),
+    ('section', 'MODULE_READING_LIST', []),
+    ('section', 'ENCORE_LECTURE_CAPTURE', []),
+    ('label', 'Learning Materials', []),
+    ('label', 'Assessment Information', [
+        ('section', 'ASSESSMENT_OVERVIEW', []),
+        ('section', 'ASSESSMENT_DETAIL', []),
+        ('section', 'ASSESSMENT_SUPPORT_GUIDANCE', []),
+    ]),
+    ('section', 'UNIVERSITY_HELP_SUPPORT', []),
+]
 
 # audit_fields.id -> TEMPLATE_SECTIONS key, the reverse of the mapping above.
 # Lets code that starts from an audit field (calculate_dynamic_compliance_gap)
@@ -2025,6 +2078,7 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
                     'type': 'boolean',
                     'label': label if is_compliant else action_label,
                     'description': desc,
+                    'field_id': fid,
                 })
             elif ftype == 'text' and val and fid not in INERT_TEXT_FIELD_IDS:
                 custom_val = val
