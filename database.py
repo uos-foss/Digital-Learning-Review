@@ -379,91 +379,6 @@ def init_db():
         )
     """)
 
-    # Check and migrate comment_bank table
-    cursor.execute("PRAGMA table_info(comment_bank)")
-    columns = [row[1] for row in cursor.fetchall()]
-    
-    if columns and 'category' not in columns:
-        # Migrate old comment_bank to new schema
-        cursor.execute("ALTER TABLE comment_bank RENAME TO comment_bank_old")
-        cursor.execute("""
-            CREATE TABLE comment_bank (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category TEXT,
-                comment TEXT,
-                advice TEXT,
-                resource_url TEXT,
-                resource_text TEXT
-            )
-        """)
-        cursor.execute("""
-            INSERT INTO comment_bank (comment)
-            SELECT tag FROM comment_bank_old
-        """)
-        cursor.execute("DROP TABLE comment_bank_old")
-    elif not columns:
-        # Create comment_bank table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS comment_bank (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category TEXT,
-                comment TEXT,
-                advice TEXT,
-                resource_url TEXT,
-                resource_text TEXT
-            )
-        """)
-
-    # Recreate comment_bank table with primary key and autoincrement if it lacks them
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='comment_bank'")
-    if cursor.fetchone():
-        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='comment_bank'")
-        sql = cursor.fetchone()[0]
-        if "PRIMARY KEY" not in sql or "AUTOINCREMENT" not in sql:
-            cursor.execute("SELECT * FROM comment_bank")
-            old_rows = [dict(r) for r in cursor.fetchall()]
-            cursor.execute("DROP TABLE comment_bank")
-            cursor.execute("""
-                CREATE TABLE comment_bank (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    category TEXT,
-                    comment TEXT,
-                    advice TEXT,
-                    resource_url TEXT,
-                    resource_text TEXT
-                )
-            """)
-            for row in old_rows:
-                url_val = row.get("resource_url") or row.get("resources") or ""
-                text_val = row.get("resource_text") or ""
-                cursor.execute("""
-                    INSERT OR IGNORE INTO comment_bank (id, category, comment, advice, resource_url, resource_text)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (row.get("id"), row.get("category"), row.get("comment"), row.get("advice"), url_val, text_val))
-
-    # Ensure comment_bank has resource_url and resource_text columns if missing
-    cursor.execute("PRAGMA table_info(comment_bank)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if columns:
-        if 'resource_url' not in columns:
-            if 'resources' in columns:
-                cursor.execute("ALTER TABLE comment_bank RENAME COLUMN resources TO resource_url")
-                logging.info("Renamed 'resources' column to 'resource_url' in comment_bank table.")
-            else:
-                cursor.execute("ALTER TABLE comment_bank ADD COLUMN resource_url TEXT")
-                logging.info("Added 'resource_url' column to comment_bank table.")
-        
-        # Re-fetch columns after possible rename
-        cursor.execute("PRAGMA table_info(comment_bank)")
-        columns = [row[1] for row in cursor.fetchall()]
-        
-        if 'resource_text' not in columns:
-            cursor.execute("ALTER TABLE comment_bank ADD COLUMN resource_text TEXT")
-            logging.info("Added 'resource_text' column to comment_bank table.")
-
-
-
-
     # Create feedback table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS feedback (
@@ -475,23 +390,6 @@ def init_db():
             Comments TEXT
         )
     """)
-
-    # Seed default comment bank if empty
-    cursor.execute("SELECT COUNT(*) FROM comment_bank")
-    if cursor.fetchone()[0] == 0:
-        default_tags = [
-            ("Accessibility", "Ally report indicates PowerPoint files scoring low due to images with missing descriptions", "Check through the Ally report in course tools to identify files to be fixed. Add image descriptions to images and re-upload the PowerPoint file.", "", ""),
-            ("Accessibility", "Ally report: accessibility issues found (descriptions/contrast/headings)", "Review Ally report and fix issues such as image descriptions, contrast, and headings.", "", ""),
-            ("Accessibility", "Ally report: untagged or scanned PDFs require OCR", "Run OCR on PDFs to ensure text is readable by screen readers.", "", ""),
-            ("VLE Structure", "Upload files directly to VLE (linked Google Drive files bypass Ally checker)", "Upload files directly to VLE instead of linking from Google Drive.", "", ""),
-            ("VLE Structure", "VLE structure: partial learning material structure in place", "Complete the missing structure for learning materials.", "", ""),
-            ("VLE Structure", "VLE structure: staff contact details or office hours missing", "Add staff contact details and office hours to the VLE.", "", ""),
-            ("VLE Structure", "VLE structure: template has not been populated by module lead", "Ensure the module lead populates the required VLE template.", "", ""),
-            ("Assessment", "Assessment overview: not completed or inconsistent with SITS", "Update the assessment overview to match SITS exactly.", "", ""),
-            ("General", "Module not running: no students or content found", "Confirm if module is running. If not, no further action required.", "", ""),
-            ("Compliance", "Compliant: excellent accessibility and structure", "No action needed. Great job!", "", "")
-        ]
-        cursor.executemany("INSERT INTO comment_bank (category, comment, advice, resource_url, resource_text) VALUES (?, ?, ?, ?, ?)", default_tags)
 
     # Seed default fields if empty
     cursor.execute("SELECT COUNT(*) FROM audit_fields")
@@ -1690,14 +1588,6 @@ def delete_role_sqlite(role_name: str):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM roles WHERE Role = ?", (role_name.strip(),))
         conn.commit()
-
-def get_comment_bank():
-    """Fetches all predefined quick comments from the database as dictionaries."""
-    with get_db_connection() as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, category, comment, advice, resource_url, resource_text FROM comment_bank ORDER BY category, comment")
-        return [dict(row) for row in cursor.fetchall()]
 
 def update_module_lead_sqlite(module_code: str, new_lead: str):
     """Updates the module lead name in SITS and main vle audit tables if they exist."""

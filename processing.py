@@ -866,8 +866,16 @@ TEMPLATE_SECTIONS = {
     'KEY_STAFF_CONTACTS':          ('Key Staff Contacts',                'lead',        'contacts_complete'),
     'SKILLS_DEVELOPMENT_SGAS':     ('Skills Development: Sheffield Graduate Attributes (SGAs)',
                                                                          'institution', 'sga'),
-    'STUDENT_VOICE':               ('Student Voice',                     'institution', 'student_voice'),
-    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'institution', None),
+    # The 'student_voice' checklist field's own label is "Student Voice >
+    # How Your Feedback Shapes This Module" - the ">" is a breadcrumb to
+    # where the DLA finds it in Blackboard, not a claim about both sections
+    # at once. The checkbox is about the document, not the folder that
+    # contains it, so the audit_field_id belongs on HOW_YOUR_FEEDBACK_SHAPES
+    # below, not here. Mapping it to the folder instead meant unticking it
+    # flagged Student Voice (unintended) while the actual document being
+    # audited stayed on its unmodified data-driven read.
+    'STUDENT_VOICE':               ('Student Voice',                     'institution', None),
+    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'institution', 'student_voice'),
     'ACCESSIBILITY_STATEMENT':     ('Accessibility Statement',           'institution', None),
     'SCHOOL_HANDBOOK':             ('School Handbook',                   'institution', None),
     'ASSESSMENT_OVERVIEW':         ('Assessment Overview',               'institution', 'assessment_overview'),
@@ -889,11 +897,67 @@ TEMPLATE_SECTIONS = {
 # Derived from the catalogue rather than written out a second time.
 LEAD_OWNED_SECTIONS = tuple(k for k, v in TEMPLATE_SECTIONS.items() if v[1] == 'lead')
 
+# How the 14 sections nest on the Module Report - the actual Blackboard
+# Ultra course menu structure a lead recognises from their own course, not
+# the lead/institution-owner split LEAD_OWNED_SECTIONS uses for readiness
+# logic above. Each node is (node_type, value, children):
+#   ('section', TEMPLATE_SECTIONS key, children) - a real tracked section,
+#       rendered as a status card whenever the module's readiness data has
+#       an entry for it, regardless of whether it renders anything itself.
+#   ('label', display name, children) - a Learning Module folder with no
+#       readiness data of its own to show (only its contents are tracked,
+#       or - for "Learning Materials" - nothing under it is tracked at all
+#       yet): rendered as a plain heading, never a status card.
+# Nesting here is presentation only, mirroring where a lead actually finds
+# each item in their course menu - it has no bearing on
+# LEAD_OWNED_SECTIONS or any readiness calculation. Confirmed against the
+# module lead's own description of the template: Welcome & Module Outline
+# through School Handbook sit inside "Module Information"; How Your Feedback
+# Shapes This Module sits inside the Student Voice folder specifically;
+# Module Reading List and Encore Lecture Capture are standalone top-level
+# items, not inside any learning module; "Learning Materials" and
+# "Assessment Information" are learning modules Blackboard shows but the
+# readiness export does not track at the container level (Assessment
+# Information's three items are tracked individually; Learning Materials has
+# nothing tracked under it at all, at least for now).
+TEMPLATE_SECTION_TREE = [
+    ('section', 'MODULE_INFORMATION', [
+        ('section', 'WELCOME_MODULE_OUTLINE', []),
+        ('section', 'KEY_STAFF_CONTACTS', []),
+        ('section', 'SKILLS_DEVELOPMENT_SGAS', []),
+        ('section', 'STUDENT_VOICE', [
+            ('section', 'HOW_YOUR_FEEDBACK_SHAPES', []),
+        ]),
+        ('section', 'ACCESSIBILITY_STATEMENT', []),
+        ('section', 'SCHOOL_HANDBOOK', []),
+    ]),
+    ('section', 'MODULE_READING_LIST', []),
+    ('section', 'ENCORE_LECTURE_CAPTURE', []),
+    ('label', 'Learning Materials', []),
+    ('label', 'Assessment Information', [
+        ('section', 'ASSESSMENT_OVERVIEW', []),
+        ('section', 'ASSESSMENT_DETAIL', []),
+        ('section', 'ASSESSMENT_SUPPORT_GUIDANCE', []),
+    ]),
+    ('section', 'UNIVERSITY_HELP_SUPPORT', []),
+]
+
 # audit_fields.id -> TEMPLATE_SECTIONS key, the reverse of the mapping above.
 # Lets code that starts from an audit field (calculate_dynamic_compliance_gap)
 # find its section, the same way readiness_prefill_for_module() starts from a
 # module's sections and finds their audit fields.
 SECTION_KEY_BY_AUDIT_FIELD = {v[2]: k for k, v in TEMPLATE_SECTIONS.items() if v[2]}
+
+# audit_fields.id for the 4 mapped sections nobody but the institution is
+# responsible for (sga, student_voice, assessment_overview, encore_link).
+# These have no dedicated health-banner bullet the way the 3 lead-owned
+# mapped fields do ("Lead Sections Outstanding") - views/module_report.py
+# uses this to keep counting a manually-recorded-incomplete answer for one
+# of them in the banner's checklist-items-outstanding bullet now that doing
+# so produces a 'readiness' finding rather than a 'checklist' one. See
+# "Unified module findings" in CLAUDE.md.
+INSTITUTION_MAPPED_FIELD_IDS = frozenset(
+    v[2] for v in TEMPLATE_SECTIONS.values() if v[2] and v[1] != 'lead')
 
 # Worst-wins ordering when a module carries several Blackboard shells: a section
 # missing from one shell is worse than hidden in it, which is worse than
@@ -1915,9 +1979,9 @@ def get_school_comparison(active_df, checklist_sums):
 # instead of recomputing its own answer.
 #
 # Item dicts use the exact shape views/module_report.py's card renderers
-# already expect (type: 'boolean'/'tag'/'legacy_tag'/'custom', with the keys
-# each type needs), plus 'source' and 'state' as the only new keys - so nothing
-# downstream needed new rendering code, only a new place to get the list from.
+# already expect (type: 'boolean'/'custom', with the keys each type needs),
+# plus 'source' and 'state' as the only new keys - so nothing downstream
+# needed new rendering code, only a new place to get the list from.
 
 def readiness_manual_override(audit_field_id, responses):
     """
@@ -1954,26 +2018,9 @@ card and never counts toward Actionable Items. 'comments' ("Additional
 Comments") carries years of legacy tag/custom-observation JSON that used to
 drive real findings, but it's a general-purpose free-text box now with no
 input UI for that structure - a DLA typing an unrelated note into it should
-not silently create a permanent open action item. 'lm_note' ("Learning
-Materials note") is deliberately NOT here: it's meant to flag something
-about a module's Learning Materials that stays actionable until resolved,
-the same way every other 'text' field defaults to behaving."""
+not silently create a permanent open action item."""
 
-NOTE_OVERRIDE_FIELDS = {'learning_materials': 'lm_note'}
-"""boolean audit_field id -> the 'text' field id that can veto a tick.
-
-'learning_materials' is asked to mean two different things at once -
-"materials are present" and "materials are acceptable" - with lm_note as
-the escape valve for the second when they diverge (present but flawed). An
-auditor who ticks the box anyway and still writes a note describing the
-problem should not have that note's module quietly read as fully compliant
-- a non-empty lm_note always keeps 'learning_materials' pending, regardless
-of the tickbox. This does not, and cannot, catch the opposite mistake - an
-inexperienced auditor who ticks with no note at all - a missing note is
-indistinguishable from "no issues to note"; that gap is what spot-check
-flagging (see 'Spot-check flagging' in CLAUDE.md) is for, not this."""
-
-def derive_module_findings(active_row, responses, active_fields, comment_bank):
+def derive_module_findings(active_row, responses, active_fields):
     """
     Every checklist, Leganto, Ally and template-readiness finding for one
     module, as one flat list of {'source', 'state', 'type', ...} dicts.
@@ -1987,24 +2034,45 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
     gracefully to "nothing from that source" rather than raising, since a
     module can legitimately be absent from any one of these datasets.
     responses: {field_id: value} for this module, from audit_responses.
-    active_fields, comment_bank: from get_active_audit_fields() /
-    get_comment_bank() - passed in rather than fetched here to keep this
-    I/O-free and callable once per module without re-querying each time.
+    active_fields: from get_active_audit_fields() - passed in rather than
+    fetched here to keep this I/O-free and callable once per module without
+    re-querying each time.
 
     Only Ally and readiness findings are never rendered as generic cards -
     both already have their own richer, source-specific display (the Ally
     issue breakdown, the Blackboard Template section block) - but they are
     still produced here so every consumer that only wants the *count* agrees
     with what those richer views show, which previously nothing guaranteed.
+
+    A boolean checklist field that maps to a Template Alignment section
+    (its id appears in TEMPLATE_SECTIONS as an audit_field_id, for that
+    section's key present in this module's 'Template Sections') produces no
+    'checklist' finding of its own - only the 'readiness' finding below,
+    which already reconciles a manual audit answer against the data. See
+    "Unified module findings" in CLAUDE.md for why: before this, both loops
+    spoke for the same field, and because they computed pending/completed
+    differently (checklist: pending until literally ticked; readiness:
+    manual override, else data state) they could either double-count the
+    same gap or visibly contradict each other on screen.
     """
     findings = []
 
+    row = active_row if active_row is not None else {}
+    section_states = row.get('Template Sections') or {}
+
+    # audit_field_ids the readiness loop below will speak for on this
+    # module - gated on the section actually being present in this module's
+    # data, not just static TEMPLATE_SECTIONS membership, so a module absent
+    # from the Template Alignment Report import still gets an ordinary
+    # checklist finding for a normally-mapped field rather than losing it
+    # from both places at once.
+    readiness_covered_field_ids = {
+        info[2] for key, info in TEMPLATE_SECTIONS.items()
+        if info[2] and key in section_states
+    }
+
     # --- checklist: one finding per active audit field -----------------
     if active_fields:
-        compliant_tag_ids = {c['id'] for c in (comment_bank or [])
-                             if "Compliant" in c.get('category', '') or "No action needed" in c.get('advice', '')}
-        cb_lookup = {c['id']: c for c in (comment_bank or [])}
-
         for field in active_fields:
             fid = field['id']
             label = field['label']
@@ -2014,48 +2082,26 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
             val = (responses or {}).get(fid, None)
 
             if ftype in ('boolean', 'yes/no'):
+                if fid in readiness_covered_field_ids:
+                    continue
                 is_compliant = (str(val).upper() == 'TRUE' if ftype == 'boolean'
                                else str(val).upper() == 'YES')
-                note_field_id = NOTE_OVERRIDE_FIELDS.get(fid)
-                if note_field_id and str((responses or {}).get(note_field_id, '') or '').strip():
-                    is_compliant = False
                 findings.append({
                     'source': 'checklist',
                     'state': 'completed' if is_compliant else 'pending',
                     'type': 'boolean',
                     'label': label if is_compliant else action_label,
                     'description': desc,
+                    'field_id': fid,
                 })
             elif ftype == 'text' and val and fid not in INERT_TEXT_FIELD_IDS:
                 custom_val = val
-                tags = []
                 try:
                     data = json.loads(val)
                     if isinstance(data, dict):
-                        tags = data.get("tags", [])
                         custom_val = data.get("custom", "")
                 except Exception:
                     pass  # legacy plain-text value - falls through to parse_custom_observations below
-
-                for tag_id in tags:
-                    tag_info = cb_lookup.get(tag_id)
-                    if tag_info:
-                        is_compliant = tag_id in compliant_tag_ids
-                        findings.append({
-                            'source': 'checklist',
-                            'state': 'completed' if is_compliant else 'pending',
-                            'type': 'tag',
-                            'category': tag_info.get('category', 'General'),
-                            'comment': tag_info.get('comment', ''),
-                            'advice': tag_info.get('advice', ''),
-                            'resource_url': tag_info.get('resource_url', ''),
-                            'resource_text': tag_info.get('resource_text', ''),
-                        })
-                    else:
-                        findings.append({
-                            'source': 'checklist', 'state': 'pending',
-                            'type': 'legacy_tag', 'comment': str(tag_id),
-                        })
 
                 for obs in parse_custom_observations(custom_val):
                     findings.append({
@@ -2066,7 +2112,6 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
                     })
 
     # --- leganto: at most one finding, missing/draft/published/connected -
-    row = active_row if active_row is not None else {}
     leganto_missing = bool(row.get('Leganto Missing'))
     leganto_status = str(row.get('Leganto List Status', '') or '').strip()
     leganto_items = int(row.get('Leganto List Items', 0) or 0)
@@ -2116,27 +2161,54 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
             'description': 'Accessibility scanning is disabled, so no score is available.',
         })
 
-    # --- readiness: one finding per lead-owned section (ready or not), plus
-    # any institutional section that is deleted or missing. Institutional
-    # sections that are simply hidden are not findings at all - see
-    # TEMPLATE_SECTIONS and SECTION_STATES for why.
-    section_states = row.get('Template Sections') or {}
+    # --- readiness: one finding per section that maps to a checklist field
+    # (ready or not, any owner), plus any unmapped institutional section
+    # that is deleted or missing. Unmapped institutional sections that are
+    # simply hidden are not findings at all - see TEMPLATE_SECTIONS and
+    # SECTION_STATES for why.
+    #
+    # Generalised to any audit_field_id (not just owner == 'lead') so this
+    # is the single source of pending/completed truth for all 7 mapped
+    # fields - the checklist loop above already deferred to it via
+    # readiness_covered_field_ids. readiness_section_is_ready() is already
+    # owner-aware (visible_unedited counts as ready for non-lead owners, not
+    # for lead ones) and is identical to the old `state_key in
+    # READINESS_READY_STATES` check for lead-owned sections, so lead-owned
+    # behaviour is unchanged; only institution-owned mapped fields gain a
+    # finding for states other than deleted/missing.
     for key, sec in section_states.items():
         info = TEMPLATE_SECTIONS.get(key)
         if info is None:
             continue
-        section_label, owner, audit_field_id = info
+        section_label, _owner, audit_field_id = info
         state_key = sec.get('state', 'unknown')
         badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
 
-        if owner == 'lead':
+        if audit_field_id:
             manual = readiness_manual_override(audit_field_id, responses)
-            is_ready = manual if manual is not None else (state_key in READINESS_READY_STATES)
+            if manual is not None:
+                # Mirrors _render_section_card()'s own manual-override wording
+                # exactly (views/module_report.py) - once a DLA has recorded a
+                # verdict, both the Blackboard Template card and this finding
+                # (which now feeds the Actions panel) must say the same thing,
+                # not the data's own state description. Without this, a
+                # manually-recorded-incomplete section showed "Manually
+                # verified incomplete" on its card but "Visible, unedited -
+                # may still hold placeholder text" in Actions - two different
+                # explanations for the same one fact.
+                is_ready = manual
+                badge = "Manually verified complete" if manual else "Manually verified incomplete"
+                action = ("A Digital Learning Advisor has recorded this as complete in the audit."
+                          if manual else
+                          "A Digital Learning Advisor has recorded this as not yet complete in the audit.")
+            else:
+                is_ready = readiness_section_is_ready(key, state_key)
             findings.append({
                 'source': 'readiness',
                 'state': 'completed' if is_ready else 'pending',
                 'type': 'boolean',
                 'label': f"{section_label}: {badge}",
+                'section_label': section_label,
                 'description': action,
                 'audit_field_id': audit_field_id,
                 'manual_override': manual,
@@ -2145,6 +2217,7 @@ def derive_module_findings(active_row, responses, active_fields, comment_bank):
             findings.append({
                 'source': 'readiness', 'state': 'pending', 'type': 'boolean',
                 'label': f"{section_label}: {badge}",
+                'section_label': section_label,
                 'description': action,
                 'audit_field_id': audit_field_id,
             })

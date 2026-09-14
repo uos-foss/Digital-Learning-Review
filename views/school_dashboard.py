@@ -869,23 +869,22 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             return "n/a"
                         return f"{int(r['agreement_agreed'])}/{int(total)}"
 
-                    # 'comments' ("Additional Comments") and 'lm_note' (the
-                    # Learning Materials note-override) are shown as their
-                    # own columns, pulled from each module's *current* audit
+                    # 'comments' ("Additional Comments") is shown as its own
+                    # column, pulled from each module's *current* audit
                     # responses - one query for every flagged module rather
-                    # than one query per row. Labels come from audit_fields
-                    # so a relabel there doesn't drift from these headers.
+                    # than one query per row. Its label comes from
+                    # audit_fields so a relabel there doesn't drift from
+                    # this header.
                     text_field_labels = {
                         f['id']: f['label'] for f in get_active_audit_fields()
                         if f['field_type'] == 'text'
                     }
                     comments_label = text_field_labels.get('comments', 'Additional Comments')
-                    lm_note_label = text_field_labels.get('lm_note', 'Learning Materials Note')
                     notes_by_module = {}
                     if text_field_labels:
                         all_responses = get_all_audit_responses()
                         if not all_responses.empty:
-                            notes_df = all_responses[all_responses['field_id'].isin(('comments', 'lm_note'))]
+                            notes_df = all_responses[all_responses['field_id'] == 'comments']
                             for _, nrow in notes_df.iterrows():
                                 val = str(nrow['value'] or '').strip()
                                 if not val:
@@ -902,7 +901,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown['Agreement'] = shown.apply(_agreement_display, axis=1)
                     shown[comments_label] = shown['module_code'].map(lambda c: _field_display(c, 'comments'))
-                    shown[lm_note_label] = shown['module_code'].map(lambda c: _field_display(c, 'lm_note'))
                     shown = shown.reset_index(drop=True)
                     # 'id' stays out of the visible table but is kept aligned by
                     # position so a selected row can be deleted by primary key.
@@ -910,7 +908,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     sc_display_df = shown.rename(columns={
                         'module_code': 'Module', 'checked_on': 'Checked On'})[
                         ['Module', 'Module Name', 'Status', 'Checked On',
-                         'Agreement', comments_label, lm_note_label]]
+                         'Agreement', comments_label]]
 
                     st.caption("Select a row to jump to that module, or remove its flag.")
                     sc_selection = st.dataframe(
@@ -918,7 +916,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                         on_select="rerun", selection_mode="single-row",
                         column_config={
                             comments_label: st.column_config.TextColumn(comments_label, width="medium"),
-                            lm_note_label: st.column_config.TextColumn(lm_note_label, width="medium"),
                         },
                         key="school_dashboard_spot_check_dataframe")
 
