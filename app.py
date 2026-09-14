@@ -15,7 +15,7 @@ logging.basicConfig(
 
 __version__ = "1.21.0"
 
-from processing import CURRENT_ACADEMIC_YEAR
+from processing import CURRENT_ACADEMIC_YEAR, fmt_report_date
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -113,7 +113,11 @@ def update_semester():
 # Data Loading
 # table_exists now lives in database.py, so database.py can use it too. Kept
 # importable from here because several modules already reference app.table_exists.
-from database import table_exists
+from database import table_exists, get_last_import_dates
+
+@st.cache_data(ttl=300)
+def load_last_import_dates():
+    return get_last_import_dates()
 
 def map_level_value(val):
     if pd.isna(val):
@@ -689,6 +693,13 @@ with st.sidebar:
         if st.button("↩️ Return to my account", key="exit_masquerade_btn", use_container_width=True):
             stop_masquerade()
         st.divider()
+
+    import_dates = load_last_import_dates()
+    freshness = ", ".join(
+        f"{label} ({fmt_report_date(import_dates[key]) if import_dates[key] else 'no data'})"
+        for key, label in (('bb', 'Bb'), ('ally', 'Ally'), ('leganto', 'Leganto'))
+    )
+    st.caption(f"Latest data from: {freshness}")
 
     # Semester Selector placed at the top (above main navigation)
     st.radio(
