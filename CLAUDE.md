@@ -180,8 +180,11 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   modules: every bulk-hidden section was being told "not started" when it had
   genuinely been worked on, just not made visible.
 - **`TEMPLATE_SECTIONS` maps each section to the `audit_fields.id` it answers.**
-  That mapping is the point: the data pre-answers the existing checklist rather
-  than sitting beside it as a rival score. Keep it in step with `audit_fields`.
+  For a mapped field this is no longer a suggestion sitting beside a separate
+  checklist score: since 14-09-2026 (see "Unified module findings" below) the
+  mapped section *is* that field's only outstanding-item finding — the
+  checklist question itself no longer generates one of its own. Keep the
+  mapping in step with `audit_fields`.
 - **Sections are discovered from the column names**, not a fixed list — any
   column ending `_STATUS` other than `Alignment_STATUS`, paired with its
   `_LAST_MODIFIED` sibling. The template is versioned and changes between years,
@@ -235,20 +238,22 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
 
 ## Unified module findings
 
-`processing.derive_module_findings(active_row, responses, active_fields,
-comment_bank)` is the **only** place that decides what a module has
-outstanding. Every source — checklist fields, Leganto, Ally, template
-readiness — is classified there, tagged `source` and `state`
-(`'pending'`/`'completed'`). Two consumers read from it:
+`processing.derive_module_findings(active_row, responses, active_fields)` is
+the **only** place that decides what a module has outstanding. Every source —
+checklist fields, Leganto, Ally, template readiness — is classified there,
+tagged `source` and `state` (`'pending'`/`'completed'`). Two consumers read
+from it:
 
 - `app.py::load_checklist_data()` sums every pending finding into
   `Actionable Items`, the badge on School Dashboard / Faculty Overview.
 - `views/module_report.py::view_module_report()` filters the same list —
   `source in ('checklist', 'leganto')` builds the generic worklist cards;
-  `source == 'checklist'` alone drives the health banner's "N checklist items
-  outstanding" wording, so it doesn't double-narrate against Ally/Leganto/
-  readiness's own dedicated bullets, which read `active_row`/`ally_profile`
-  directly and are unaffected by this.
+  a widened checklist-count (`source == 'checklist'`, plus a `'readiness'`
+  finding for one of `INSTITUTION_MAPPED_FIELD_IDS` — see below) drives the
+  health banner's "N checklist items outstanding" wording, so it doesn't
+  double-narrate against Ally/Leganto/lead-owned-readiness's own dedicated
+  bullets, which read `active_row`/`ally_profile` directly and are
+  unaffected by this.
 
 **Why this exists**: before it, the badge and the module report page each
 computed "what's outstanding" independently and disagreed. Concretely, the
@@ -258,6 +263,88 @@ module report page showed as cards — so a module could show 9 outstanding
 items on its own page and 0 on the dashboard that's meant to prioritise
 across the school. Do not reintroduce a second, hand-written "count what's
 pending" anywhere; add a new source to `derive_module_findings()` instead.
+
+**A checklist boolean field that maps to a Template Alignment section
+(`field_id` in `SECTION_KEY_BY_AUDIT_FIELD`) produces no `'checklist'`
+finding of its own — only a `'readiness'` one.** Before 14-09-2026, both
+loops ran for a mapped field: a `'checklist'` finding built purely from
+`responses.get(fid)` (pending until literally ticked, with no data-
+awareness), and — for the 3 lead-owned fields only — a separate
+`'readiness'` finding using `readiness_manual_override()`. Because both read
+the same underlying answer, an unanswered-and-not-yet-ready or a manually
+recorded-incomplete mapped field produced *two* pending findings for one
+real gap, inflating `Actionable Items` by exactly that duplicate; an
+unanswered-but-data-ready field produced one of each state instead, showing
+the module report's To Do list and Blackboard Template card visibly
+disagreeing about the same section on screen (the bug that prompted this
+fix). The 4 institution-owned mapped fields (`sga`, `student_voice`,
+`assessment_overview`, `encore_link`) had it worse: with no readiness
+counterpart outside `deleted`/`missing` states, their checklist finding was
+the *only* signal, and it never reflected the readiness data at all for
+`Visible`/`Hidden` states — same contradiction, no duplicate-count symptom
+to notice it by. The readiness loop is now generalised to run for *any*
+section with a non-`None` `audit_field_id`, not just lead-owned ones —
+`readiness_manual_override()` first, `readiness_section_is_ready()`
+otherwise (see "Module readiness" above) — and is the single source of
+truth for that field's pending/completed state *and* its wording:
+label/description come from `SECTION_STATES`'s badge/action text, the same
+words `_render_section_card()` already shows, not the checklist field's own
+`label`/`action_label`. `learning_materials`, the one boolean checklist
+field with no `TEMPLATE_SECTIONS` counterpart, is unaffected and keeps its
+ordinary `'checklist'` finding. Because the merged finding's `source` is
+`'readiness'`, it drops out of `view_module_report()`'s generic
+`pending_items` worklist (`source in ('checklist', 'leganto')`) entirely —
+a mapped field's status now lives solely in the Blackboard Template card.
+`INSTITUTION_MAPPED_FIELD_IDS` (`processing.py`) widens the health banner's
+checklist bullet to still count a `'readiness'` pending finding for one of
+those 4 institution-owned fields, so a DLA manually marking one incomplete
+still surfaces there exactly as it did when that was a `'checklist'`
+finding — the 3 lead-owned fields already have their own "Lead Sections
+Outstanding" bullet, unaffected by any of this.
+
+**`view_module_report()`'s Module Checks and Readiness tab is two columns,
+not one stacked page: Blackboard Template cards on the left (~3/4 width),
+a single consolidated "Actions" panel on the right (~1/4 width).** Settled
+14-09-2026 after two narrower fixes on the same module (EDC003) both proved
+insufficient. The generic worklist used to render checklist/Leganto findings
+as individually bordered cards in the same column as the Blackboard Template
+block, stacked below it; once mapped-field findings moved to `'readiness'`
+(see above), a module whose only gaps were mapped fields showed a plain
+"✅ Nothing outstanding right now" success tick directly under red "Manually
+verified incomplete" cards — the exact contradiction this whole redesign
+exists to prevent, just with the colours swapped. Naming the outstanding
+sections in an `st.warning()` instead of a bare count fixed the colour
+mismatch but not the layout: a DLA still had to scroll back up and hunt
+through a tree of up to 14 sections to find them, and checklist/Leganto
+items still rendered in a visually different style (bordered cards) from
+template-mapped ones (a warning banner) for what is, to a module lead,
+the exact same kind of question - "what do I need to do". The fix: `actions`
+(`view_module_report()`) is now every `state == 'pending'` finding across
+*all* sources except `'ally'` (which has its own tab) - checklist, Leganto
+and `'readiness'` findings together, unfiltered by source for the first time
+- rendered by `_render_actions_panel()` as one bullet list inside a single
+amber panel, same style regardless of which source produced the item. Ally
+and the richly-detailed Blackboard Template cards are still not duplicated
+here; everything else that used to have its own card style now has exactly
+one.
+
+**A `'readiness'` finding's `label`/`description` must say the same thing as
+the Blackboard Template card's own badge/action text whenever a manual
+override applies, not the raw data state.** Missed in the original merge
+(14-09-2026), caught the same day: `derive_module_findings()`'s readiness
+loop computed `badge`/`action` from `SECTION_STATES` unconditionally, then
+only used `readiness_manual_override()` to decide `state` (pending/
+completed) - so a manually-recorded-incomplete section showed "Manually
+verified incomplete" on its Blackboard Template card (`_render_section_card()`,
+`views/module_report.py`, which has its own equivalent override block) but
+"Visible, unedited - may still hold placeholder text" in the Actions panel -
+two different explanations for one fact, sitting side by side in the two-
+column layout above. Fixed by having the readiness loop overwrite `badge`/
+`action` with the identical "Manually verified complete/incomplete" /
+"A Digital Learning Advisor has recorded this as complete/not yet complete
+in the audit." wording `_render_section_card()` uses, whenever `manual is
+not None`. The two call sites duplicate this text rather than sharing a
+helper - if this drifts again, factor it into one function both read from.
 
 **`INERT_TEXT_FIELD_IDS` opts specific `'text'`-type audit fields out of
 finding generation entirely** — their value is saved and shown in the Audit

@@ -948,6 +948,17 @@ TEMPLATE_SECTION_TREE = [
 # module's sections and finds their audit fields.
 SECTION_KEY_BY_AUDIT_FIELD = {v[2]: k for k, v in TEMPLATE_SECTIONS.items() if v[2]}
 
+# audit_fields.id for the 4 mapped sections nobody but the institution is
+# responsible for (sga, student_voice, assessment_overview, encore_link).
+# These have no dedicated health-banner bullet the way the 3 lead-owned
+# mapped fields do ("Lead Sections Outstanding") - views/module_report.py
+# uses this to keep counting a manually-recorded-incomplete answer for one
+# of them in the banner's checklist-items-outstanding bullet now that doing
+# so produces a 'readiness' finding rather than a 'checklist' one. See
+# "Unified module findings" in CLAUDE.md.
+INSTITUTION_MAPPED_FIELD_IDS = frozenset(
+    v[2] for v in TEMPLATE_SECTIONS.values() if v[2] and v[1] != 'lead')
+
 # Worst-wins ordering when a module carries several Blackboard shells: a section
 # missing from one shell is worse than hidden in it, which is worse than
 # visible. Note Deleted ranks below Hidden - somebody removed the section
@@ -2032,8 +2043,33 @@ def derive_module_findings(active_row, responses, active_fields):
     issue breakdown, the Blackboard Template section block) - but they are
     still produced here so every consumer that only wants the *count* agrees
     with what those richer views show, which previously nothing guaranteed.
+
+    A boolean checklist field that maps to a Template Alignment section
+    (its id appears in TEMPLATE_SECTIONS as an audit_field_id, for that
+    section's key present in this module's 'Template Sections') produces no
+    'checklist' finding of its own - only the 'readiness' finding below,
+    which already reconciles a manual audit answer against the data. See
+    "Unified module findings" in CLAUDE.md for why: before this, both loops
+    spoke for the same field, and because they computed pending/completed
+    differently (checklist: pending until literally ticked; readiness:
+    manual override, else data state) they could either double-count the
+    same gap or visibly contradict each other on screen.
     """
     findings = []
+
+    row = active_row if active_row is not None else {}
+    section_states = row.get('Template Sections') or {}
+
+    # audit_field_ids the readiness loop below will speak for on this
+    # module - gated on the section actually being present in this module's
+    # data, not just static TEMPLATE_SECTIONS membership, so a module absent
+    # from the Template Alignment Report import still gets an ordinary
+    # checklist finding for a normally-mapped field rather than losing it
+    # from both places at once.
+    readiness_covered_field_ids = {
+        info[2] for key, info in TEMPLATE_SECTIONS.items()
+        if info[2] and key in section_states
+    }
 
     # --- checklist: one finding per active audit field -----------------
     if active_fields:
@@ -2046,6 +2082,8 @@ def derive_module_findings(active_row, responses, active_fields):
             val = (responses or {}).get(fid, None)
 
             if ftype in ('boolean', 'yes/no'):
+                if fid in readiness_covered_field_ids:
+                    continue
                 is_compliant = (str(val).upper() == 'TRUE' if ftype == 'boolean'
                                else str(val).upper() == 'YES')
                 findings.append({
@@ -2074,7 +2112,6 @@ def derive_module_findings(active_row, responses, active_fields):
                     })
 
     # --- leganto: at most one finding, missing/draft/published/connected -
-    row = active_row if active_row is not None else {}
     leganto_missing = bool(row.get('Leganto Missing'))
     leganto_status = str(row.get('Leganto List Status', '') or '').strip()
     leganto_items = int(row.get('Leganto List Items', 0) or 0)
@@ -2124,27 +2161,54 @@ def derive_module_findings(active_row, responses, active_fields):
             'description': 'Accessibility scanning is disabled, so no score is available.',
         })
 
-    # --- readiness: one finding per lead-owned section (ready or not), plus
-    # any institutional section that is deleted or missing. Institutional
-    # sections that are simply hidden are not findings at all - see
-    # TEMPLATE_SECTIONS and SECTION_STATES for why.
-    section_states = row.get('Template Sections') or {}
+    # --- readiness: one finding per section that maps to a checklist field
+    # (ready or not, any owner), plus any unmapped institutional section
+    # that is deleted or missing. Unmapped institutional sections that are
+    # simply hidden are not findings at all - see TEMPLATE_SECTIONS and
+    # SECTION_STATES for why.
+    #
+    # Generalised to any audit_field_id (not just owner == 'lead') so this
+    # is the single source of pending/completed truth for all 7 mapped
+    # fields - the checklist loop above already deferred to it via
+    # readiness_covered_field_ids. readiness_section_is_ready() is already
+    # owner-aware (visible_unedited counts as ready for non-lead owners, not
+    # for lead ones) and is identical to the old `state_key in
+    # READINESS_READY_STATES` check for lead-owned sections, so lead-owned
+    # behaviour is unchanged; only institution-owned mapped fields gain a
+    # finding for states other than deleted/missing.
     for key, sec in section_states.items():
         info = TEMPLATE_SECTIONS.get(key)
         if info is None:
             continue
-        section_label, owner, audit_field_id = info
+        section_label, _owner, audit_field_id = info
         state_key = sec.get('state', 'unknown')
         badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
 
-        if owner == 'lead':
+        if audit_field_id:
             manual = readiness_manual_override(audit_field_id, responses)
-            is_ready = manual if manual is not None else (state_key in READINESS_READY_STATES)
+            if manual is not None:
+                # Mirrors _render_section_card()'s own manual-override wording
+                # exactly (views/module_report.py) - once a DLA has recorded a
+                # verdict, both the Blackboard Template card and this finding
+                # (which now feeds the Actions panel) must say the same thing,
+                # not the data's own state description. Without this, a
+                # manually-recorded-incomplete section showed "Manually
+                # verified incomplete" on its card but "Visible, unedited -
+                # may still hold placeholder text" in Actions - two different
+                # explanations for the same one fact.
+                is_ready = manual
+                badge = "Manually verified complete" if manual else "Manually verified incomplete"
+                action = ("A Digital Learning Advisor has recorded this as complete in the audit."
+                          if manual else
+                          "A Digital Learning Advisor has recorded this as not yet complete in the audit.")
+            else:
+                is_ready = readiness_section_is_ready(key, state_key)
             findings.append({
                 'source': 'readiness',
                 'state': 'completed' if is_ready else 'pending',
                 'type': 'boolean',
                 'label': f"{section_label}: {badge}",
+                'section_label': section_label,
                 'description': action,
                 'audit_field_id': audit_field_id,
                 'manual_override': manual,
@@ -2153,6 +2217,7 @@ def derive_module_findings(active_row, responses, active_fields):
             findings.append({
                 'source': 'readiness', 'state': 'pending', 'type': 'boolean',
                 'label': f"{section_label}: {badge}",
+                'section_label': section_label,
                 'description': action,
                 'audit_field_id': audit_field_id,
             })

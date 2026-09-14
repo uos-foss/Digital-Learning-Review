@@ -14,9 +14,9 @@ from processing import (
     LEAD_OWNED_SECTIONS,
     TEMPLATE_SECTION_TREE,
     SECTION_STATES,
+    INSTITUTION_MAPPED_FIELD_IDS,
     derive_module_findings,
     readiness_manual_override,
-    readiness_prefill_for_module,
     compute_audit_verdict,
     fmt_report_date,
     readiness_evidence_words,
@@ -31,6 +31,7 @@ from database import (
     get_audit_responses,
     save_audit_response,
     get_ally_history,
+    get_pending_spot_check,
 )
 
 # How each Ally score band reads to an auditor. Ally's own wording, so the
@@ -438,11 +439,19 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
         </div>""", unsafe_allow_html=True)
 
 
-def _render_data_reliability_block(active_row):
+def _render_data_reliability_block(active_row, has_audit=False):
     """
-    What the automated data on this page does and doesn't show, and when it
-    was captured - condensed from the "Data Reliability and Audit Rationale"
-    section of the Help page.
+    What this report is based on and what it does/doesn't show, condensed
+    from the "Data Reliability and Audit Rationale" section of the Help page.
+
+    Two versions, gated on has_audit: a data-driven module has only the
+    automated snapshots behind it, so the explanation carries the caveats
+    that come with that (snapshot staleness, quantitative-only measurement,
+    false negatives). Once a Digital Learning Advisor has actually recorded
+    an audit or spot-check for this module, their verdict is the evidence
+    the report is really resting on (see readiness_manual_override()) and
+    those data caveats no longer apply the same way, so the message is a
+    short, different one rather than the same caveats plus a footnote.
 
     Placed once, near the top, above both tabs: it's context for everything
     below, not something specific to Accessibility or Module Checks alone.
@@ -458,19 +467,32 @@ def _render_data_reliability_block(active_row):
         f"Template Alignment: {readiness_date or '—'} · "
         f"Reading list: {leganto_date or '—'}")
 
-    with st.expander("ℹ️ About this data"):
-        st.markdown(
-            "This report combines two kinds of evidence. **Automated signals** "
-            "(Ally, Template Alignment, Leganto) are snapshots from institutional "
-            "systems, refreshed when a new export is imported rather than live - "
-            "they show whether something is present or has been edited, not "
-            "whether it's good, current or pedagogically sound. **A Digital "
-            "Learning Advisor's own recorded judgement**, from a full audit or a "
-            "spot-check, always takes precedence where both exist, and this "
-            "report always labels which one you're looking at (\"Automatically "
-            "detected\" vs \"Manually verified\"). Manual auditing does not scale "
-            "to every module every year, so the automated signals exist to direct "
-            "that limited time to where it's needed - not to replace it.")
+    with st.expander("ℹ️ About this report"):
+        if has_audit:
+            st.markdown(
+                "This report has been generated using data evidence and also "
+                "manually spot-checked by a Digital Learning Advisor.")
+        else:
+            st.markdown(
+                "This module report has been generated using data evidence. "
+                "The combination of data from different sources gives us a "
+                "reasonably good picture of the readiness of this module. "
+                "The data used is:\n\n"
+                f"* **Template alignment** data, last ingested at {readiness_date or '—'}. "
+                "This tells us about the visibility and whether or not "
+                "Blackboard template items have been edited.\n"
+                f"* **Ally Accessibility** data, last ingested at {ally_date or '—'}. "
+                "This is the Ally report for your module and shows the "
+                "accessibility of files and Blackboard content across your module.\n"
+                f"* **Leganto (reading lists)** data, last ingested at {leganto_date or '—'}. "
+                "This tells us whether the module has a reading list and if it "
+                "has been published or is in draft.\n\n"
+                "There are a few caveats for a data-driven report:\n\n"
+                "* Snapshot data is used, so the report may not be perfectly up-to-date.\n"
+                "* The data is purely quantitative, so while it can tell us if an "
+                "item has been edited, it cannot speak to the quality of the item.\n"
+                "* The data may flag false negatives - e.g. if a Blackboard item "
+                "has been deleted then legitimately replaced, it may still flag as deleted.")
 
 
 def _render_ally_issue_card(row):
@@ -489,60 +511,59 @@ def _render_ally_issue_card(row):
         </div>""", unsafe_allow_html=True)
 
 
-def _render_pending_item_card(item, prefill=None, responses=None):
+def _render_actions_panel(actions):
     """
-    One outstanding checklist-origin item, as used inside the unified worklist.
+    Every outstanding item on this module - checklist, Leganto and template
+    readiness findings alike - as one consolidated bullet list in a single
+    amber panel, styled identically regardless of source.
 
-    For a boolean item that has never actually been answered (as opposed to
-    answered False), `prefill` - the same readiness_prefill_for_module()
-    suggestions the Audit Portal's checkboxes default from - lets this card
-    say what the Blackboard Template data already shows for it. Without
-    this, a never-audited module could show every mapped section green
-    above and every one of the same 7 fields "outstanding" immediately
-    below, reading as a flat contradiction rather than what it actually is:
-    the data looks good, but nobody has recorded a human answer yet.
+    Previously each source rendered its own way: checklist/Leganto items as
+    individually bordered cards, template-mapped fields as a separate
+    warning banner above them - different visual languages answering the
+    same "what do I need to do" question read as mixed, inconsistent
+    signals to a module lead. One list, one style. Ally and richly-displayed
+    template readiness (the Blackboard Template cards to the left of this
+    panel) are not duplicated here - callers only ever pass already-filtered
+    pending 'checklist' | 'leganto' | 'readiness' findings.
+
+    Free text a DLA typed into a 'text' audit field ('custom' type) is
+    html.escape()d before interpolation - it must never be trusted as raw
+    HTML, or a note containing "<script>..." would execute for anyone who
+    opens this module's report. This does mean a custom observation's own
+    markdown (bold, links) no longer renders as formatting here, in exchange
+    for everything living in one real HTML list instead of separate
+    st.markdown() calls that cannot actually nest inside one styled panel.
     """
-    if item['type'] == 'boolean':
-        title = f"📌 {item['label']}"
-        body = f"{item['description']}"
-        fid = item.get('field_id')
-        raw_val = (responses or {}).get(fid) if fid else None
-        never_answered = raw_val is None or str(raw_val).strip() == ''
-        suggestion = (prefill or {}).get(fid) if fid else None
-        if never_answered and suggestion and suggestion.get('suggested'):
-            body += (f"<br/><br/>📊 <strong>Data already shows this as ready:</strong> "
-                     f"{suggestion.get('evidence_text', '')} Still needs a Digital Learning "
-                     f"Advisor to confirm it before this counts as complete.")
-    elif item['type'] == 'custom':
-        # Content here is free text a DLA typed into a 'text' audit field -
-        # unlike the other branches above, it must not be
-        # interpolated into unsafe_allow_html HTML, or a note containing
-        # "<script>..." would execute for anyone who opens this module's
-        # report. st.container(border=True) is a real nested component
-        # (unlike splitting a raw <div> across two st.markdown calls, which
-        # doesn't actually nest - each call's HTML is parsed independently
-        # and the browser auto-closes the unclosed tag), so the badge/
-        # heading can stay HTML (app/admin-authored field label, not user
-        # text) while the note itself goes through plain st.markdown() for
-        # real, safely-escaped markdown (bold, lists, links) instead of the
-        # old hand-rolled **bold** regex.
-        field_label = html.escape(item.get('category') or 'Custom Observation')
-        body_md = '\n\n'.join(p for p in (item.get('label', '').strip(), item.get('description', '').strip()) if p)
-        with st.container(border=True):
-            st.markdown(f"""
-            <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">📌 {field_label}</h4>
-            """, unsafe_allow_html=True)
-            st.markdown(body_md)
-        return
-    else:
+    if not actions:
+        st.success("✅ Nothing outstanding right now.")
         return
 
-    st.markdown(f"""
-    <div style="border-left: 4px solid #F59E0B; background-color: rgba(245, 158, 11, 0.02); padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid rgba(245, 158, 11, 0.05); border-right: 1px solid rgba(245, 158, 11, 0.05); border-bottom: 1px solid rgba(245, 158, 11, 0.05);">
-        <h4 style="margin: 0 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{title}</h4>
-        <div style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">{body}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    items_html = []
+    for item in actions:
+        if item['type'] == 'custom':
+            label = html.escape(item.get('category') or 'Custom Observation')
+            combined = '\n'.join(
+                p for p in (item.get('label', '').strip(), item.get('description', '').strip()) if p)
+            description = html.escape(combined).replace('\n', '<br/>')
+        elif item['type'] == 'boolean':
+            label = item.get('label', '')
+            description = item.get('description', '')
+        else:
+            continue
+
+        li = f'<li style="margin-bottom:12px;"><strong>{label}</strong>'
+        if description:
+            li += f'<br/><span style="color:#6B7280;font-size:13px;">{description}</span>'
+        li += '</li>'
+        items_html.append(li)
+
+    st.markdown(
+        '<div style="border-left:4px solid #F59E0B; background-color:rgba(245,158,11,0.06); '
+        'border-radius:4px; padding:14px 16px 2px 16px;">'
+        '<ul style="margin:0; padding-left:18px;">'
+        + ''.join(items_html) +
+        '</ul></div>',
+        unsafe_allow_html=True)
 
 
 def _render_ally_issues(ally_profile, active_row, is_template=False):
@@ -594,53 +615,34 @@ def _render_ally_issues(ally_profile, active_row, is_template=False):
         st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
 
 
-def _render_module_checks(pending_items, has_audit, active_row=None, responses=None,
+def _render_module_checks(actions, has_audit, active_row=None, responses=None,
                           leganto_missing=False, leganto_status='', leganto_items=0,
                           leganto_draft_items=0):
     """
-    Checklist, Leganto and Blackboard template readiness - what's still
-    outstanding on this module.
+    Blackboard Template sections and outstanding Actions, side by side: the
+    detailed per-section state on the left (roughly three-quarters width),
+    a single consolidated Actions list on the right (roughly a quarter) -
+    two columns rather than one long stacked page, so "what's the current
+    state" and "what do I need to do" read as two distinct questions with
+    two distinct answers instead of interleaved down one column.
 
-    Everything that isn't Ally accessibility - the module-lead-facing
-    checklist, the Leganto reading-list gap/status, and the template section
-    states - lives in this one column so "what's left to sort out on this
-    module" reads as one list instead of split across two page-halves.
-
-    pending_items already carries both checklist and Leganto findings - both
-    come from processing.derive_module_findings(), the single place that
-    decides what counts as outstanding for every source, so this function
-    only renders, it does not classify. There is deliberately no matching
-    "Completed" list here any more - a module lead came to this tab to see
-    what's left to do, and a growing list of everything already fine just
-    pushed that further down the page without answering that question.
-
-    The template block is reported separately from the generic worklist rather
-    than folded into it: those states are observations from an export, and a
-    checklist item still means something a Digital Learning Advisor recorded.
+    actions is every pending checklist, Leganto and template-readiness
+    finding from processing.derive_module_findings() - the single place
+    that decides what counts as outstanding for every source - already
+    filtered to state == 'pending' and source != 'ally' (Ally has its own
+    tab). This function only renders, it does not classify. There is
+    deliberately no matching "Completed" list here any more - a module lead
+    came to this tab to see what's left to do, and a growing list of
+    everything already fine just pushed that further down the page without
+    answering that question.
     """
-    _render_template_sections(active_row, responses, has_audit,
-                              leganto_missing, leganto_status, leganto_items, leganto_draft_items)
-
-    st.markdown(f"#### To Do ({len(pending_items)})")
-    if not pending_items:
-        st.success("✅ Nothing outstanding right now.")
-    else:
-        if not has_audit:
-            st.caption(
-                "This module hasn't been audited or spot-checked yet - most modules "
-                "won't be in any given cycle, since manual review doesn't scale to the "
-                "whole faculty. These items stay listed as outstanding until a Digital "
-                "Learning Advisor actually records an answer, even where the Blackboard "
-                "Template data above already looks good - a card marked '📊 Data already "
-                "shows this as ready' below means exactly that: still needs a human to "
-                "confirm it, not that anything is wrong.")
-        # readiness_prefill_for_module() is the same computation the Audit
-        # Portal's suggested checkboxes use - reused here so a pending
-        # checklist card can say what the Blackboard Template section above
-        # already shows for it, instead of reading as a contradiction.
-        prefill = readiness_prefill_for_module(active_row) if active_row is not None else {}
-        for item in pending_items:
-            _render_pending_item_card(item, prefill, responses)
+    col_sections, col_actions = st.columns([3, 1])
+    with col_sections:
+        _render_template_sections(active_row, responses, has_audit,
+                                  leganto_missing, leganto_status, leganto_items, leganto_draft_items)
+    with col_actions:
+        st.markdown(f"#### Actions ({len(actions)})")
+        _render_actions_panel(actions)
 
 
 def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0):
@@ -858,18 +860,15 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
     if not isinstance(states, dict) or not states:
         return
 
-    snapshot = fmt_report_date(active_row.get('Readiness Snapshot'))
-    ready = active_row.get('Lead Sections Ready')
-    total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
     created = readiness_created_date(states)
     leganto = {'missing': leganto_missing, 'status': leganto_status, 'items': leganto_items,
                'draft_items': leganto_draft_items}
 
     st.markdown("#### Blackboard Template")
     st.caption(
-        f"{int(ready or 0)} of {total} sections the module lead needs to complete "
-        f"are visible to students"
-        + (f" · as at {snapshot}" if snapshot else ""))
+        "The following represents the structure of your Blackboard course and "
+        "its measured or observed state - e.g. whether items are visible to "
+        "students, have been edited, etc.")
 
     _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto)
 
@@ -1060,22 +1059,33 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # gating on has_audit would just suppress a correct, meaningful signal.
         verdict = compute_audit_verdict(active_fields, responses)
 
-        # The generic worklist column only ever showed checklist and Leganto
-        # findings - Ally and template readiness already have their own
-        # richer, source-specific displays (the accessibility card, the
-        # Blackboard Template block) and are not duplicated here.
-        pending_items = [f for f in findings if f['source'] in ('checklist', 'leganto') and f['state'] == 'pending']
+        # Every outstanding item across sources, for the consolidated Actions
+        # panel - Ally is excluded, it has its own tab. Template-readiness
+        # findings are included here (unlike the old checklist-only
+        # worklist) precisely so a manually-recorded-incomplete mapped field
+        # still appears as an action, even though its status is also shown
+        # richly on the Blackboard Template card to its left - see
+        # "Unified module findings" in CLAUDE.md.
+        actions = [f for f in findings if f['state'] == 'pending' and f['source'] != 'ally']
 
         # The banner's "N checklist items outstanding" bullet is checklist-only
-        # - Ally, Leganto and template readiness each already have their own
-        # dedicated bullet, computed directly from active_row/ally_profile so
-        # nothing here needs to be filtered out of a combined count.
-        checklist_pending_count = len(
-            [f for f in findings if f['source'] == 'checklist' and f['state'] == 'pending'])
+        # - Ally, Leganto and lead-owned template readiness each already have
+        # their own dedicated bullet, computed directly from active_row/
+        # ally_profile. The 4 institution-owned mapped fields have no bullet
+        # of their own, though, so a 'readiness' finding for one of them is
+        # counted here too - otherwise a DLA manually marking sga/
+        # student_voice/assessment_overview/encore_link incomplete would
+        # silently drop out of the banner now that doing so produces a
+        # 'readiness' finding instead of a 'checklist' one (see "Unified
+        # module findings" in CLAUDE.md).
+        checklist_pending_count = len([
+            f for f in findings if f['state'] == 'pending' and (
+                f['source'] == 'checklist'
+                or (f['source'] == 'readiness'
+                    and f.get('audit_field_id') in INSTITUTION_MAPPED_FIELD_IDS))
+        ])
 
         ally_profile = _ally_issue_profile(selected_code)
-
-        is_dla_or_admin = any(c.lower() == "edit_checklist" for c in user_caps)
 
         # 1. Overview metadata + module health banner
         if active_row is not None:
@@ -1093,26 +1103,29 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             if url == 'nan':
                 url = ''
 
-            sa_status = checklist_sums.get(selected_code, {}).get('Status', "❌ No Submission")
+            # Data-derived / Spot check-pending / Spot checked - not the raw
+            # Draft/Submitted workflow status (checklist_sums's own 'Status',
+            # still used as-is elsewhere - Faculty Overview, School Dashboard,
+            # calculate_dynamic_compliance_gap()'s literal "✅ Submitted"
+            # check - so left untouched there). has_audit is exactly "a real
+            # person has recorded an answer" already (see "Unified module
+            # findings" in CLAUDE.md); a pending spot_checks row for this
+            # module/year distinguishes "flagged, not yet done" from "never
+            # looked at" for everything else.
+            pending_spot_check = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
+            if has_audit:
+                audit_status_label = "Spot checked"
+            elif pending_spot_check:
+                audit_status_label = "Spot check-pending"
+            else:
+                audit_status_label = "Data-derived"
 
             vle_value = (f"<a href='{url}' target='_blank' style='color:#2563EB;'>Open Module Site</a>"
                          if url else "<span style='color:#9CA3AF;'>--</span>")
 
-            # A pass/fail verdict is evaluative, unlike the health banner
-            # below (deliberately factual/neutral) - kept as its own clearly
-            # separate, distinctly-labelled span rather than folded into it.
-            # "Audit Status"/"Readiness Outcome" wording matches audit_portal.py
-            # exactly - the two pages used to say "Checklist Status"/"Module
-            # Readiness" here vs "Status"/"Outcome" there for the same two
-            # concepts (workflow stage vs data-driven gating verdict).
-            verdict_labels = {'ready': ("🟢", "Ready"), 'not_ready': ("🔴", "Not Ready"), 'blank': ("⚪", "Blank")}
-            verdict_html = ""
-            if verdict:
-                v_icon, v_text = verdict_labels[verdict]
-                verdict_html = (
-                    f'<span title="Calculated automatically from specific required checklist '
-                    f'questions, independent of whether a Digital Learning Advisor has submitted '
-                    f'the audit."><b>Readiness Outcome:</b> {v_icon} {v_text}</span>')
+            # Readiness Outcome (the data-driven gating verdict) is hidden for
+            # now, per user request - compute_audit_verdict() above is left
+            # in place rather than removed, since this is explicitly temporary.
 
             st.markdown(
                 f"""<div style="border:1px solid rgba(49,51,63,0.2);border-radius:8px;
@@ -1121,17 +1134,14 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
                     <span><b>Module Site:</b> {vle_value}</span>
-                    <span title="Whether a Digital Learning Advisor has reviewed and submitted this checklist."><b>Audit Status:</b> {sa_status}</span> {verdict_html}
+                    <span title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor."><b>Audit Status:</b> {audit_status_label}</span>
                 </div>""", unsafe_allow_html=True)
-
-        if is_dla_or_admin:
-            st.caption("🔎 Auditor Mode — you can record observations for this module in the Audit Portal (see sidebar).")
 
         _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
                               leganto_draft, leganto_items, active_row,
                               leganto_status, leganto_draft_items)
 
-        _render_data_reliability_block(active_row)
+        _render_data_reliability_block(active_row, has_audit)
 
         st.markdown(" ")
 
@@ -1141,7 +1151,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             ["📋 Module Checks and Readiness", "♿ Accessibility Report"])
 
         with tab_checks:
-            _render_module_checks(pending_items, has_audit, active_row, responses,
+            _render_module_checks(actions, has_audit, active_row, responses,
                                   leganto_missing, leganto_status, leganto_items, leganto_draft_items)
 
             comments_val = str(responses.get('comments', '') or '').strip()
