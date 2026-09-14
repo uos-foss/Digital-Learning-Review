@@ -1,6 +1,19 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.20.0 (Current) — *Spot-check flagging*
+### 🚀 Version 1.21.0 (Current) — *A Welcome page*
+*14 September 2026*
+
+* **The portal now opens on a new Welcome page**, a plain-English
+  introduction for anyone landing on the dashboard for the first time - what
+  the portal is for, who it's for, where the data comes from, why the audit
+  takes a data-driven approach instead of manually checking every module, and
+  how spot-checking works (a Digital Learning Advisor's own judgement call -
+  experience, spread across levels, some randomness, and the data indicators
+  visible on the module list - never an automatic sample). It's the first
+  page everyone sees after signing in, and is also reachable from the
+  sidebar at any time.
+
+### 🚀 Version 1.20.0 — *Spot-check flagging*
 *12 August 2026*
 
 * **Digital Learning Advisors can now flag modules for a spot-check, right

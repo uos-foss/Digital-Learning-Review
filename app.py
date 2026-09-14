@@ -13,7 +13,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
 
 from processing import CURRENT_ACADEMIC_YEAR
 
@@ -21,7 +21,7 @@ from processing import CURRENT_ACADEMIC_YEAR
 from views.faculty_overview import view_faculty_overview
 from views.school_dashboard import view_school_dashboard
 from views.module_report import view_module_report
-from views.docs import view_help, view_changelog, view_developer_guide
+from views.docs import view_about, view_help, view_changelog, view_developer_guide
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
 from views.audit_portal import view_audit_portal
@@ -647,6 +647,7 @@ def page_audit_portal():
     view_audit_portal(df_aut, df_spr, checklist_sums, df_assess)
 
 # Define st.Page objects
+pg_about = st.Page(view_about, title="Welcome", icon=":material/home:")
 pg_faculty = st.Page(page_faculty_overview, title="Faculty Overview", icon=":material/account_balance:")
 pg_school = st.Page(page_school_dashboard, title="School Dashboard", icon=":material/dashboard:")
 pg_module = st.Page(page_module_report, title="Module report", icon=":material/receipt_long:")
@@ -660,7 +661,7 @@ st.session_state.pg_audit = pg_audit
 st.session_state.pg_school = pg_school
 
 # Build Navigation array for routing
-pages_list = []
+pages_list = [pg_about]
 if can_view_faculty:
     pages_list.append(pg_faculty)
 pages_list.append(pg_school)
@@ -702,6 +703,7 @@ with st.sidebar:
     st.divider()
 
     st.caption("Main")
+    st.page_link(pg_about)
     if can_view_faculty:
         st.page_link(pg_faculty)
     st.page_link(pg_school)
