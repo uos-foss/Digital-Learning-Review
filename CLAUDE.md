@@ -67,11 +67,28 @@ one module code (different cohorts) — aggregate to module grain on read via
   not backfill or surface other years without a deliberate decision to do so.
 - **Content maturity has exactly two positive states: `Not yet built` and
   `In progress`.** There is deliberately no `Built`/`Complete` state —
-  `classify_content_maturity()` in `processing.py` only measures file counts,
-  and module leads build just-in-time throughout the course (often up to the
-  final assessment), so a file count can show a course has started but never
-  that it is finished. A three-state version with a `Built` tier existed
-  earlier and was removed on that reasoning; do not reintroduce it.
+  `classify_content_maturity()` in `processing.py` measures file counts (and,
+  since 14-09-2026, score deficit — see below), and module leads build
+  just-in-time throughout the course (often up to the final assessment), so
+  neither signal can show a course has finished, only that it has started. A
+  three-state version with a `Built` tier existed earlier and was removed on
+  that reasoning; do not reintroduce it.
+- **A template-sized file count no longer forces `Not yet built` on its own.**
+  `classify_content_maturity()` also takes the module's `overall_score`/
+  `files_score`/`wysiwyg_score`: an untouched rolled-over template scores
+  100% on all three (nothing for Ally to flag), so any of them coming back
+  below 1.0 is direct evidence someone edited the existing template files in
+  place rather than adding new ones — file count alone can't see that. Added
+  after EDC004 surfaced the gap: 93.7% overall with 4 real accessibility
+  issues, but only a handful of files, so file count alone read it as
+  `Not yet built` ("Not started" in the UI) and it silently dropped out of
+  every average, ranking and leaderboard that gates on content maturity
+  (`aggregate_faculty_stats()`, `ally_widgets.scoreable()`/`mean_score()`,
+  the Faculty Overview/School Dashboard breakdowns) — the opposite of what
+  the gate exists to do. `views/module_report.py`'s issue list was already
+  unaffected by this (it only shows the "nothing to report yet" template
+  caption when there are zero issues, real issues render regardless of
+  maturity state); this fix is entirely on the aggregate/ranking side.
 - **Ally's own scores are shown unmodified.** An earlier credibility-weighting
   model (shrinking scores toward a prior at low file counts) was removed — it
   distorted the majority of modules at typical file counts, only ever pushed
@@ -81,6 +98,34 @@ one module code (different cohorts) — aggregate to module grain on read via
 - `diagnostics/check_ally_export.py <csv> <academic_year>` sanity-checks a new
   export (scope, grain, score invariants, SITS reconciliation) before trusting
   an import — run it against any new Ally export.
+- **The module report's Accessibility Issues panel shows category summaries
+  by default, not the 38 individual `ALLY_CHECKS`.** Added 14-09-2026: the
+  per-check list (one bordered card per check, e.g. "PDF is not tagged for
+  reading order") is written the way a DLA audits, not the way a module lead
+  experiences their own course, and a module with many distinct issue types
+  could show 15-20 of them flat with no way to tell what mattered most. It
+  also duplicated, badly, something Blackboard already does well: a lead's
+  own Ally Course Report links every issue straight to its file, previews
+  the problem, and often fixes it in place — a summary page can't compete
+  with that and shouldn't try. `processing.summarise_ally_issue_categories()`
+  rolls the per-check data up to the 7 groups in `ALLY_CATEGORIES`
+  (`ALLY_CHECK_CATEGORY` maps each check to one) — what kind of thing is
+  wrong (images, headings/structure, contrast, tables, titles/language,
+  links/lists/media, or a file that doesn't open at all) and, once per
+  category, *why* it matters to a screen-reader or keyboard user — no
+  per-file detail, no fix instructions. `views/module_report.py`'s
+  `_render_ally_how_to()` then points the lead at their own Ally Course
+  Report for the specifics, deliberately without asserting an exact
+  Blackboard menu path (varies by version/site, and a wrong click-by-click
+  instruction would actively mislead someone following it) — only the Ally
+  indicator icon and the course-level Accessibility Report, both stable
+  regardless of version. The full per-check list (`summarise_ally_issues()`,
+  unchanged) is still there for a DLA who wants it, just folded into a
+  "Full technical detail" expander rather than leading the page. Every
+  `ALLY_CHECKS` key must appear exactly once in `ALLY_CHECK_CATEGORY` — a
+  new check added to one needs adding to the other, or it silently drops out
+  of the category view (`prepare_ally_issues()` on the category path filters
+  to `category.notna()`).
 
 ## Leganto reading-list data
 

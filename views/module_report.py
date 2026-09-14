@@ -10,6 +10,7 @@ from processing import (
     FACULTY_SCHOOLS,
     CURRENT_ACADEMIC_YEAR,
     summarise_ally_issues,
+    summarise_ally_issue_categories,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
     TEMPLATE_SECTION_TREE,
@@ -187,6 +188,11 @@ def _ally_band(score):
     return ALLY_BANDS[-1][1:]
 
 
+# Fixed pixel width for the three accessibility gauges - see the sizing note
+# in _score_gauge's docstring for why this is fixed rather than responsive.
+GAUGE_WIDTH = 220
+
+
 def _score_gauge(label, score, sub, is_template=False):
     """One of the three surface scores, as a Plotly gauge indicator.
 
@@ -200,6 +206,22 @@ def _score_gauge(label, score, sub, is_template=False):
     see module docstring below), but the gauge renders grey rather than in
     its score-band colour, since the maturity banner above already explains
     why and colouring it as a real result would overstate it.
+
+    Rendered at a fixed pixel size rather than `use_container_width=True`.
+    Two problems traced back to that responsiveness, not to anything about
+    the gauge itself: Plotly's Indicator sizes its number relative to the
+    trace's rendered box at draw time, so (a) a size pinned in the Python code
+    stops matching that box the moment the column is narrower than what it
+    was tuned at, clipping the number against neighbouring columns, and (b)
+    leaving the size unset for Plotly to compute automatically instead reads
+    whatever box size the DOM reports at that instant - on first render,
+    before Streamlit's flex layout has settled, that can be near-zero, so the
+    number draws invisibly small and stays that way until something (like a
+    manual browser resize) fires Plotly's own resize handler and forces a
+    recompute against the now-correct box. Three small gauges never needed to
+    fill a wide page's full column width anyway, so fixing the box size in
+    pixels removes the dependency behind both bugs at once and caps how far
+    they spread out on a wide screen.
     """
     has_score = score is not None and pd.notna(score)
     colour = "#6B7280" if (is_template or not has_score) else _ally_band(float(score))[0]
@@ -222,6 +244,7 @@ def _score_gauge(label, score, sub, is_template=False):
         },
     ))
     fig.update_layout(
+        width=GAUGE_WIDTH,
         height=140,
         margin=dict(l=20, r=20, t=40, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
@@ -230,7 +253,7 @@ def _score_gauge(label, score, sub, is_template=False):
     return fig, has_score, sub
 
 
-def _render_ally_card(selected_code, active_row, ally_profile):
+def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
     """
     The module's accessibility profile: scores, trend, and the issues behind
     them, all in one place.
@@ -300,7 +323,7 @@ def _render_ally_card(selected_code, active_row, ally_profile):
         ):
             fig, _, sub_text = _score_gauge(tile_label, tile_score, tile_sub, is_template)
             with col:
-                st.plotly_chart(fig, use_container_width=True,
+                st.plotly_chart(fig, use_container_width=False,
                                 config={'displayModeBar': False}, key=f"gauge_{selected_code}_{tile_key}")
                 st.markdown(
                     f"<div style='text-align:center;font-size:11px;color:#6B7280;margin-top:-16px;'>{sub_text}</div>",
@@ -313,15 +336,12 @@ def _render_ally_card(selected_code, active_row, ally_profile):
         _render_ally_trend(selected_code)
 
         st.caption(
-            "ℹ️ The module's own Ally Course Report inside Blackboard is always current.")
-
-        st.caption(
             "Need help? "
             "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
             "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
 
         st.markdown("---")
-        _render_ally_issues(ally_profile, active_row, is_template)
+        _render_ally_issues(ally_categories, ally_profile, active_row, is_template)
 
 
 def _ally_issue_profile(selected_code):
@@ -333,6 +353,17 @@ def _ally_issue_profile(selected_code):
     mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
                      == str(selected_code).strip().upper()]
     return summarise_ally_issues(mine)
+
+
+def _ally_issue_categories(selected_code):
+    """This module's Ally issues rolled up to ALLY_CATEGORIES. Empty frame if none."""
+    df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
+    if df_issues is None or df_issues.empty:
+        return pd.DataFrame()
+
+    mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
+                     == str(selected_code).strip().upper()]
+    return summarise_ally_issue_categories(mine)
 
 
 def _render_ally_trend(selected_code):
@@ -566,26 +597,80 @@ def _render_actions_panel(actions):
         unsafe_allow_html=True)
 
 
-def _render_ally_issues(ally_profile, active_row, is_template=False):
+def _render_ally_category_card(row):
+    """One accessibility issue category: what kind of thing it is, roughly
+    how much of it, and why it matters. Deliberately no per-check detail or
+    fix instructions here - see _render_ally_issues's docstring for why."""
+    colour = TIER_COLOUR.get(row['severity_label'], "#6B7280")
+    items_word = "item" if row['items'] == 1 else "items"
+    checks_word = "issue type" if row['checks'] == 1 else "issue types"
+    st.markdown(
+        f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05; padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid {colour}0D; border-right: 1px solid {colour}0D; border-bottom: 1px solid {colour}0D;">
+            <h4 style="margin: 0 0 4px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{row['icon']} {row['title']}</h4>
+            <div style="color: #6B7280; font-size: 12px; margin-bottom: 8px;">{row['items']} {items_word} across {row['checks']} {checks_word}</div>
+            <div style="color: #4B5563; font-size: 14px; line-height: 1.5;">{row['why']}</div>
+        </div>""", unsafe_allow_html=True)
+
+
+def _render_ally_how_to(url):
+    """Points a module lead at their own Ally Course Report in Blackboard,
+    where the specifics - which file, a preview of the problem, and often an
+    in-situ fix - actually live. Deliberately doesn't spell out an exact menu
+    path: that varies by Blackboard version/site config and this portal can't
+    verify it, so a wrong click-by-click instruction would actively mislead
+    someone following it. The Ally indicator icon and course-level
+    Accessibility Report are the two stable, version-independent things to
+    point at."""
+    st.markdown("##### See exactly what to fix")
+    st.markdown(
+        "The categories above say what kind of thing Ally found and why it matters. "
+        "For the specifics — which file, a preview of the problem, and often a fix "
+        "you can apply right there — open your course in Blackboard and look for the "
+        "small coloured Ally indicator next to each item, or your course's full "
+        "**Accessibility Report**, linked from the same place.")
+    if url:
+        st.markdown(f"[Open this course in Blackboard]({url})")
+
+
+def _render_issue_cards(rows):
+    """Cards for an iterable of per-check issue rows, with a tier subheading
+    whenever the severity changes from the previous row."""
+    current_tier = None
+    for _, row in rows.iterrows():
+        if row['severity_label'] != current_tier:
+            current_tier = row['severity_label']
+            st.markdown(f"**{current_tier}**")
+        _render_ally_issue_card(row)
+
+
+def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=False):
     """
-    Ally's accessibility issues, ranked by severity.
+    What kinds of accessibility problems Ally found on this module, and why
+    they matter - written for the module lead reading their own report, not
+    for a DLA auditing it.
 
     Lives inside the Accessibility column, directly below the score tiles -
     scores and the issues behind them are one picture, not two separate page
     sections a reader has to reconcile by hand.
+
+    Deliberately does not try to be a fix-it list. A module lead's own Ally
+    Course Report in Blackboard already links each issue to its exact file,
+    previews the problem, and often fixes it in situ - a page like this
+    cannot usefully compete with that, and listing 38 named checks flat used
+    to bury the handful of things actually worth a lead's attention under an
+    auditor's level of detail. What this page can do that Blackboard can't
+    is explain once, in plain terms, why each *kind* of problem matters, and
+    point at where the specifics live - see _render_ally_how_to. The full
+    per-check technical list (what a DLA audits against) is one click away
+    in the expander at the bottom, not the thing leading the page.
 
     is_template distinguishes "genuinely clean" from "nothing scanned yet" -
     a zero-issue template hasn't been checked for anything, so a green
     success tick there would overstate it the same way an unqualified high
     score would.
     """
-    severe = ally_profile[ally_profile['severity_label'] == 'Severe'] if not ally_profile.empty else ally_profile
-    major = ally_profile[ally_profile['severity_label'] == 'Major'] if not ally_profile.empty else ally_profile
-    minor = (ally_profile[ally_profile['severity_label'].isin(['Minor', 'Other'])]
-             if not ally_profile.empty else ally_profile)
-
-    total = len(severe) + len(major) + len(minor)
-    if total == 0:
+    total_items = int(ally_categories['items'].sum()) if not ally_categories.empty else 0
+    if total_items == 0:
         if is_template:
             st.caption("This course still holds only its rolled-over template, so there's "
                        "nothing to report yet.")
@@ -593,26 +678,20 @@ def _render_ally_issues(ally_profile, active_row, is_template=False):
             st.success("✅ No accessibility issues reported.")
         return
 
-    st.markdown(f"#### Accessibility Issues ({total})")
+    n_categories = len(ally_categories)
+    st.markdown(f"#### Accessibility Issues ({total_items} items across "
+                f"{n_categories} area{'' if n_categories == 1 else 's'})")
 
-    if len(severe):
-        st.markdown("**Severe**")
-        for _, row in severe.iterrows():
-            _render_ally_issue_card(row)
-
-    if len(major):
-        st.markdown("**Major**")
-        for _, row in major.iterrows():
-            _render_ally_issue_card(row)
-
-    if len(minor):
-        st.markdown("**Minor**")
-        for _, row in minor.iterrows():
-            _render_ally_issue_card(row)
+    for _, row in ally_categories.iterrows():
+        _render_ally_category_card(row)
 
     url = str(active_row.get('URL', '') or '') if active_row is not None else ''
-    if url:
-        st.markdown(f"[Open this course in Blackboard]({url}) to work through its Ally report.")
+    _render_ally_how_to(url)
+
+    if not ally_profile.empty:
+        st.markdown("")
+        with st.expander(f"Full technical detail ({len(ally_profile)} issue types, for auditors)"):
+            _render_issue_cards(ally_profile)
 
 
 def _render_module_checks(actions, has_audit, active_row=None, responses=None,
@@ -1086,6 +1165,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         ])
 
         ally_profile = _ally_issue_profile(selected_code)
+        ally_categories = _ally_issue_categories(selected_code)
 
         # 1. Overview metadata + module health banner
         if active_row is not None:
@@ -1159,6 +1239,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 st.info(f"**Additional Comments:**\n\n{comments_val}")
 
         with tab_accessibility:
-            _render_ally_card(selected_code, active_row, ally_profile)
+            _render_ally_card(selected_code, active_row, ally_profile, ally_categories)
 
         st.caption(f"Last updated: {last_updated_str}")
