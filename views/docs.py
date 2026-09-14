@@ -35,6 +35,11 @@ def _render_doc(filename: str):
         st.error(f"Could not read `{path}`: {e}")
 
 
+def view_about():
+    st.title("👋 Welcome to the Digital Learning Review Portal")
+    _render_doc("about.md")
+
+
 def view_help():
     st.title("💡 Help & Support Guide")
     _render_doc("help.md")
