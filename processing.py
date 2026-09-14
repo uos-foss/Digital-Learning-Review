@@ -120,6 +120,136 @@ ALLY_CHECKS = {
                          "Informational only - content supplied by the Library."),
 }
 
+# A module lead's own Ally Course Report in Blackboard already gives the
+# specific file, a preview, and often an in-situ fix for each of the 38
+# checks above - nothing this portal shows can usefully duplicate that. What
+# a lead does need from here is the kind of thing that's wrong and why it's
+# worth fixing, which is a coarser grouping than the individual checks a DLA
+# audits against. Every ALLY_CHECKS key must appear exactly once here.
+ALLY_CHECK_CATEGORY = {
+    'Parsable': 'files', 'Scanned': 'files', 'Security': 'files', 'Ocred': 'files',
+
+    'AlternativeText': 'images', 'ImageDescription': 'images', 'ImageDecorative': 'images',
+    'ImageSeizure': 'images', 'ImageOcr': 'images', 'HtmlImageAlt': 'images',
+    'HtmlObjectAlt': 'images', 'HtmlImageRedundantAlt': 'images',
+
+    'Tagged': 'structure', 'HeadingsPresence': 'structure', 'HeadingsSequential': 'structure',
+    'HeadingsStartAtOne': 'structure', 'HeadingsHigherLevel': 'structure',
+    'HtmlHeadingsPresence': 'structure', 'HtmlHeadingsStart': 'structure',
+    'HtmlEmptyHeading': 'structure', 'HtmlHeadingOrder': 'structure',
+
+    'Contrast': 'contrast', 'ImageContrast': 'contrast', 'HtmlColorContrast': 'contrast',
+
+    'TableHeaders': 'tables', 'HtmlTdHasHeader': 'tables', 'HtmlEmptyTableHeader': 'tables',
+
+    'Title': 'titles_language', 'LanguagePresence': 'titles_language',
+    'LanguageCorrect': 'titles_language', 'HtmlTitle': 'titles_language',
+    'HtmlHasLang': 'titles_language',
+
+    'HtmlBrokenLink': 'links_lists_media', 'HtmlLinkName': 'links_lists_media',
+    'HtmlList': 'links_lists_media', 'HtmlDefinitionList': 'links_lists_media',
+    'HtmlCaption': 'links_lists_media', 'HtmlLabel': 'links_lists_media',
+}
+
+# (title, why it matters, icon) per category - shown once regardless of how
+# many of its checks fired. Dict order is display order: file-level blockers
+# first (a screen reader gets nothing at all), editing-basics last (real, but
+# the lowest-stakes group). Content is deliberately general - it explains why
+# the category matters to a screen-reader or keyboard user, not which item is
+# wrong, since that's exactly what the lead's own Ally Course Report already
+# shows with a preview and a fix.
+ALLY_CATEGORIES = {
+    'files': (
+        "Files a screen reader can't open at all",
+        "These aren't formatting problems - the file itself is corrupted, locked, "
+        "or just a picture of text with nothing underneath. A student using a "
+        "screen reader gets nothing from it, not just an awkward experience.",
+        "\U0001F4C4",
+    ),
+    'images': (
+        "Images and embedded content",
+        "A screen reader can't see a picture, so it relies entirely on the text "
+        "description attached to it. No description (or a wrong one) means the "
+        "image - and whatever it was meant to explain - is effectively invisible "
+        "to that student.",
+        "\U0001F5BC️",
+    ),
+    'structure': (
+        "Headings and reading order",
+        "Sighted students skim a document by its headings. A screen reader user "
+        "navigates the same way - jumping heading to heading rather than reading "
+        "start to finish - but only if they're real heading styles, in a sensible "
+        "order, not just bold or bigger text.",
+        "\U0001F4D1",
+    ),
+    'contrast': (
+        "Colour contrast",
+        "Low-contrast text is hard to read in bright light or on a low-quality "
+        "screen, and can be unreadable for students with low vision or colour "
+        "blindness.",
+        "\U0001F3A8",
+    ),
+    'tables': (
+        "Tables",
+        "Without a proper header row, a screen reader can't tell a student what "
+        "each column actually is - a table of results becomes a wall of "
+        "unexplained numbers.",
+        "\U0001F4CA",
+    ),
+    'titles_language': (
+        "Titles and language settings",
+        "A screen reader uses a document's language setting to choose the right "
+        "voice and pronunciation, and its title to announce what's open. Get "
+        "either wrong and a student hears gibberish, or can't tell which "
+        "document is which.",
+        "\U0001F3F7️",
+    ),
+    'links_lists_media': (
+        "Links, lists, video and forms",
+        "Small formatting choices - a 'click here' link, a list typed with "
+        "dashes instead of the list tool, a video with no captions - remove the "
+        "shortcuts a screen reader or keyboard-only student relies on to get "
+        "around a page quickly.",
+        "\U0001F517",
+    ),
+}
+
+def summarise_ally_issue_categories(df_issues, module_codes=None):
+    """
+    Ally issues rolled up to the broad ALLY_CATEGORIES groups rather than the
+    38 individual ALLY_CHECKS. Built for the module report's lead-facing
+    summary - see ALLY_CHECK_CATEGORY's docstring for why a coarser grouping
+    belongs there instead of the per-check list summarise_ally_issues gives
+    the detailed/auditor view.
+
+    Kept I/O-free: callers pass in database.get_ally_issues_latest().
+    """
+    columns = ['category', 'title', 'why', 'icon', 'items', 'checks',
+               'severity', 'severity_label']
+    df = prepare_ally_issues(df_issues, module_codes)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df.copy()
+    df['category'] = df['check_name'].map(ALLY_CHECK_CATEGORY)
+    df = df[df['category'].notna()]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    grouped = (df.groupby('category', as_index=False)
+                 .agg(items=('items', 'sum'), severity=('severity', 'min'),
+                      checks=('check_name', 'nunique')))
+    grouped['title'] = grouped['category'].map(lambda c: ALLY_CATEGORIES[c][0])
+    grouped['why'] = grouped['category'].map(lambda c: ALLY_CATEGORIES[c][1])
+    grouped['icon'] = grouped['category'].map(lambda c: ALLY_CATEGORIES[c][2])
+    grouped['severity_label'] = grouped['severity'].map(
+        lambda s: ALLY_SEVERITY_LABELS.get(int(s), "Other") if pd.notna(s) else "Other")
+
+    order = list(ALLY_CATEGORIES.keys())
+    grouped['_order'] = grouped['category'].map(order.index)
+    grouped = grouped.sort_values('_order').drop(columns='_order')
+    return grouped[columns].reset_index(drop=True)
+
 def ally_term_to_academic_year(term_name):
     """'Academic Year 2026-2027' -> '2026-27'. Returns '' if unparseable."""
     m = re.search(r'(\d{4})\s*[-~/]\s*(\d{2,4})', str(term_name))
@@ -692,7 +822,8 @@ def parse_leganto_lists_export(df, academic_year, snapshot_date):
 # Editor pages do not discriminate: the template ships ~25 of them either way.
 ALLY_TEMPLATE_MAX_FILES = 5
 
-def classify_content_maturity(total_files, total_wysiwyg, students=None):
+def classify_content_maturity(total_files, total_wysiwyg, students=None,
+                               overall_score=None, files_score=None, wysiwyg_score=None):
     """
     Whether a Blackboard course still looks like its rolled-over template.
 
@@ -704,15 +835,25 @@ def classify_content_maturity(total_files, total_wysiwyg, students=None):
     cannot support and would stop being true the moment the next file lands.
 
     Freshly rolled-over courses hold only their template - typically two files
-    and a couple of dozen editor pages - and Ally scores that template at close
-    to 100%. Presenting that as an accessibility result would be wrong for the
-    first weeks of every year, which is the actual job of this function: gate
-    the score, not grade the course.
+    and a couple of dozen editor pages - and Ally scores that untouched
+    template at 100% on all three scores. Presenting a template's scores as an
+    accessibility result would be wrong for the first weeks of every year,
+    which is the actual job of this function: gate the score, not grade the
+    course.
 
-    Deliberately based on content alone. Enrolment is far too noisy before term
-    starts - in August only 101 of 928 courses had a single student, populated
-    ones included - so it is left to the views to use as an impact weight
-    instead. `students` is accepted and ignored so callers need not care.
+    File count alone can't see a lead editing the existing template files in
+    place rather than adding new ones - so a score below 100% on any of
+    `overall_score`/`files_score`/`wysiwyg_score` is treated as direct
+    evidence of that, overriding a template-sized file count. A module can't
+    score below its own template's 100% without Ally having found something
+    real to flag. Scores are optional (`None` skips this check) so existing
+    callers that only have counts keep working unchanged.
+
+    Deliberately based on content alone otherwise. Enrolment is far too noisy
+    before term starts - in August only 101 of 928 courses had a single
+    student, populated ones included - so it is left to the views to use as
+    an impact weight instead. `students` is accepted and ignored so callers
+    need not care.
     """
     files = int(total_files or 0)
     wysiwyg = int(total_wysiwyg or 0)
@@ -720,6 +861,9 @@ def classify_content_maturity(total_files, total_wysiwyg, students=None):
     if files == 0 and wysiwyg == 0:
         return "Empty"
     if files <= ALLY_TEMPLATE_MAX_FILES:
+        for score in (overall_score, files_score, wysiwyg_score):
+            if pd.notna(score) and score < 1.0:
+                return "In progress"
         return "Not yet built"
     return "In progress"
 
@@ -801,7 +945,8 @@ def aggregate_ally_to_modules(df_courses):
     for col in ['total_files', 'total_wysiwyg', 'total_items', 'students', 'shell_count']:
         out[col] = out[col].astype(int)
     out['content_maturity'] = out.apply(
-        lambda r: classify_content_maturity(r['total_files'], r['total_wysiwyg'], r['students']),
+        lambda r: classify_content_maturity(r['total_files'], r['total_wysiwyg'], r['students'],
+                                             r['overall_score'], r['files_score'], r['wysiwyg_score']),
         axis=1)
     return out[columns]
 
