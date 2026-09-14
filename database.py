@@ -509,6 +509,33 @@ def get_db_connection():
     conn.execute("PRAGMA busy_timeout=5000;")
     return conn
 
+def get_last_import_dates():
+    """Most recent snapshot date for each externally-imported data source that
+    carries a real per-import timestamp, keyed 'bb' (Template Alignment,
+    imported from Blackboard), 'ally' and 'leganto'. Values are ISO date
+    strings, or None for a source with no rows yet - callers format for
+    display.
+
+    The Google Sheets full sync (users, roles, checklists) and the generic
+    CSV-to-table hub (leganto_nolist, inactive_modules, blackboard_links)
+    overwrite their tables wholesale with no per-row timestamp, so there is
+    nothing to read for them.
+    """
+    sources = {
+        'bb': ("readiness_courses", "SELECT MAX(snapshot_date) FROM readiness_courses"),
+        'ally': ("ally_courses", "SELECT MAX(snapshot_date) FROM ally_courses"),
+        'leganto': ("leganto_lists", "SELECT MAX(snapshot_date) FROM leganto_lists"),
+    }
+    results = {}
+    with get_db_connection() as conn:
+        for key, (table, query) in sources.items():
+            if table_exists(conn, table):
+                row = conn.execute(query).fetchone()
+                results[key] = row[0] if row else None
+            else:
+                results[key] = None
+    return results
+
 def cache_dataframe_to_sqlite(df: pd.DataFrame, table_name: str):
     """Writes static audit DataFrames directly to database (overwrites existing tables)."""
     if df is not None and not df.empty:
