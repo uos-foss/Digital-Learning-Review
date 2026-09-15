@@ -1167,8 +1167,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             else:
                                 role_caps_str = ""
                             
-                            role_caps_list = [c.strip() for c in role_caps_str.split(",") if c.strip()]
-                            resolved_role_caps = [c.lower() for c in role_caps_list]
+                            resolved_role_caps = _role_caps(role_caps_str)
                         
                             st.markdown("**Assigned Capabilities:**")
                             role_caps_edit = []
