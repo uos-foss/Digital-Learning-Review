@@ -1176,7 +1176,18 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         st.caption("Columns: `Username` (required), `Password` (plaintext, leave blank to "
                                    "keep/skip), `Role`, `School`, `Status` (`Active`/`Disabled`, default Active). "
                                    "Existing usernames are updated; new ones are created.")
-                        bulk_upload = st.file_uploader("Choose CSV file", type="csv", key="uploader_users_bulk")
+                        # Keyed with a version counter bumped after a successful
+                        # write, not a fixed key - the uploaded file otherwise
+                        # stays attached across the st.rerun() below, so the
+                        # very next script run re-processes the same CSV
+                        # against the now-just-updated registry and reports
+                        # every row as an update (or, worse, "not found" for
+                        # the equivalent bulk-remove uploader) instead of
+                        # showing an empty uploader.
+                        bulk_import_key_v = st.session_state.get("bulk_import_key_v", 0)
+                        bulk_upload = st.file_uploader(
+                            "Choose CSV file", type="csv", key=f"uploader_users_bulk_{bulk_import_key_v}"
+                        )
 
                         if bulk_upload is not None:
                             try:
@@ -1296,6 +1307,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                                 f"{len(issues)} skipped."
                                             )
                                             st.success(f"✅ Bulk import complete: {created} account(s) created, {updated} updated.")
+                                            st.session_state["bulk_import_key_v"] = bulk_import_key_v + 1
                                             st.cache_data.clear()
                                             st.balloons()
                                             st.rerun()
@@ -1308,10 +1320,17 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                              "(other columns are ignored, so the same file you imported can be re-used). "
                              "Matched case-insensitively against existing accounts. This cannot be undone.")
 
+                    # Same reset-after-success reasoning as the importer above -
+                    # without it, the file stays attached through the
+                    # st.rerun() below and the very next run re-matches the
+                    # same CSV against the now-just-emptied accounts, showing
+                    # a confusing "not found" for everything that was in fact
+                    # just removed.
+                    bulk_remove_key_v = st.session_state.get("bulk_remove_key_v", 0)
                     bulk_remove_upload = st.file_uploader(
                         "Choose CSV file (must include a Username column)",
                         type="csv",
-                        key="uploader_users_bulk_remove"
+                        key=f"uploader_users_bulk_remove_{bulk_remove_key_v}"
                     )
 
                     if bulk_remove_upload is not None:
@@ -1386,6 +1405,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
                                         logging.info(f"👤 Bulk user removal: {len(to_remove)} account(s) deleted.")
                                         st.success(f"✅ {len(to_remove)} account(s) removed.")
+                                        st.session_state["bulk_remove_key_v"] = bulk_remove_key_v + 1
                                         st.cache_data.clear()
                                         st.rerun()
                         except Exception as ex:

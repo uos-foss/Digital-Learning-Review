@@ -1551,19 +1551,39 @@ def save_audit_response(module_code: str, field_id: str, value: str, auditor_use
         conn.commit()
 
 def save_user_sqlite(username: str, password_hash: str, role: str, school: str, capabilities: str, status: str):
-    """Saves or updates a user record in the SQLite database."""
+    """
+    Saves or updates a user record in the SQLite database.
+
+    Username is matched case-insensitively but never renamed: some accounts
+    (mostly email-style DLA/staff logins) are stored lowercase rather than
+    uppercase (see CLAUDE.md's "Data architecture" notes), and Username is a
+    plain TEXT PRIMARY KEY with no COLLATE NOCASE. A blind ON CONFLICT(Username)
+    match against an uppercased value would silently miss those rows and
+    INSERT a case-different duplicate instead of updating them - so an
+    existing account is looked up by UPPER(Username) first and updated using
+    its real stored casing, and only a genuinely new account is inserted,
+    using exactly the casing it was given rather than one forced on it.
+    """
+    uname = username.strip()
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO users (Username, PasswordHash, Role, School, Capabilities, Status)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(Username) DO UPDATE SET
-                PasswordHash=CASE WHEN excluded.PasswordHash != '' THEN excluded.PasswordHash ELSE users.PasswordHash END,
-                Role=excluded.Role,
-                School=excluded.School,
-                Capabilities=excluded.Capabilities,
-                Status=excluded.Status
-        """, (username.strip().upper(), password_hash, role, school, capabilities, status))
+        cursor.execute("SELECT Username FROM users WHERE UPPER(Username) = ?", (uname.upper(),))
+        existing = cursor.fetchone()
+        if existing:
+            cursor.execute("""
+                UPDATE users SET
+                    PasswordHash = CASE WHEN ? != '' THEN ? ELSE PasswordHash END,
+                    Role = ?,
+                    School = ?,
+                    Capabilities = ?,
+                    Status = ?
+                WHERE Username = ?
+            """, (password_hash, password_hash, role, school, capabilities, status, existing[0]))
+        else:
+            cursor.execute("""
+                INSERT INTO users (Username, PasswordHash, Role, School, Capabilities, Status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (uname, password_hash, role, school, capabilities, status))
         conn.commit()
 
 def update_user_field_sqlite(username: str, field_name: str, value: str):
