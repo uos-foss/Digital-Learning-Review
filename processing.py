@@ -1003,8 +1003,14 @@ def aggregate_leganto_to_modules(df_lists):
 # than sitting beside it as a separate score.
 #
 # Labels follow the report's own section names, so a section is called the same
-# thing in the faculty report and in the portal. The one departure is "SGAs"
-# rather than the report's "SGAS", to match the existing audit_fields label.
+# thing in the faculty report and in the portal - this is also the name shown
+# on the module report's Blackboard Template cards and Actions panel. The one
+# departure is "SGAs" rather than the report's "SGAS", to match the existing
+# audit_fields label. Space-constrained UI (chart bars, per-module item
+# tables) that wants something shorter should go through
+# TEMPLATE_SECTION_SHORT_LABELS / short_field_label() below rather than
+# shortening the name here - the module report and Audit Portal always show
+# this full name, deliberately never the shortened one.
 TEMPLATE_SECTIONS = {
     'MODULE_INFORMATION':          ('Module Information',                'institution', None),
     'WELCOME_MODULE_OUTLINE':      ('Welcome & Module Outline',          'lead',        'welcome_outline'),
@@ -1020,7 +1026,12 @@ TEMPLATE_SECTIONS = {
     # flagged Student Voice (unintended) while the actual document being
     # audited stayed on its unmodified data-driven read.
     'STUDENT_VOICE':               ('Student Voice',                     'institution', None),
-    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'institution', 'student_voice'),
+    # 'lead', not 'institution': unlike the folder above, this document is
+    # module-specific content someone has to actually go in and write (how
+    # feedback from *this* module's students shaped it) - not fixed
+    # boilerplate nobody touches. Reclassified 15-09-2026; see CLAUDE.md
+    # "Module readiness (template alignment) data" for what this changes.
+    'HOW_YOUR_FEEDBACK_SHAPES':    ('How Your Feedback Shapes this Module', 'lead',        'student_voice'),
     'ACCESSIBILITY_STATEMENT':     ('Accessibility Statement',           'institution', None),
     'SCHOOL_HANDBOOK':             ('School Handbook',                   'institution', None),
     'ASSESSMENT_OVERVIEW':         ('Assessment Overview',               'institution', 'assessment_overview'),
@@ -1031,16 +1042,36 @@ TEMPLATE_SECTIONS = {
     'UNIVERSITY_HELP_SUPPORT':     ('University Help & Study Support',   'institution', None),
 }
 
-# The three sections that ship Hidden and have to be unhidden by the module
-# lead. This is where all the triage signal lives: the faculty guidance states
-# the 11/3 split, and the 2026-27 export bears it out - 43 of the 45 courses in
-# the first excerpt sat at exactly 11 of 14 visible, which is the untouched
-# post-rollover default, so the completeness score alone separates almost
-# nothing. diagnostics/check_readiness_export.py re-asserts the split on every
-# new file so a template change cannot silently invalidate this.
+# The module-lead-owned sections, derived from TEMPLATE_SECTIONS' owner tag -
+# who is responsible for the content, which is a different question from
+# what the template ships Hidden by default (SECTIONS_SHIP_HIDDEN below).
+# Until 15-09-2026 the two were the same three sections - WELCOME_MODULE_
+# OUTLINE, KEY_STAFF_CONTACTS, ASSESSMENT_DETAIL - and this comment described
+# the faculty's 11/3 split directly: the 2026-27 export bore it out, 43 of
+# the 45 courses in the first excerpt sitting at exactly 11 of 14 visible,
+# the untouched post-rollover default. HOW_YOUR_FEEDBACK_SHAPES broke that
+# equivalence when it was reclassified lead-owned: it ships Visible, same as
+# the institution sections, but still needs a real person to write its
+# content (see the comment on it in TEMPLATE_SECTIONS above), so
+# readiness_section_is_ready() still requires edit evidence for it - it just
+# never needs unhiding first. diagnostics/check_readiness_export.py's
+# hidden-by-default drift check uses SECTIONS_SHIP_HIDDEN, not this tuple,
+# for exactly that reason.
 #
 # Derived from the catalogue rather than written out a second time.
 LEAD_OWNED_SECTIONS = tuple(k for k, v in TEMPLATE_SECTIONS.items() if v[1] == 'lead')
+
+# The subset of LEAD_OWNED_SECTIONS the template actually ships Hidden by
+# default, requiring an unhide action on top of the edit - unlike
+# LEAD_OWNED_SECTIONS itself, this is a fixed empirical fact about the
+# template rollout, not derived from TEMPLATE_SECTIONS' owner tag, so it
+# doesn't grow when a new lead-owned section is added that ships Visible
+# (see HOW_YOUR_FEEDBACK_SHAPES). Used by diagnostics/check_readiness_
+# export.py's drift checks so they don't false-alarm on that section always
+# reading visible_unedited on an untouched module - that's its normal
+# resting state, same as an institution section, right up until someone
+# edits it.
+SECTIONS_SHIP_HIDDEN = ('WELCOME_MODULE_OUTLINE', 'KEY_STAFF_CONTACTS', 'ASSESSMENT_DETAIL')
 
 # How the 14 sections nest on the Module Report - the actual Blackboard
 # Ultra course menu structure a lead recognises from their own course, not
@@ -1093,9 +1124,42 @@ TEMPLATE_SECTION_TREE = [
 # module's sections and finds their audit fields.
 SECTION_KEY_BY_AUDIT_FIELD = {v[2]: k for k, v in TEMPLATE_SECTIONS.items() if v[2]}
 
-# audit_fields.id for the 4 mapped sections nobody but the institution is
-# responsible for (sga, student_voice, assessment_overview, encore_link).
-# These have no dedicated health-banner bullet the way the 3 lead-owned
+# Short display names for the handful of sections whose full TEMPLATE_SECTIONS
+# name is too long for space-constrained UI (a chart bar, a table column
+# header) - additive only, never a substitute for the full name. The module
+# report and Audit Portal always read TEMPLATE_SECTIONS' own label directly
+# and never see these; only a caller that specifically needs brevity should
+# go through short_field_label() below. Deliberately not folded into
+# TEMPLATE_SECTIONS itself, and never written back to audit_fields.label -
+# that field is locked to the section's one canonical (full) name (see
+# views/admin_panel.py's Audit Field Manager and
+# diagnostics/check_audit_field_mapping.py) specifically to stop it drifting
+# from what the section underneath it actually verifies; a second "short"
+# column on the same field would reopen exactly that risk.
+TEMPLATE_SECTION_SHORT_LABELS = {
+    'SKILLS_DEVELOPMENT_SGAS': 'SGAs',
+    'HOW_YOUR_FEEDBACK_SHAPES': 'TellUs Report',
+    'KEY_STAFF_CONTACTS': 'Staff Contacts',
+    'ENCORE_LECTURE_CAPTURE': 'Encore',
+}
+
+def short_field_label(field_id, fallback_label):
+    """The short display name for an audit field, for space-constrained UI
+    only (chart bars, per-module item-status tables) - falls back to the
+    field's own (full) label when no section has a short override. Never
+    call this for the module report or Audit Portal - both always show the
+    full name."""
+    section_key = SECTION_KEY_BY_AUDIT_FIELD.get(field_id)
+    if section_key:
+        short = TEMPLATE_SECTION_SHORT_LABELS.get(section_key)
+        if short:
+            return short
+    return fallback_label
+
+# audit_fields.id for the mapped sections nobody but the institution is
+# responsible for (sga, assessment_overview, encore_link - student_voice
+# moved to the lead-owned side 15-09-2026, see TEMPLATE_SECTIONS above).
+# These have no dedicated health-banner bullet the way the lead-owned
 # mapped fields do ("Lead Sections Outstanding") - views/module_report.py
 # uses this to keep counting a manually-recorded-incomplete answer for one
 # of them in the banner's checklist-items-outstanding bullet now that doing
@@ -1850,7 +1914,7 @@ def calculate_dynamic_compliance_gap(school_code=None):
     or - absent a manual answer - because readiness_section_is_ready() already
     reads the section as done, exactly the same read readiness_prefill_for_
     module() offers the Audit Portal as a suggestion (Visible-and-edited for
-    the 3 lead-owned fields; Visible alone for the 4 institution-owned ones,
+    the 4 lead-owned fields; Visible alone for the 3 institution-owned ones,
     which were never the lead's to edit).
     Before this, an unaudited module was always a gap here even when the
     Template report already showed the section done for it, understating
@@ -1941,7 +2005,10 @@ def calculate_dynamic_compliance_gap(school_code=None):
     gaps = {}
     for field in boolean_fields:
         fid = field['id']
-        label = field['label']
+        # Short label for the chart's bar - a space-constrained display, see
+        # short_field_label(). The Audit Portal and module report are
+        # unaffected: neither reads from this function.
+        label = short_field_label(fid, field['label'])
         section_key = SECTION_KEY_BY_AUDIT_FIELD.get(fid)
 
         compliant_count = 0
@@ -2454,15 +2521,19 @@ def readiness_prefill_for_module(active_row):
     counterpart and are not suggested on at all).
 
     'suggested' comes from readiness_section_is_ready(section_key, state) -
-    see that function. For the 3 lead-owned fields it's True only when the
+    see that function. For the 4 lead-owned fields it's True only when the
     section is Visible AND edited (state == 'visible_edited'; edited means
     only some edit evidence exists, lead-attributed or a batch date alike,
-    not a "did the lead do this personally" test). For the 4
+    not a "did the lead do this personally" test) - this includes
+    student_voice (HOW_YOUR_FEEDBACK_SHAPES) since 15-09-2026, which ships
+    Visible like the institution sections but still needs someone to
+    actually write its content, so it keeps the edited requirement even
+    though it never needs unhiding. For the 3 remaining
     institution-owned-but-mapped fields, Visible is enough on its own,
     edited or not - those sections were never the lead's to edit, so sitting
     untouched since course creation (visible_unedited) is their normal,
     correct state, not a red flag; treating it as one would falsely suggest
-    unticked on the majority of modules for those four fields. evidence_text
+    unticked on the majority of modules for those three fields. evidence_text
     still gives the date either way, so the advisor is never just told
     "checked" with no reason.
 

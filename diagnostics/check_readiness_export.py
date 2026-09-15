@@ -22,8 +22,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from processing import (  # noqa: E402
     parse_readiness_export, aggregate_readiness_to_modules, detect_bulk_edit_dates,
     reconcile_ally_modules, FACULTY_SCHOOLS, TEMPLATE_SECTIONS, LEAD_OWNED_SECTIONS,
-    READINESS_BULK_EDIT_SHARE, READINESS_BULK_EDIT_MIN_MODULES, READINESS_SECTION_RANK,
-    SECTION_STATES,
+    SECTIONS_SHIP_HIDDEN, READINESS_BULK_EDIT_SHARE, READINESS_BULK_EDIT_MIN_MODULES,
+    READINESS_SECTION_RANK, SECTION_STATES,
 )
 
 FAILURES = []
@@ -144,15 +144,20 @@ def main(path, academic_year):
 
     print("Lead-owned sections")
     print(f"  lead-owned: {', '.join(LEAD_OWNED_SECTIONS)}")
+    print(f"  of which ship Hidden by default: {', '.join(SECTIONS_SHIP_HIDDEN)}")
     lead = sections[sections['section_key'].isin(LEAD_OWNED_SECTIONS)]
     hidden_by_default = (sections[sections['status'] != 'Visible']['section_key']
                          .value_counts())
-    # The 11/3 split is the whole basis of triage. If a template revision makes a
-    # different set of sections lead-owned, TEMPLATE_SECTIONS has to follow, and
-    # this is where that shows up.
-    top_hidden = set(hidden_by_default.head(len(LEAD_OWNED_SECTIONS)).index)
-    check("the most-hidden sections are the ones marked lead-owned",
-          top_hidden == set(LEAD_OWNED_SECTIONS),
+    # SECTIONS_SHIP_HIDDEN, not LEAD_OWNED_SECTIONS, is the fixed empirical
+    # fact this guards - one lead-owned section (HOW_YOUR_FEEDBACK_SHAPES)
+    # ships Visible by design, same as the institution sections, so it would
+    # never legitimately show up in "most hidden" and must not be expected
+    # to. If a template revision makes a different set of sections ship
+    # Hidden, TEMPLATE_SECTIONS/SECTIONS_SHIP_HIDDEN has to follow, and this
+    # is where that shows up.
+    top_hidden = set(hidden_by_default.head(len(SECTIONS_SHIP_HIDDEN)).index)
+    check("the most-hidden sections are the ones that ship Hidden by default",
+          top_hidden == set(SECTIONS_SHIP_HIDDEN),
           f"most hidden: {sorted(top_hidden)}")
     for key in LEAD_OWNED_SECTIONS:
         counts = lead[lead['section_key'] == key]['status'].value_counts().to_dict()
@@ -211,7 +216,7 @@ def main(path, academic_year):
     print(f"  modules with a deleted or missing section: {len(blocking)}")
     for row in blocking.head(6).itertuples(index=False):
         print(f"    {row.module_code}: {'; '.join(row.blocking_sections)}")
-    evidence, state_counts = {}, {}
+    evidence, state_counts, ship_hidden_state_counts = {}, {}, {}
     for states in modules['section_states']:
         for key in LEAD_OWNED_SECTIONS:
             if key in states:
@@ -219,6 +224,8 @@ def main(path, academic_year):
                 evidence[e] = evidence.get(e, 0) + 1
                 st = states[key]['state']
                 state_counts[st] = state_counts.get(st, 0) + 1
+                if key in SECTIONS_SHIP_HIDDEN:
+                    ship_hidden_state_counts[st] = ship_hidden_state_counts.get(st, 0) + 1
     print(f"  lead-section edit evidence: {evidence}")
     print("  lead-section states:")
     total_states = sum(state_counts.values()) or 1
@@ -231,17 +238,24 @@ def main(path, academic_year):
     print(f"  worked on but still hidden: {drafted} sections across "
           f"{int((modules['lead_sections_drafted'] > 0).sum())} modules")
 
-    # If these sections ever ship visible by default, every module reads as
-    # ready with no work done. That is the same trap the 11 institutional
-    # sections are already in, and it would arrive silently. A bulk-dated
-    # section is still edit evidence and counts as visible_edited - only
-    # visible_unedited (no edit evidence at all) is the risk.
-    unedited = state_counts.get('visible_unedited', 0)
-    check("visible lead sections have edit evidence, not a new default",
-          unedited <= 0.10 * total_states,
-          f"{unedited} of {total_states} visible with no edit evidence at all"
+    # If the sections that ship Hidden by default (SECTIONS_SHIP_HIDDEN) ever
+    # start shipping visible instead, every module reads as ready with no
+    # work done. That is the same trap the 11 institutional sections (and,
+    # by design, HOW_YOUR_FEEDBACK_SHAPES) are already in, and it would
+    # arrive silently. Scoped to SECTIONS_SHIP_HIDDEN rather than
+    # LEAD_OWNED_SECTIONS deliberately: HOW_YOUR_FEEDBACK_SHAPES ships
+    # Visible on purpose, so it reading visible_unedited on an untouched
+    # module is its normal resting state, not template drift - including it
+    # here would false-alarm on every export. A bulk-dated section is still
+    # edit evidence and counts as visible_edited - only visible_unedited (no
+    # edit evidence at all) is the risk.
+    ship_hidden_total = sum(ship_hidden_state_counts.values()) or 1
+    unedited = ship_hidden_state_counts.get('visible_unedited', 0)
+    check("sections that ship Hidden have edit evidence when visible, not a new default",
+          unedited <= 0.10 * ship_hidden_total,
+          f"{unedited} of {ship_hidden_total} visible with no edit evidence at all"
           + ("  <- has the template changed to ship these visible? "
-             "recheck LEAD_OWNED_SECTIONS" if unedited > 0.10 * total_states else ""))
+             "recheck SECTIONS_SHIP_HIDDEN" if unedited > 0.10 * ship_hidden_total else ""))
     print()
 
     print("Reconciliation against SITS")
