@@ -650,6 +650,31 @@ snapshot/diff logic is I/O-free in `processing.py`
   call `st.cache_data.clear()` just out of habit; a plain `st.rerun()` is
   enough to refresh what actually depends on session/query-time state.
 
+- **Never write `st.session_state` from inside an `@st.cache_data`-decorated
+  function.** `st.cache_data`'s cache is shared across every session (unlike
+  `st.session_state`, which is per-session); on a cache HIT the function body
+  doesn't run at all, so any `st.session_state[...] = ...` inside it only
+  ever executes for whichever session happened to trigger the one real
+  (cache-miss) call. Every other session's script runs `load_audit_data()`,
+  gets the cached return value instantly, and never reaches that line - its
+  own `st.session_state` simply never receives the key, for as long as the
+  cache stays warm (up to the 300s ttl above, longer if another session's
+  call keeps refreshing it). Found 15-09-2026: `load_audit_data()` used to
+  stash `df_ally_courses`/`df_ally_issues`/`df_ally_content`/
+  `df_readiness_sections` into `st.session_state` this way. Symptom: a
+  module's Accessibility Report tab would show real gauge scores (e.g.
+  94.9% overall, 62.5% files) but "✅ No accessibility issues reported"
+  underneath, intermittently, "fixing itself" on some refreshes and not
+  others - exactly what you'd expect from whether *this* session happened to
+  be the one whose rerun landed on a cache miss. Fixed by returning the four
+  frames from `load_audit_data()` instead (now a 6-tuple with `df_aut`,
+  `df_spr`) and moving the `st.session_state[...]` assignments to the call
+  site in `app.py` (just below `with st.spinner(...)`), which is *not*
+  cached and therefore runs for every session on every rerun regardless of
+  whether the `load_audit_data()` call itself was a hit or a miss. If a
+  future loader needs to stash something in session_state, assign it at the
+  call site, never inside the cached function.
+
 - **Interactive column sort on `st.dataframe` tables is unreliable when the
   table also has `on_select="rerun"`** (e.g. the "All Modules" table in
   `views/school_dashboard.py`) — this is an upstream Streamlit limitation, not
