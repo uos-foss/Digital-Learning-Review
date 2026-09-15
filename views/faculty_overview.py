@@ -326,11 +326,8 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     elif selected_view == "✅ Template Alignment":
         st.subheader(f"Template Alignment Analysis ({semester})")
         st.caption(
-            "Counts a module as compliant where the Template Alignment Report "
-            "already shows a section visible, even without a manual audit - a "
-            "manual answer always overrides the data where one has been recorded. "
-            "'Learning Materials' has no template counterpart, so it reflects "
-            "manual audits only."
+            "How ready each part of the Blackboard template is across the "
+            "faculty's modules."
         )
 
         from processing import calculate_dynamic_compliance_gap
