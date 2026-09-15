@@ -68,13 +68,17 @@ SURFACE_WORDS = {
     'file': ("📄", "Re-author and re-upload the file"),
 }
 
-# Template section states by tier. 'action' is amber rather than red on purpose:
-# a section drafted and left hidden is the most actionable thing on the page,
-# but it means somebody has done the work, so it must not read as a failing.
+# Template section states by tier. 'action' and 'attention' both render amber
+# rather than red or grey: a section drafted and left hidden ('action') means
+# somebody has done the work, and one with no edit evidence yet ('attention',
+# e.g. "Not started", "Visible, unedited") is still just outstanding work, not
+# a failing - only 'fault' (Deleted/Missing - actual course-creation faults)
+# stays red. Only two colours are used for badges: green for genuinely done,
+# amber for everything still needing a look.
 STATE_TIER_COLOUR = {
     'ok': "#10B981",
     'action': "#F59E0B",
-    'attention': "#6B7280",
+    'attention': "#F59E0B",
     'fault': "#EF4444",
 }
 
@@ -92,6 +96,11 @@ INSTITUTION_SECTION_COPY = {
         "Visible to students.",
         "Hidden from students. The Learning Module should not be hidden - "
         "check and make sure it's visible."),
+    'MODULE_READING_LIST': (
+        "Visible to students. This is set centrally rather than written by "
+        "the module lead, so being visible is all that's needed here.",
+        "Hidden from students. The reading list needs to be visible to "
+        "students or, if a reading list is not used, marked accordingly."),
 }
 _INSTITUTION_DEFAULT_COPY = (
     "Visible to students. This is set centrally rather than written by the "
