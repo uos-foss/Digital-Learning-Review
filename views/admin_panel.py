@@ -1302,6 +1302,95 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             except Exception as ex:
                                 st.error(f"Failed to parse or write CSV: {ex}")
 
+                    st.divider()
+                    st.markdown("##### **Bulk Remove (CSV)**")
+                    st.write("Delete many accounts at once - upload a CSV with a `Username` column "
+                             "(other columns are ignored, so the same file you imported can be re-used). "
+                             "Matched case-insensitively against existing accounts. This cannot be undone.")
+
+                    bulk_remove_upload = st.file_uploader(
+                        "Choose CSV file (must include a Username column)",
+                        type="csv",
+                        key="uploader_users_bulk_remove"
+                    )
+
+                    if bulk_remove_upload is not None:
+                        try:
+                            df_remove = pd.read_csv(bulk_remove_upload, dtype=str, keep_default_na=False)
+                            if "Username" not in df_remove.columns:
+                                st.error("🚫 CSV must include a `Username` column.")
+                            else:
+                                real_username = st.session_state.get("real_username", st.session_state.get("username", ""))
+                                real_username_key = str(real_username).strip().upper()
+
+                                existing_by_key_rm = {}
+                                for u in df_users["Username"]:
+                                    u = str(u)
+                                    existing_by_key_rm.setdefault(u.strip().upper(), u)
+
+                                to_remove = {}
+                                not_found = []
+                                blocked = []
+                                seen_keys = set()
+
+                                for idx, row in df_remove.iterrows():
+                                    uname_input = str(row.get("Username", "")).strip()
+                                    if not uname_input:
+                                        continue
+                                    key = uname_input.upper()
+                                    if key in seen_keys:
+                                        continue
+                                    seen_keys.add(key)
+
+                                    if key not in existing_by_key_rm:
+                                        not_found.append(uname_input)
+                                        continue
+
+                                    real_uname = existing_by_key_rm[key]
+
+                                    if key == real_username_key:
+                                        blocked.append(f"{real_uname} (that's your own account - can't remove it here)")
+                                        continue
+
+                                    role_matches = df_users.loc[df_users["Username"] == real_uname, "Role"]
+                                    role_val = role_matches.iloc[0] if not role_matches.empty else ""
+                                    if not is_full_admin and role_val in admin_role_names:
+                                        blocked.append(f"{real_uname} (admin account - requires full Admin access)")
+                                        continue
+
+                                    to_remove[key] = real_uname
+
+                                st.markdown("**Sanity Check**")
+                                if to_remove:
+                                    st.warning(
+                                        f"⚠️ {len(to_remove)} account(s) will be permanently deleted:\n\n" +
+                                        "\n".join(f"- {u}" for u in to_remove.values())
+                                    )
+                                if not_found:
+                                    st.info(f"ℹ️ {len(not_found)} username(s) not found, skipped: {', '.join(not_found)}")
+                                if blocked:
+                                    st.error("🚫 Blocked (not deletable by you):\n\n" + "\n".join(f"- {b}" for b in blocked))
+
+                                if not to_remove:
+                                    st.info("Nothing to remove.")
+                                else:
+                                    confirm_remove = st.checkbox(
+                                        f"Confirm: permanently delete these {len(to_remove)} account(s). "
+                                        "This cannot be undone.",
+                                        key="confirm_users_bulk_remove"
+                                    )
+                                    if st.button("🗑️ Execute Removal", type="primary", disabled=not confirm_remove, key="btn_remove_users_bulk"):
+                                        with st.spinner("Removing accounts from SQLite..."):
+                                            for uname in to_remove.values():
+                                                delete_user_sqlite(uname)
+
+                                        logging.info(f"👤 Bulk user removal: {len(to_remove)} account(s) deleted.")
+                                        st.success(f"✅ {len(to_remove)} account(s) removed.")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                        except Exception as ex:
+                            st.error(f"Failed to parse or remove accounts: {ex}")
+
                 if is_full_admin:
                     with sub_tabs[1]:
                         st.markdown("##### **Role Capabilities Directory**")
