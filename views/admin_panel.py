@@ -692,29 +692,40 @@ def _render_readiness_import():
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
     # Strict lockdown verification using RBAC capabilities
-    user_caps = st.session_state.get("capabilities", [])
-    if "access_admin_panel" not in [c.lower() for c in user_caps]:
+    user_caps = [c.lower() for c in st.session_state.get("capabilities", [])]
+    is_full_admin = "access_admin_panel" in user_caps
+    is_limited_admin = "access_admin_limited" in user_caps
+    if not (is_full_admin or is_limited_admin):
         st.error("🚫 Access Denied: This console is strictly reserved for administrative users.")
         st.stop()
-        
+
     st.title("🔧 Admin Control Panel")
     st.write("System diagnostics, app logging streams, checklist audit fields, user management, and manual data imports/exports.")
-    
+
     st.markdown("---")
-    
+
     # Sub-navigation using Segmented Control
-    admin_options = [
-        "📊 System Dashboard",
-        "💬 Feedback Explorer",
-        "📋 Log Viewer",
-        "👤 User Control",
-        "📋 Audit Field Manager",
-        "📂 Data Import/Export",
-        "🗂️ Module Manager",
-        "⚙️ System Maintenance",
-        "🗄️ Database Explorer"
-    ]
-    
+    if is_full_admin:
+        admin_options = [
+            "📊 System Dashboard",
+            "💬 Feedback Explorer",
+            "📋 Log Viewer",
+            "👤 User Control",
+            "📋 Audit Field Manager",
+            "📂 Data Import/Export",
+            "🗂️ Module Manager",
+            "⚙️ System Maintenance",
+            "🗄️ Database Explorer"
+        ]
+    else:
+        # DLA-level limited admin access: only the two sections that were
+        # deliberately opened up to them (15-09-2026). Everything else stays
+        # behind the full access_admin_panel capability.
+        admin_options = [
+            "🗂️ Module Manager",
+            "👤 User Control",
+        ]
+
     selected_tab = st.segmented_control(
         "Admin Tabs:",
         options=admin_options,
@@ -957,10 +968,25 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 roles_list = sorted(df_roles["Role"].unique().tolist())
                 schools_list = ["All"] + list(FACULTY_SCHOOLS)
-                available_caps = ["view_all", "view_school", "edit_checklist", "access_admin_panel"]
-                
-                sub_tabs = st.tabs(["👤 User Accounts", "🛡️ Role Capabilities"])
-                
+                available_caps = ["view_all", "view_school", "edit_checklist", "access_admin_panel", "access_admin_limited"]
+
+                # Roles that carry either admin capability - excluded from the
+                # role-assignment dropdowns below when acting as a limited admin,
+                # so a DLA can't grant themselves or anyone else admin access
+                # via a plain profile edit.
+                def _role_caps(caps_str):
+                    return [c.strip().lower() for c in str(caps_str).split(",") if c.strip()]
+                admin_role_names = {
+                    r["Role"] for _, r in df_roles.iterrows()
+                    if "access_admin_panel" in _role_caps(r["Capabilities"]) or "access_admin_limited" in _role_caps(r["Capabilities"])
+                }
+                assignable_roles_list = roles_list if is_full_admin else [r for r in roles_list if r not in admin_role_names]
+
+                if is_full_admin:
+                    sub_tabs = st.tabs(["👤 User Accounts", "🛡️ Role Capabilities"])
+                else:
+                    sub_tabs = st.tabs(["👤 User Accounts"])
+
                 with sub_tabs[0]:
                     search_query = st.text_input("🔍 Search registry (Username, Role, School):", placeholder="Enter username, role, or school code to filter...", key="search_user_accounts")
                     
@@ -1017,181 +1043,194 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             u_role = u_row["Role"]
                             u_school = u_row["School"]
                             u_status = u_row["Status"]
-                            
-                            role_default = u_role if u_role in roles_list else roles_list[0]
-                            status_default = "Active" if str(u_status).upper() == "ACTIVE" else "Disabled"
 
-                            new_role = st.selectbox("Assign System Role:", roles_list, index=roles_list.index(role_default), key=f"edit_role_{selected_user}")
-                            school_pick = st.multiselect(
-                                "Assign School Context:",
-                                schools_list,
-                                default=parse_user_schools(u_school),
-                                key=f"edit_school_{selected_user}",
-                                help="Pick 'All' for faculty-wide access, or one or more specific schools for a locked/multi-school account. 'All' overrides any other schools also picked."
-                            )
-                            new_school = format_user_schools(school_pick)
-                            new_status = st.segmented_control("Access Status:", ["Active", "Disabled"], default=status_default, key=f"edit_status_{selected_user}")
-                            
-                            new_pwd = st.text_input("Reset Password (leave empty to keep current):", type="password", key=f"reset_pwd_{selected_user}")
+                            if not is_full_admin and u_role in admin_role_names:
+                                st.info("🔒 This account holds an admin role. Editing admin accounts requires full Admin access.")
+                            else:
+                                role_options = roles_list if is_full_admin else assignable_roles_list
+                                role_default = u_role if u_role in role_options else role_options[0]
+                                status_default = "Active" if str(u_status).upper() == "ACTIVE" else "Disabled"
 
-                            # Accounts with no hash sign in via Google OAuth, where identity is
-                            # proven by the token exchange. Flag it so this is not mistaken for
-                            # a broken account and "tidied up" by deleting the row.
-                            if not str(u_row.get("PasswordHash", "")).strip():
-                                st.info(
-                                    "🔑 This account has no password set and signs in via Google OAuth. "
-                                    "That is expected - do not delete it. Set a password only if you need "
-                                    "the account to work when AUTH_PROVIDER is not Google."
+                                new_role = st.selectbox("Assign System Role:", role_options, index=role_options.index(role_default), key=f"edit_role_{selected_user}")
+                                school_pick = st.multiselect(
+                                    "Assign School Context:",
+                                    schools_list,
+                                    default=parse_user_schools(u_school),
+                                    key=f"edit_school_{selected_user}",
+                                    help="Pick 'All' for faculty-wide access, or one or more specific schools for a locked/multi-school account. 'All' overrides any other schools also picked."
                                 )
-                            
-                            if st.button("Update User Profile", type="primary", use_container_width=True, key=f"btn_update_{selected_user}"):
-                                try:
-                                    update_user_field_sqlite(selected_user, "Role", new_role)
-                                    update_user_field_sqlite(selected_user, "School", new_school)
-                                    update_user_field_sqlite(selected_user, "Status", new_status)
-                                    
-                                    if new_pwd.strip():
-                                        from security import hash_password
-                                        update_user_field_sqlite(selected_user, "PasswordHash", hash_password(new_pwd))
-                                        
-                                    logging.info(f"👤 User profile updated for '{selected_user}' directly in SQLite.")
-                                    st.success(f"User '{selected_user}' updated successfully in local database!")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"Error updating user profile: {ex}")
-                                    
-                            if st.button("❌ Delete User Account", type="secondary", use_container_width=True, key=f"btn_del_{selected_user}"):
-                                try:
-                                    delete_user_sqlite(selected_user)
-                                    logging.info(f"👤 User account deleted: '{selected_user}' from SQLite.")
-                                    st.success(f"User '{selected_user}' deleted successfully!")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"Error deleting user: {ex}")
+                                new_school = format_user_schools(school_pick)
+                                new_status = st.segmented_control("Access Status:", ["Active", "Disabled"], default=status_default, key=f"edit_status_{selected_user}")
 
-                            real_username = st.session_state.get("real_username", st.session_state.get("username", ""))
-                            if str(selected_user).strip().upper() != str(real_username).strip().upper():
-                                if st.button("🎭 View As This User", use_container_width=True, key=f"btn_masquerade_{selected_user}"):
-                                    logging.info(f"🎭 Admin '{real_username}' started masquerading as '{selected_user}'.")
-                                    start_masquerade(selected_user)
+                                if is_full_admin:
+                                    new_pwd = st.text_input("Reset Password (leave empty to keep current):", type="password", key=f"reset_pwd_{selected_user}")
+
+                                    # Accounts with no hash sign in via Google OAuth, where identity is
+                                    # proven by the token exchange. Flag it so this is not mistaken for
+                                    # a broken account and "tidied up" by deleting the row.
+                                    if not str(u_row.get("PasswordHash", "")).strip():
+                                        st.info(
+                                            "🔑 This account has no password set and signs in via Google OAuth. "
+                                            "That is expected - do not delete it. Set a password only if you need "
+                                            "the account to work when AUTH_PROVIDER is not Google."
+                                        )
+                                else:
+                                    new_pwd = ""
+
+                                if st.button("Update User Profile", type="primary", use_container_width=True, key=f"btn_update_{selected_user}"):
+                                    try:
+                                        update_user_field_sqlite(selected_user, "Role", new_role)
+                                        update_user_field_sqlite(selected_user, "School", new_school)
+                                        update_user_field_sqlite(selected_user, "Status", new_status)
+
+                                        if new_pwd.strip():
+                                            from security import hash_password
+                                            update_user_field_sqlite(selected_user, "PasswordHash", hash_password(new_pwd))
+
+                                        logging.info(f"👤 User profile updated for '{selected_user}' directly in SQLite.")
+                                        st.success(f"User '{selected_user}' updated successfully in local database!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Error updating user profile: {ex}")
+
+                                if is_full_admin:
+                                    if st.button("❌ Delete User Account", type="secondary", use_container_width=True, key=f"btn_del_{selected_user}"):
+                                        try:
+                                            delete_user_sqlite(selected_user)
+                                            logging.info(f"👤 User account deleted: '{selected_user}' from SQLite.")
+                                            st.success(f"User '{selected_user}' deleted successfully!")
+                                            st.cache_data.clear()
+                                            st.rerun()
+                                        except Exception as ex:
+                                            st.error(f"Error deleting user: {ex}")
+
+                                    real_username = st.session_state.get("real_username", st.session_state.get("username", ""))
+                                    if str(selected_user).strip().upper() != str(real_username).strip().upper():
+                                        if st.button("🎭 View As This User", use_container_width=True, key=f"btn_masquerade_{selected_user}"):
+                                            logging.info(f"🎭 Admin '{real_username}' started masquerading as '{selected_user}'.")
+                                            start_masquerade(selected_user)
 
                     with c2:
                         st.markdown("**Create New User Account**")
-                        add_username = st.text_input("New Username (e.g. school code or email prefix):", placeholder="e.g. MAT", key="new_user_uname").strip()
-                        add_pwd = st.text_input("Account Password:", type="password", placeholder="Enter strong password...", key="new_user_pwd")
-                        add_role = st.selectbox("Select Account Role:", roles_list, index=0, key="new_user_role")
-                        add_school_pick = st.multiselect(
-                            "Select Allowed School(s):",
-                            schools_list,
-                            default=["All"],
-                            key="new_user_school",
-                            help="Pick 'All' for faculty-wide access, or one or more specific schools for a locked/multi-school account."
-                        )
-                        add_school = format_user_schools(add_school_pick)
-
-                        if st.button("Create Account Registry", type="primary", use_container_width=True, key="btn_create_user"):
-                            if not add_username:
-                                st.warning("Please enter a username.")
-                            elif not add_pwd.strip():
-                                st.warning("Please enter a password.")
-                            elif add_username.upper() in df_users["Username"].str.upper().unique():
-                                st.error(f"Username '{add_username}' already exists in SQLite registry.")
-                            else:
-                                try:
-                                    from security import hash_password
-                                    pass_hash = hash_password(add_pwd)
-                                    save_user_sqlite(add_username.upper(), pass_hash, add_role, add_school, "", "Active")
-                                    logging.info(f"👤 Created new user account '{add_username.upper()}' directly in SQLite.")
-                                    st.success(f"User account '{add_username.upper()}' created successfully in SQLite database!")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"Error creating user account: {ex}")
-                                    
-                with sub_tabs[1]:
-                    st.markdown("##### **Role Capabilities Directory**")
-                    st.dataframe(df_roles, use_container_width=True, hide_index=True)
-                    
-                    st.divider()
-                    st.markdown("##### **Role Configuration Actions**")
-                    rc1, rc2 = st.columns(2)
-                    
-                    with rc1:
-                        st.markdown("**Update Role Capabilities**")
-                        selected_edit_role = st.selectbox("Select Role to Configure:", roles_list, key="edit_role_select_box")
-                        
-                        match_row = df_roles[df_roles["Role"] == selected_edit_role]
-                        if not match_row.empty:
-                            role_caps_str = match_row.iloc[0]["Capabilities"]
+                        creatable_roles_list = roles_list if is_full_admin else assignable_roles_list
+                        if not creatable_roles_list:
+                            st.info("No non-admin roles are configured to assign - ask a full Admin to create one first.")
                         else:
-                            role_caps_str = ""
-                            
-                        role_caps_list = [c.strip() for c in role_caps_str.split(",") if c.strip()]
-                        resolved_role_caps = [c.lower() for c in role_caps_list]
+                            add_username = st.text_input("New Username (e.g. school code or email prefix):", placeholder="e.g. MAT", key="new_user_uname").strip()
+                            add_pwd = st.text_input("Account Password:", type="password", placeholder="Enter strong password...", key="new_user_pwd")
+                            add_role = st.selectbox("Select Account Role:", creatable_roles_list, index=0, key="new_user_role")
+                            add_school_pick = st.multiselect(
+                                "Select Allowed School(s):",
+                                schools_list,
+                                default=["All"],
+                                key="new_user_school",
+                                help="Pick 'All' for faculty-wide access, or one or more specific schools for a locked/multi-school account."
+                            )
+                            add_school = format_user_schools(add_school_pick)
+
+                            if st.button("Create Account Registry", type="primary", use_container_width=True, key="btn_create_user"):
+                                if not add_username:
+                                    st.warning("Please enter a username.")
+                                elif not add_pwd.strip():
+                                    st.warning("Please enter a password.")
+                                elif add_username.upper() in df_users["Username"].str.upper().unique():
+                                    st.error(f"Username '{add_username}' already exists in SQLite registry.")
+                                else:
+                                    try:
+                                        from security import hash_password
+                                        pass_hash = hash_password(add_pwd)
+                                        save_user_sqlite(add_username.upper(), pass_hash, add_role, add_school, "", "Active")
+                                        logging.info(f"👤 Created new user account '{add_username.upper()}' directly in SQLite.")
+                                        st.success(f"User account '{add_username.upper()}' created successfully in SQLite database!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Error creating user account: {ex}")
+                                    
+                if is_full_admin:
+                    with sub_tabs[1]:
+                        st.markdown("##### **Role Capabilities Directory**")
+                        st.dataframe(df_roles, use_container_width=True, hide_index=True)
+                    
+                        st.divider()
+                        st.markdown("##### **Role Configuration Actions**")
+                        rc1, rc2 = st.columns(2)
+                    
+                        with rc1:
+                            st.markdown("**Update Role Capabilities**")
+                            selected_edit_role = st.selectbox("Select Role to Configure:", roles_list, key="edit_role_select_box")
                         
-                        st.markdown("**Assigned Capabilities:**")
-                        role_caps_edit = []
-                        for cap in available_caps:
-                            is_checked = cap in resolved_role_caps
-                            if st.checkbox(
-                                cap,
-                                value=is_checked,
-                                key=f"chk_edit_{selected_edit_role}_{cap.replace(' ', '_')}"
-                            ):
-                                role_caps_edit.append(cap)
-                                
-                        if st.button("Save Role Capabilities", type="primary", use_container_width=True, key="btn_save_role_caps"):
-                            try:
-                                new_caps_str = ", ".join(role_caps_edit)
-                                save_role_sqlite(selected_edit_role, new_caps_str)
-                                logging.info(f"🛡️ Capabilities updated for role '{selected_edit_role}' directly in SQLite.")
-                                st.success(f"Capabilities for role '{selected_edit_role}' saved successfully!")
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as ex:
-                                st.error(f"Error saving role capabilities: {ex}")
-                                
-                        if st.button("❌ Delete System Role", type="secondary", use_container_width=True, key=f"btn_del_role_{selected_edit_role}"):
-                            try:
-                                delete_role_sqlite(selected_edit_role)
-                                logging.info(f"🛡️ System role deleted: '{selected_edit_role}' from SQLite.")
-                                st.success(f"Role '{selected_edit_role}' deleted successfully!")
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as ex:
-                                st.error(f"Error deleting role: {ex}")
-                                
-                    with rc2:
-                        st.markdown("**Create New System Role**")
-                        new_role_name = st.text_input("New Role Name:", placeholder="e.g. Guest Observer", key="new_role_name_input").strip()
-                        
-                        st.markdown("**Select Initial Capabilities:**")
-                        new_role_caps = []
-                        for cap in available_caps:
-                            if st.checkbox(
-                                cap,
-                                value=False,
-                                key=f"chk_new_{cap.replace(' ', '_')}"
-                            ):
-                                new_role_caps.append(cap)
-                                
-                        if st.button("Create Role", type="primary", use_container_width=True, key="btn_create_role"):
-                            if not new_role_name:
-                                st.warning("Please enter a role name.")
-                            elif new_role_name.lower() in [r.lower() for r in roles_list]:
-                                st.error(f"Role '{new_role_name}' already exists.")
+                            match_row = df_roles[df_roles["Role"] == selected_edit_role]
+                            if not match_row.empty:
+                                role_caps_str = match_row.iloc[0]["Capabilities"]
                             else:
+                                role_caps_str = ""
+                            
+                            role_caps_list = [c.strip() for c in role_caps_str.split(",") if c.strip()]
+                            resolved_role_caps = [c.lower() for c in role_caps_list]
+                        
+                            st.markdown("**Assigned Capabilities:**")
+                            role_caps_edit = []
+                            for cap in available_caps:
+                                is_checked = cap in resolved_role_caps
+                                if st.checkbox(
+                                    cap,
+                                    value=is_checked,
+                                    key=f"chk_edit_{selected_edit_role}_{cap.replace(' ', '_')}"
+                                ):
+                                    role_caps_edit.append(cap)
+                                
+                            if st.button("Save Role Capabilities", type="primary", use_container_width=True, key="btn_save_role_caps"):
                                 try:
-                                    new_caps_str = ", ".join(new_role_caps)
-                                    save_role_sqlite(new_role_name, new_caps_str)
-                                    logging.info(f"🛡️ Created new role '{new_role_name}' in SQLite.")
-                                    st.success(f"Role '{new_role_name}' created successfully in SQLite database!")
+                                    new_caps_str = ", ".join(role_caps_edit)
+                                    save_role_sqlite(selected_edit_role, new_caps_str)
+                                    logging.info(f"🛡️ Capabilities updated for role '{selected_edit_role}' directly in SQLite.")
+                                    st.success(f"Capabilities for role '{selected_edit_role}' saved successfully!")
                                     st.cache_data.clear()
                                     st.rerun()
                                 except Exception as ex:
-                                    st.error(f"Error creating role: {ex}")
+                                    st.error(f"Error saving role capabilities: {ex}")
+                                
+                            if st.button("❌ Delete System Role", type="secondary", use_container_width=True, key=f"btn_del_role_{selected_edit_role}"):
+                                try:
+                                    delete_role_sqlite(selected_edit_role)
+                                    logging.info(f"🛡️ System role deleted: '{selected_edit_role}' from SQLite.")
+                                    st.success(f"Role '{selected_edit_role}' deleted successfully!")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"Error deleting role: {ex}")
+                                
+                        with rc2:
+                            st.markdown("**Create New System Role**")
+                            new_role_name = st.text_input("New Role Name:", placeholder="e.g. Guest Observer", key="new_role_name_input").strip()
+                        
+                            st.markdown("**Select Initial Capabilities:**")
+                            new_role_caps = []
+                            for cap in available_caps:
+                                if st.checkbox(
+                                    cap,
+                                    value=False,
+                                    key=f"chk_new_{cap.replace(' ', '_')}"
+                                ):
+                                    new_role_caps.append(cap)
+                                
+                            if st.button("Create Role", type="primary", use_container_width=True, key="btn_create_role"):
+                                if not new_role_name:
+                                    st.warning("Please enter a role name.")
+                                elif new_role_name.lower() in [r.lower() for r in roles_list]:
+                                    st.error(f"Role '{new_role_name}' already exists.")
+                                else:
+                                    try:
+                                        new_caps_str = ", ".join(new_role_caps)
+                                        save_role_sqlite(new_role_name, new_caps_str)
+                                        logging.info(f"🛡️ Created new role '{new_role_name}' in SQLite.")
+                                        st.success(f"Role '{new_role_name}' created successfully in SQLite database!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Error creating role: {ex}")
         except Exception as e:
             st.error(f"Error querying SQLite users database: {e}")
 

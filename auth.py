@@ -82,7 +82,7 @@ class EnvAuthProvider(BaseAuthProvider):
         if role == "admin":
             return ["view_all", "edit_checklist", "access_admin_panel"]
         elif role == "DLA":
-            return ["view_all", "edit_checklist"]
+            return ["view_all", "edit_checklist", "access_admin_limited"]
         elif role == "FOSS":
             return ["view_all"]
         elif role == "ML":
