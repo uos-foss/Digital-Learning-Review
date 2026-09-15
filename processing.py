@@ -2175,9 +2175,11 @@ def derive_module_findings(active_row, responses, active_fields):
 
     active_row: the module's row from df_aut/df_spr (or an equivalent dict) -
     needs 'Leganto Missing', 'Leganto List Status', 'Leganto List Items',
-    'Ally Severe', 'Ally Enabled', 'Template Sections'. Missing keys degrade
-    gracefully to "nothing from that source" rather than raising, since a
-    module can legitimately be absent from any one of these datasets.
+    'Ally Severe', 'Ally Major', 'Ally Enabled', 'Ally Overall' (used only to
+    word the Ally finding's description, never to decide pending/completed),
+    'Template Sections'. Missing keys degrade gracefully to "nothing from
+    that source" rather than raising, since a module can legitimately be
+    absent from any one of these datasets.
     responses: {field_id: value} for this module, from audit_responses.
     active_fields: from get_active_audit_fields() - passed in rather than
     fetched here to keep this I/O-free and callable once per module without
@@ -2290,14 +2292,36 @@ def derive_module_findings(active_row, responses, active_fields):
         })
 
     # --- ally: two binary flags, matching the accessibility card's own
-    # severe/disabled signal. Emitted only when true - nothing consumes an
-    # "Ally is fine" completed finding, since the accessibility card already
-    # shows that state richly.
-    if int(row.get('Ally Severe', 0) or 0) > 0:
+    # severe/major/disabled signal. Emitted only when true - nothing consumes
+    # an "Ally is fine" completed finding, since the accessibility card
+    # already shows that state richly. Both now also surface in the module
+    # report's Actions panel (source is no longer excluded there) -
+    # previously they counted toward Actionable Items on School Dashboard
+    # but never appeared as an action anywhere, the same badge-vs-page
+    # disagreement the readiness merge (see "Unified module findings" in
+    # CLAUDE.md) fixed for template sections.
+    #
+    # Threshold is severe OR major, matching the health banner's own two
+    # bullets (_render_health_banner in module_report.py) - a module with
+    # major-only issues (no severe) used to show a banner line naming them
+    # but never actually surfaced as an action, which was the same
+    # contradiction all over again, just one severity tier down. Minor
+    # issues alone are not a finding, same as the banner.
+    ally_severe = int(row.get('Ally Severe', 0) or 0)
+    ally_major = int(row.get('Ally Major', 0) or 0)
+    if ally_severe > 0 or ally_major > 0:
+        ally_score = pd.to_numeric(row.get('Ally Overall'), errors='coerce')
+        score_txt = (f"Ally's overall score was reported at {ally_score * 100:.1f}%. "
+                     if pd.notna(ally_score) else "")
+        # Generic regardless of severe vs major - a specific severity word in
+        # the title next to a high overall score (most modules with a major-
+        # only finding still score in the 90s) read as overstating it.
         findings.append({
             'source': 'ally', 'state': 'pending', 'type': 'boolean',
-            'label': 'Severe accessibility issue found by Ally',
-            'description': 'See the Accessibility Issues card for detail and advice.',
+            'label': 'Accessibility issues found by Ally',
+            'description': (f"{score_txt}See the Accessibility Report tab for what's wrong "
+                            "and why it matters, and your Blackboard course's own Ally "
+                            "Course Report for the file-level detail."),
         })
     if row.get('Ally Enabled') is False:
         findings.append({

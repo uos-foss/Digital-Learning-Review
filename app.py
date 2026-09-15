@@ -146,7 +146,22 @@ def map_level_value(val):
 # the shared database) reasonably promptly.
 @st.cache_data(ttl=300)
 def load_audit_data():
+    """
+    Returns (df_aut, df_spr, df_ally_courses, df_ally_issues, df_ally_content,
+    df_readiness_sections). The four detail frames used to be written straight
+    to st.session_state from inside this function - a bug, since a cache HIT
+    skips the function body entirely, and st.cache_data's cache is shared
+    across every session. Whichever session's script happened to cause the
+    one real (cache-miss) execution got those keys populated; every other
+    session's st.session_state simply never received them for as long as the
+    cache stayed warm, so their views read the .get(..., pd.DataFrame())
+    fallback and looked empty - "Accessibility Report" showing 0 issues
+    despite real gauge scores was one symptom. Returning them instead, so the
+    (uncached) call site can assign session_state on every single rerun
+    regardless of hit/miss, fixes it for every session uniformly.
+    """
     logging.info("📥 Constructing module list from SITS as single source of truth...")
+    empty_ally_readiness = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
     try:
         from database import get_db_connection
         with get_db_connection() as conn:
@@ -158,7 +173,7 @@ def load_audit_data():
                 for df in [df_aut, df_spr]:
                     if not df.empty and 'UG/ PG/ Other' in df.columns:
                         df['UG/ PG/ Other'] = df['UG/ PG/ Other'].map(map_level_value)
-                return df_aut, df_spr
+                return (df_aut, df_spr) + empty_ally_readiness
 
             df_sits = pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
             
@@ -173,16 +188,15 @@ def load_audit_data():
                 params=(CURRENT_ACADEMIC_YEAR,)) if table_exists(conn, "blackboard_links") else pd.DataFrame()
 
         # Ally comes from the institutional export, at Blackboard-course grain,
-        # and is rolled up to modules here. The frames are stashed for the views
-        # that need the detail behind the headline score.
+        # and is rolled up to modules here. The three frames below are
+        # returned (not written to session_state here - see the docstring)
+        # for the views that need the detail behind the headline score.
         from database import get_ally_courses_latest, get_ally_issues_latest, get_ally_content_latest
         from processing import aggregate_ally_to_modules, count_ally_issues_by_module
 
         df_ally_courses = get_ally_courses_latest(CURRENT_ACADEMIC_YEAR)
         df_ally_issues = get_ally_issues_latest(CURRENT_ACADEMIC_YEAR)
-        st.session_state["df_ally_courses"] = df_ally_courses
-        st.session_state["df_ally_issues"] = df_ally_issues
-        st.session_state["df_ally_content"] = get_ally_content_latest(CURRENT_ACADEMIC_YEAR)
+        df_ally_content = get_ally_content_latest(CURRENT_ACADEMIC_YEAR)
 
         ally_modules = aggregate_ally_to_modules(df_ally_courses)
         ally_local_map = (ally_modules.set_index('module_code').to_dict(orient='index')
@@ -203,13 +217,12 @@ def load_audit_data():
 
         # Module readiness, from the faculty Template Alignment Report. Same
         # shape as Ally: course-grain in the database, rolled up to modules
-        # here, with the long section frame stashed for the detail view.
+        # here, with the long section frame returned for the detail view.
         from database import get_readiness_courses_latest, get_readiness_sections_latest
         from processing import aggregate_readiness_to_modules
 
         df_readiness_courses = get_readiness_courses_latest(CURRENT_ACADEMIC_YEAR)
         df_readiness_sections = get_readiness_sections_latest(CURRENT_ACADEMIC_YEAR)
-        st.session_state["df_readiness_sections"] = df_readiness_sections
 
         readiness_modules = aggregate_readiness_to_modules(df_readiness_courses, df_readiness_sections)
         readiness_map = (readiness_modules.set_index('module_code').to_dict(orient='index')
@@ -243,7 +256,8 @@ def load_audit_data():
         # Extract unique modules from SITS
         if df_sits.empty or 'CIS unit code' not in df_sits.columns:
             logging.warning("⚠️ sits_assessment_2026_27 is empty or missing 'CIS unit code' column.")
-            return pd.DataFrame(), pd.DataFrame()
+            return (pd.DataFrame(), pd.DataFrame(), df_ally_courses, df_ally_issues,
+                    df_ally_content, df_readiness_sections)
             
         df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
         unique_modules = df_sits.drop_duplicates(subset=['CIS unit code']).copy()
@@ -432,10 +446,10 @@ def load_audit_data():
             logging.warning(f"Could not filter inactive modules: {e}")
 
         logging.info(f"✅ Successfully compiled SITS module list (Autumn: {len(df_aut)}, Spring: {len(df_spr)}).")
-        return df_aut, df_spr
+        return df_aut, df_spr, df_ally_courses, df_ally_issues, df_ally_content, df_readiness_sections
     except Exception as e:
         logging.error(f"Error loading SITS audit data: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        return (pd.DataFrame(), pd.DataFrame()) + empty_ally_readiness
 
 @st.cache_data(ttl=300)
 def load_checklist_data():
@@ -458,7 +472,8 @@ def load_checklist_data():
                               get_leganto_lists_latest, get_readiness_courses_latest,
                               get_readiness_sections_latest)
         from processing import (count_ally_issues_by_module, aggregate_leganto_to_modules,
-                                aggregate_readiness_to_modules, derive_module_findings)
+                                aggregate_readiness_to_modules, aggregate_ally_to_modules,
+                                derive_module_findings)
 
         active_fields = get_active_audit_fields()
 
@@ -486,11 +501,12 @@ def load_checklist_data():
         # Ally severity counts and enabled/disabled, at module grain - matches
         # what the module report page's Ally card and 'Ally Severe'/'Ally
         # Enabled' columns already show, rather than a separate computation.
-        ally_severe_map, ally_enabled_map = {}, {}
+        ally_severe_map, ally_major_map, ally_enabled_map, ally_overall_map = {}, {}, {}, {}
         try:
             issues = count_ally_issues_by_module(get_ally_issues_latest(CURRENT_ACADEMIC_YEAR))
             if not issues.empty:
                 ally_severe_map = dict(zip(issues['module_code'], issues['severe']))
+                ally_major_map = dict(zip(issues['module_code'], issues['major']))
 
             df_courses = get_ally_courses_latest(CURRENT_ACADEMIC_YEAR)
             if not df_courses.empty and 'ally_enabled' in df_courses.columns:
@@ -498,6 +514,13 @@ def load_checklist_data():
                 # rule as aggregate_ally_to_modules().
                 enabled = df_courses.groupby('module_code')['ally_enabled'].min()
                 ally_enabled_map = {code: bool(v) for code, v in enabled.items()}
+
+            # Same module-grain weighted score the report/dashboard show, so
+            # a severe-issue finding's description can quote the same number
+            # rather than a locally re-derived one.
+            ally_modules = aggregate_ally_to_modules(df_courses)
+            if not ally_modules.empty:
+                ally_overall_map = dict(zip(ally_modules['module_code'], ally_modules['overall_score']))
         except Exception as e:
             logging.warning(f"Could not derive Ally findings: {e}")
 
@@ -522,7 +545,9 @@ def load_checklist_data():
                 'Leganto List Status': leg.get('status', ''),
                 'Leganto List Items': leg.get('total_items', 0),
                 'Ally Severe': ally_severe_map.get(code, 0),
+                'Ally Major': ally_major_map.get(code, 0),
                 'Ally Enabled': ally_enabled_map.get(code, True),
+                'Ally Overall': ally_overall_map.get(code),
                 'Template Sections': rd.get('section_states', {}),
             }
 
@@ -576,7 +601,8 @@ def load_checklist_data():
         # audited yet still need to appear, or the finding is invisible until
         # someone opens the module.
         external_codes = (leganto_missing_set | set(leganto_lists_map)
-                          | set(ally_severe_map) | set(ally_enabled_map) | set(readiness_map))
+                          | set(ally_severe_map) | set(ally_major_map)
+                          | set(ally_enabled_map) | set(readiness_map))
         for m_code in external_codes:
             if m_code in summaries:
                 continue
@@ -612,7 +638,16 @@ def load_assessment_data():
 
 # Load the data
 with st.spinner("Fetching data from SQLite database..."):
-    df_aut, df_spr = load_audit_data()
+    (df_aut, df_spr, df_ally_courses, df_ally_issues,
+     df_ally_content, df_readiness_sections) = load_audit_data()
+    # Assigned here, outside load_audit_data() itself, so every session gets
+    # these every rerun regardless of whether that call was a cache hit or
+    # miss - see the docstring on load_audit_data() for why that distinction
+    # matters and what broke before this was moved out.
+    st.session_state["df_ally_courses"] = df_ally_courses
+    st.session_state["df_ally_issues"] = df_ally_issues
+    st.session_state["df_ally_content"] = df_ally_content
+    st.session_state["df_readiness_sections"] = df_readiness_sections
     checklist_sums = load_checklist_data()
     df_assess = load_assessment_data()
 

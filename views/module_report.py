@@ -544,18 +544,23 @@ def _render_ally_issue_card(row):
 
 def _render_actions_panel(actions):
     """
-    Every outstanding item on this module - checklist, Leganto and template
-    readiness findings alike - as one consolidated bullet list in a single
-    amber panel, styled identically regardless of source.
+    Every outstanding item on this module - checklist, Leganto, Ally and
+    template readiness findings alike - as one consolidated bullet list in a
+    single amber panel, styled identically regardless of source.
 
     Previously each source rendered its own way: checklist/Leganto items as
     individually bordered cards, template-mapped fields as a separate
-    warning banner above them - different visual languages answering the
-    same "what do I need to do" question read as mixed, inconsistent
-    signals to a module lead. One list, one style. Ally and richly-displayed
-    template readiness (the Blackboard Template cards to the left of this
-    panel) are not duplicated here - callers only ever pass already-filtered
-    pending 'checklist' | 'leganto' | 'readiness' findings.
+    warning banner above them, Ally findings not shown here at all despite
+    already counting toward Actionable Items on School Dashboard -
+    different visual languages (and one silent omission) answering the same
+    "what do I need to do" question read as mixed, inconsistent signals to
+    a module lead. One list, one style. Richly-displayed template readiness
+    (the Blackboard Template cards to the left of this panel) and Ally (its
+    own Accessibility tab) are still shown in full elsewhere too - this
+    panel duplicates them on purpose, the same way it does for readiness,
+    so the badge and this list can never disagree about what's outstanding.
+    Callers only ever pass already-filtered pending 'checklist' | 'leganto'
+    | 'ally' | 'readiness' findings.
 
     Free text a DLA typed into a 'text' audit field ('custom' type) is
     html.escape()d before interpolation - it must never be trusted as raw
@@ -705,15 +710,14 @@ def _render_module_checks(actions, has_audit, active_row=None, responses=None,
     state" and "what do I need to do" read as two distinct questions with
     two distinct answers instead of interleaved down one column.
 
-    actions is every pending checklist, Leganto and template-readiness
+    actions is every pending checklist, Leganto, Ally and template-readiness
     finding from processing.derive_module_findings() - the single place
     that decides what counts as outstanding for every source - already
-    filtered to state == 'pending' and source != 'ally' (Ally has its own
-    tab). This function only renders, it does not classify. There is
-    deliberately no matching "Completed" list here any more - a module lead
-    came to this tab to see what's left to do, and a growing list of
-    everything already fine just pushed that further down the page without
-    answering that question.
+    filtered to state == 'pending'. This function only renders, it does not
+    classify. There is deliberately no matching "Completed" list here any
+    more - a module lead came to this tab to see what's left to do, and a
+    growing list of everything already fine just pushed that further down
+    the page without answering that question.
     """
     col_sections, col_actions = st.columns([3, 1])
     with col_sections:
@@ -1139,13 +1143,13 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         verdict = compute_audit_verdict(active_fields, responses)
 
         # Every outstanding item across sources, for the consolidated Actions
-        # panel - Ally is excluded, it has its own tab. Template-readiness
-        # findings are included here (unlike the old checklist-only
-        # worklist) precisely so a manually-recorded-incomplete mapped field
-        # still appears as an action, even though its status is also shown
-        # richly on the Blackboard Template card to its left - see
-        # "Unified module findings" in CLAUDE.md.
-        actions = [f for f in findings if f['state'] == 'pending' and f['source'] != 'ally']
+        # panel. Template-readiness and Ally findings are included here
+        # (unlike the old checklist-only worklist) precisely so a
+        # manually-recorded-incomplete mapped field, or a severe Ally issue,
+        # still appears as an action even though its status is also shown
+        # richly elsewhere (the Blackboard Template card to its left, the
+        # Accessibility tab) - see "Unified module findings" in CLAUDE.md.
+        actions = [f for f in findings if f['state'] == 'pending']
 
         # The banner's "N checklist items outstanding" bullet is checklist-only
         # - Ally, Leganto and lead-owned template readiness each already have
