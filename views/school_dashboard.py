@@ -4,7 +4,8 @@ import datetime
 from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
-                        parse_user_schools, format_user_schools, prepare_ally_issues)
+                        parse_user_schools, format_user_schools, prepare_ally_issues,
+                        derive_module_findings, short_field_label)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks, get_spot_check_agreement_summary)
@@ -516,11 +517,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             elif selected_view == "✅ Template Alignment":
                 st.subheader(f"Template Alignment Analysis ({semester})")
                 st.caption(
-                    "Counts a module as compliant where the Template Alignment Report "
-                    "already shows a section visible, even without a manual audit - a "
-                    "manual answer always overrides the data where one has been recorded. "
-                    "'Learning Materials' has no template counterpart, so it reflects "
-                    "manual audits only."
+                    "Each bar is one checklist item, showing the percentage of this "
+                    "school's modules that already meet it. For most items this is read "
+                    "straight from Blackboard - if a module's page already shows that "
+                    "section to students, it counts as done, with no need for a Digital "
+                    "Learning Advisor to have audited it first. Where a DLA has recorded "
+                    "an answer during an audit, that verified answer always takes priority "
+                    "over what Blackboard shows. 'Learning Materials' is the one item "
+                    "Blackboard has no equivalent for, so it only counts once it's been "
+                    "audited."
                 )
 
                 from processing import calculate_dynamic_compliance_gap
@@ -566,6 +571,105 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.altair_chart(final_chart, use_container_width=True)
                 else:
                     st.write("No checklist completion data available.")
+
+                active_fields = get_active_audit_fields()
+                boolean_fields = [f for f in active_fields if f['field_type'] in ('boolean', 'yes/no')]
+
+                if boolean_fields and not school_df.empty:
+                    st.markdown("#### Item-by-item status")
+                    st.caption(
+                        "Every auditable item for each module in this school - the same "
+                        "checklist, reading list and accessibility items shown on that "
+                        "module's own report page. ✅ means the item already counts as "
+                        "done; ❌ means it's still outstanding. Accessibility isn't a "
+                        "done/not-done item like the others - 🚩 flags a module with a "
+                        "severe Ally issue, or with Ally switched off, for someone to "
+                        "look at. Major-only issues aren't flagged here: almost every "
+                        "module with real content has at least one major issue type, "
+                        "so on their own they're too common to be a useful signal in "
+                        "an overview like this - see the Accessibility Report tab for "
+                        "the full picture."
+                    )
+                    matrix_rows = []
+                    for _, r in school_df.iterrows():
+                        code = r['New module code']
+                        active_row = r.to_dict()
+                        responses = checklist_sums.get(code, {}).get('Responses', {})
+                        findings = derive_module_findings(active_row, responses, active_fields)
+
+                        by_field = {}
+                        leganto_state = 'completed'
+                        for f in findings:
+                            if f['source'] == 'checklist' and 'field_id' in f:
+                                by_field[f['field_id']] = f['state']
+                            elif f['source'] == 'readiness' and f.get('audit_field_id'):
+                                by_field[f['audit_field_id']] = f['state']
+                            elif f['source'] == 'leganto':
+                                leganto_state = f['state']
+
+                        # A separate, stricter threshold from derive_module_findings()'s
+                        # own 'ally' finding (severe OR major, matching the health
+                        # banner) - deliberately not reused here. Major is a count of
+                        # distinct issue *types*, not items, and ~99% of modules with
+                        # any Ally data have at least one - it would flag almost the
+                        # whole school in this quick-glance column. Severe is rare
+                        # (~10%) and a much more reliable "worth a look" signal; Ally
+                        # being switched off is kept since that's a visibility problem
+                        # regardless of severity. Actionable Items / the Accessibility
+                        # tab's own finding are untouched - they still gate on
+                        # severe-or-major, so this column can flag fewer modules than
+                        # the badge counts without disagreeing with it.
+                        ally_severe = int(active_row.get('Ally Severe', 0) or 0)
+                        ally_flag = ally_severe > 0 or active_row.get('Ally Enabled') is False
+
+                        row = {
+                            'Module Code': code,
+                            'Module Name': r.get('Module name', ''),
+                            'Module Lead': to_title_case(r.get('Mod. lead', '')),
+                        }
+                        for field in boolean_fields:
+                            # Short label as the column header - a space-constrained
+                            # display, unlike the module report this is spot-checked
+                            # against, which always shows the full section name.
+                            col = short_field_label(field['id'], field['label'])
+                            row[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
+                        row['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
+                        # Not a done/not-done item like the others - a flag for
+                        # attention (severe/major Ally issue, or Ally disabled),
+                        # not a completion state, so ❌ would misleadingly imply
+                        # something is "incomplete" rather than "worth a look".
+                        row['Accessibility'] = '🚩' if ally_flag else '✅'
+                        matrix_rows.append(row)
+
+                    matrix_df = pd.DataFrame(matrix_rows).sort_values('Module Code').reset_index(drop=True)
+                    st.caption("Select a row (tick the checkbox) to jump to that module's report or audit.")
+                    matrix_selection = st.dataframe(
+                        matrix_df,
+                        hide_index=True,
+                        width="stretch",
+                        on_select="rerun",
+                        selection_mode="single-row",
+                        key="school_dashboard_item_matrix"
+                    )
+
+                    selected_matrix_rows = [i for i in matrix_selection.selection.rows if i < len(matrix_df)]
+                    if selected_matrix_rows:
+                        clicked_code = matrix_df.iloc[selected_matrix_rows[0]]['Module Code']
+                        st.divider()
+                        st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("📊 Jump to Report Card", width="stretch", type="primary", key="btn_matrix_rc"):
+                                st.session_state.selected_module_code = clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
+                                st.switch_page(st.session_state.pg_module)
+                        with c2:
+                            if can_audit and st.button("✅ Open Audit Portal", width="stretch", key="btn_matrix_audit"):
+                                st.session_state.selected_module_code = clicked_code
+                                st.session_state.context_focus_own = False
+                                st.session_state.context_school = school
+                                st.switch_page(st.session_state.pg_audit)
 
             elif selected_view == "⚠️ Priority Action List":
                 st.subheader("🎯 Focus Priority Lenses")

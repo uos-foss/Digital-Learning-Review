@@ -79,7 +79,7 @@ STATE_TIER_COLOUR = {
 }
 
 # Card copy for sections nobody expects a module lead to edit - every section
-# except the 3 in LEAD_OWNED_SECTIONS. For these, edited-or-not is noise (see
+# except the ones in LEAD_OWNED_SECTIONS. For these, edited-or-not is noise (see
 # readiness_section_is_ready()): only whether it's Visible or Hidden is
 # actionable, so both "edited" and "unedited" collapse to one Visible message
 # and both "drafted" and "not started" collapse to one Hidden message, unlike
@@ -737,11 +737,12 @@ def _render_section_card(key, state, responses, has_audit, created, leganto=None
     edits directly - an LTI link, a folder, a fixed-text page - so for them
     only visibility is actionable: edited-or-not is noise, and both the
     Visible states and both the Hidden states collapse to one message each
-    (INSTITUTION_SECTION_COPY). Only the 3 lead-owned sections keep the
-    edited/unedited and drafted/not-started distinctions SECTION_STATES
-    draws, because for them it's the whole point - real free-text content a
-    lead writes themselves, where "visible but never edited" plausibly means
-    untouched template placeholder text.
+    (INSTITUTION_SECTION_COPY). Only the lead-owned sections (LEAD_OWNED_
+    SECTIONS) keep the edited/unedited and drafted/not-started distinctions
+    SECTION_STATES draws, because for them it's the whole point - real
+    content a lead (or, for HOW_YOUR_FEEDBACK_SHAPES specifically, whoever
+    writes it on the module's behalf) has to actually produce, where "visible
+    but never edited" plausibly means untouched template placeholder text.
 
     Applies processing.readiness_manual_override() whenever the section has a
     mapped checklist field - not only the three lead-owned sections. That
@@ -1154,13 +1155,15 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # The banner's "N checklist items outstanding" bullet is checklist-only
         # - Ally, Leganto and lead-owned template readiness each already have
         # their own dedicated bullet, computed directly from active_row/
-        # ally_profile. The 4 institution-owned mapped fields have no bullet
-        # of their own, though, so a 'readiness' finding for one of them is
-        # counted here too - otherwise a DLA manually marking sga/
-        # student_voice/assessment_overview/encore_link incomplete would
+        # ally_profile. The institution-owned mapped fields (sga,
+        # assessment_overview, encore_link) have no bullet of their own,
+        # though, so a 'readiness' finding for one of them is counted here
+        # too - otherwise a DLA manually marking one of them incomplete would
         # silently drop out of the banner now that doing so produces a
         # 'readiness' finding instead of a 'checklist' one (see "Unified
-        # module findings" in CLAUDE.md).
+        # module findings" in CLAUDE.md). student_voice moved to the
+        # lead-owned side 15-09-2026 and now gets its own signal via "Lead
+        # Sections Outstanding" instead.
         checklist_pending_count = len([
             f for f in findings if f['state'] == 'pending' and (
                 f['source'] == 'checklist'
