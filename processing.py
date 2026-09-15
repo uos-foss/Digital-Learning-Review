@@ -2313,11 +2313,12 @@ def derive_module_findings(active_row, responses, active_fields):
         ally_score = pd.to_numeric(row.get('Ally Overall'), errors='coerce')
         score_txt = (f"Ally's overall score was reported at {ally_score * 100:.1f}%. "
                      if pd.notna(ally_score) else "")
-        label = ('Severe accessibility issue found by Ally' if ally_severe > 0
-                 else 'Major accessibility issue found by Ally')
+        # Generic regardless of severe vs major - a specific severity word in
+        # the title next to a high overall score (most modules with a major-
+        # only finding still score in the 90s) read as overstating it.
         findings.append({
             'source': 'ally', 'state': 'pending', 'type': 'boolean',
-            'label': label,
+            'label': 'Accessibility issues found by Ally',
             'description': (f"{score_txt}See the Accessibility Report tab for what's wrong "
                             "and why it matters, and your Blackboard course's own Ally "
                             "Course Report for the file-level detail."),

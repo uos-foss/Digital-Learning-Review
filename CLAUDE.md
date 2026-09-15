@@ -454,15 +454,21 @@ showed that banner line but produced no `'ally'` finding at all - the exact
 same badge-vs-page disagreement, one severity tier further down, on day one
 of the fix meant to remove it. The trigger is now `Ally Severe > 0 or
 Ally Major > 0`, matching the banner's own two severity bullets exactly
-(minor issues alone still aren't a finding, same as the banner); the label
-reads "Severe accessibility issue found by Ally" when severe is present,
-"Major accessibility issue found by Ally" otherwise. `Ally Major` was added
-to `app.py`'s `module_row()` alongside `Ally Severe` for this. The finding's
-wording also now quotes the module's actual Ally score
+(minor issues alone still aren't a finding, same as the banner). `Ally
+Major` was added to `app.py`'s `module_row()` alongside `Ally Severe` for
+this. The finding's wording also now quotes the module's actual Ally score
 (`row.get('Ally Overall')`, threaded through `module_row()` the same way)
 and points at both this page's own Accessibility Report tab and the
 module's own Ally Course Report in Blackboard, the same pairing
 `_render_ally_how_to()` already used.
+
+The label was briefly severity-specific ("Severe accessibility issue found
+by Ally" / "Major accessibility issue found by Ally") and was flattened to
+one generic "Accessibility issues found by Ally" the same day, before this
+had reached real users - a severity word in the title sitting next to a
+high overall score (most major-only modules still score in the 90s, e.g.
+94.9%) read as overstating the problem. The description still explains
+what to do regardless of which tier triggered it.
 
 **A never-audited module's checklist fields do not count toward
 `Actionable Items`** until the module has at least one row in
