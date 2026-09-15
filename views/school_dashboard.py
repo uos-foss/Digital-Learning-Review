@@ -254,7 +254,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                              "stage itself, since an untouched template scores near "
                              "100% and would misread as the best module in the school.")
                 cols.append('Actionable Items')
-                configs['Actionable Items'] = st.column_config.NumberColumn("Actionable Items")
+                configs['Actionable Items'] = st.column_config.NumberColumn(
+                    "Actionable Items",
+                    help="Outstanding items for this module - checklist, Leganto "
+                         "reading lists, Ally accessibility, and template readiness "
+                         "findings combined.")
                 
                 if 'Leganto Missing' in display_df.columns:
                     def _leganto_display(r):
