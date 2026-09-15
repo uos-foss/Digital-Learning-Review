@@ -364,14 +364,15 @@ through a tree of up to 14 sections to find them, and checklist/Leganto
 items still rendered in a visually different style (bordered cards) from
 template-mapped ones (a warning banner) for what is, to a module lead,
 the exact same kind of question - "what do I need to do". The fix: `actions`
-(`view_module_report()`) is now every `state == 'pending'` finding across
-*all* sources except `'ally'` (which has its own tab) - checklist, Leganto
+(`view_module_report()`) became every `state == 'pending'` finding across
+*all* sources except `'ally'` (which had its own tab) - checklist, Leganto
 and `'readiness'` findings together, unfiltered by source for the first time
 - rendered by `_render_actions_panel()` as one bullet list inside a single
-amber panel, same style regardless of which source produced the item. Ally
-and the richly-detailed Blackboard Template cards are still not duplicated
-here; everything else that used to have its own card style now has exactly
-one.
+amber panel, same style regardless of which source produced the item. The
+`'ally'` exception didn't survive the next day - see the entry below on why
+Ally findings render here too as of 15-09-2026. The richly-detailed
+Blackboard Template cards are still not duplicated in this panel; everything
+else that used to have its own card style now has exactly one.
 
 **A `'readiness'` finding's `label`/`description` must say the same thing as
 the Blackboard Template card's own badge/action text whenever a manual
@@ -420,12 +421,48 @@ problem it was solving for `learning_materials` isn't being addressed this
 way). If a similar veto is wanted for some field in future, the pattern is
 straightforward to reintroduce — see git history around this date.
 
-**Ally and readiness findings are produced but never rendered generically** —
-both already have their own richer display (the accessibility card, the
-Blackboard Template block), so `view_module_report()` deliberately excludes
-those two sources from the generic pending/completed card list. They still
-count toward `Actionable Items`, which is the whole point: the badge now
-agrees with what those richer views show.
+**Ally and readiness findings both render generically now, alongside their
+own richer displays.** Originally (this paragraph, pre-14-09-2026)
+`view_module_report()` excluded both sources from the generic
+pending/completed card list, on the reasoning that each already had its own
+richer display (the accessibility card, the Blackboard Template block) and
+didn't need a second, plainer rendering. Readiness was pulled back in on
+14-09-2026 for the two-column Actions panel (see the "Module Checks and
+Readiness tab" entry above) — a manually-recorded-incomplete mapped field
+needed to show as an action, not just on its Blackboard Template card.
+`source != 'ally'` was left in the Actions filter at the time, on the same
+"has its own tab" reasoning.
+
+That carve-out turned out to be the exact badge-vs-page disagreement this
+whole findings system exists to prevent, just for Ally instead of readiness:
+`Actionable Items` on School Dashboard already counted a severe Ally issue
+or a disabled Ally scan as pending (`derive_module_findings()`'s `'ally'`
+block always produced them), but the module report's own Actions panel never
+showed them — a DLA could see the badge but nothing telling them what it
+was counting. Fixed 15-09-2026: `source != 'ally'` dropped from the
+`actions` filter in `view_module_report()`, so Ally findings render in the
+Actions panel exactly like every other source, still alongside (not
+instead of) the Accessibility tab's own richer display.
+
+Caught the same day, before this had been used on a real module for long:
+the severe-issue finding only ever fired on `Ally Severe > 0`, but the
+health banner above it (`_render_health_banner()`) has always shown a
+"N major accessibility issue types" bullet too, from the same `ally_profile`
+data, independent of `derive_module_findings()`. A module with major-only
+issues and zero severe ones (real example: 7 major issue types, 40 items)
+showed that banner line but produced no `'ally'` finding at all - the exact
+same badge-vs-page disagreement, one severity tier further down, on day one
+of the fix meant to remove it. The trigger is now `Ally Severe > 0 or
+Ally Major > 0`, matching the banner's own two severity bullets exactly
+(minor issues alone still aren't a finding, same as the banner); the label
+reads "Severe accessibility issue found by Ally" when severe is present,
+"Major accessibility issue found by Ally" otherwise. `Ally Major` was added
+to `app.py`'s `module_row()` alongside `Ally Severe` for this. The finding's
+wording also now quotes the module's actual Ally score
+(`row.get('Ally Overall')`, threaded through `module_row()` the same way)
+and points at both this page's own Accessibility Report tab and the
+module's own Ally Course Report in Blackboard, the same pairing
+`_render_ally_how_to()` already used.
 
 **A never-audited module's checklist fields do not count toward
 `Actionable Items`** until the module has at least one row in

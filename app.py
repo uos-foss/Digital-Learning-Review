@@ -458,7 +458,8 @@ def load_checklist_data():
                               get_leganto_lists_latest, get_readiness_courses_latest,
                               get_readiness_sections_latest)
         from processing import (count_ally_issues_by_module, aggregate_leganto_to_modules,
-                                aggregate_readiness_to_modules, derive_module_findings)
+                                aggregate_readiness_to_modules, aggregate_ally_to_modules,
+                                derive_module_findings)
 
         active_fields = get_active_audit_fields()
 
@@ -486,11 +487,12 @@ def load_checklist_data():
         # Ally severity counts and enabled/disabled, at module grain - matches
         # what the module report page's Ally card and 'Ally Severe'/'Ally
         # Enabled' columns already show, rather than a separate computation.
-        ally_severe_map, ally_enabled_map = {}, {}
+        ally_severe_map, ally_major_map, ally_enabled_map, ally_overall_map = {}, {}, {}, {}
         try:
             issues = count_ally_issues_by_module(get_ally_issues_latest(CURRENT_ACADEMIC_YEAR))
             if not issues.empty:
                 ally_severe_map = dict(zip(issues['module_code'], issues['severe']))
+                ally_major_map = dict(zip(issues['module_code'], issues['major']))
 
             df_courses = get_ally_courses_latest(CURRENT_ACADEMIC_YEAR)
             if not df_courses.empty and 'ally_enabled' in df_courses.columns:
@@ -498,6 +500,13 @@ def load_checklist_data():
                 # rule as aggregate_ally_to_modules().
                 enabled = df_courses.groupby('module_code')['ally_enabled'].min()
                 ally_enabled_map = {code: bool(v) for code, v in enabled.items()}
+
+            # Same module-grain weighted score the report/dashboard show, so
+            # a severe-issue finding's description can quote the same number
+            # rather than a locally re-derived one.
+            ally_modules = aggregate_ally_to_modules(df_courses)
+            if not ally_modules.empty:
+                ally_overall_map = dict(zip(ally_modules['module_code'], ally_modules['overall_score']))
         except Exception as e:
             logging.warning(f"Could not derive Ally findings: {e}")
 
@@ -522,7 +531,9 @@ def load_checklist_data():
                 'Leganto List Status': leg.get('status', ''),
                 'Leganto List Items': leg.get('total_items', 0),
                 'Ally Severe': ally_severe_map.get(code, 0),
+                'Ally Major': ally_major_map.get(code, 0),
                 'Ally Enabled': ally_enabled_map.get(code, True),
+                'Ally Overall': ally_overall_map.get(code),
                 'Template Sections': rd.get('section_states', {}),
             }
 
@@ -576,7 +587,8 @@ def load_checklist_data():
         # audited yet still need to appear, or the finding is invisible until
         # someone opens the module.
         external_codes = (leganto_missing_set | set(leganto_lists_map)
-                          | set(ally_severe_map) | set(ally_enabled_map) | set(readiness_map))
+                          | set(ally_severe_map) | set(ally_major_map)
+                          | set(ally_enabled_map) | set(readiness_map))
         for m_code in external_codes:
             if m_code in summaries:
                 continue
