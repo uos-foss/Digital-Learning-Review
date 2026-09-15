@@ -1176,7 +1176,18 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         st.caption("Columns: `Username` (required), `Password` (plaintext, leave blank to "
                                    "keep/skip), `Role`, `School`, `Status` (`Active`/`Disabled`, default Active). "
                                    "Existing usernames are updated; new ones are created.")
-                        bulk_upload = st.file_uploader("Choose CSV file", type="csv", key="uploader_users_bulk")
+                        # Keyed with a version counter bumped after a successful
+                        # write, not a fixed key - the uploaded file otherwise
+                        # stays attached across the st.rerun() below, so the
+                        # very next script run re-processes the same CSV
+                        # against the now-just-updated registry and reports
+                        # every row as an update (or, worse, "not found" for
+                        # the equivalent bulk-remove uploader) instead of
+                        # showing an empty uploader.
+                        bulk_import_key_v = st.session_state.get("bulk_import_key_v", 0)
+                        bulk_upload = st.file_uploader(
+                            "Choose CSV file", type="csv", key=f"uploader_users_bulk_{bulk_import_key_v}"
+                        )
 
                         if bulk_upload is not None:
                             try:
@@ -1196,16 +1207,32 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                     # in-file duplicate would otherwise just silently let
                                     # its last occurrence win with no record of the earlier
                                     # one being discarded.
-                                    existing_usernames = set(df_users["Username"].str.upper())
+                                    # Username is a case-sensitive TEXT PRIMARY KEY (no
+                                    # COLLATE NOCASE) - several existing accounts, mostly
+                                    # email-style DLA/staff logins, are stored lowercase.
+                                    # Matching/writing them back in a different case than
+                                    # they're already stored in would miss save_user_sqlite's
+                                    # ON CONFLICT(Username) and silently insert a duplicate
+                                    # row instead of updating the real one - so an existing
+                                    # account's casing is always preserved exactly as
+                                    # stored, and a genuinely new account keeps whatever
+                                    # casing the CSV used rather than having one forced on it.
+                                    existing_by_key = {}
+                                    for u in df_users["Username"]:
+                                        u = str(u)
+                                        existing_by_key.setdefault(u.strip().upper(), u)
+
                                     valid_rows = {}
                                     issues = []
 
                                     for idx, row in df_bulk.iterrows():
                                         line = idx + 2  # +1 for header, +1 for 1-indexing
-                                        uname = str(row.get("Username", "")).strip().upper()
-                                        if not uname:
+                                        uname_input = str(row.get("Username", "")).strip()
+                                        if not uname_input:
                                             issues.append(f"Row {line}: blank Username, skipped.")
                                             continue
+                                        key = uname_input.upper()
+                                        uname = existing_by_key.get(key, uname_input)
 
                                         role = str(row.get("Role", "")).strip()
                                         if not role:
@@ -1233,15 +1260,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                         status = "Active" if status_raw not in ("Active", "Disabled") else status_raw
                                         pwd = str(row.get("Password", "")).strip()
 
-                                        if uname in valid_rows:
+                                        if key in valid_rows:
                                             issues.append(
                                                 f"Row {line}: duplicate Username '{uname}' in this file - "
                                                 f"the later row wins, the earlier one is discarded."
                                             )
-                                        valid_rows[uname] = (role, school, status, pwd)
+                                        valid_rows[key] = (uname, role, school, status, pwd)
 
                                     st.markdown("**Sanity Check**")
-                                    n_new = sum(1 for u in valid_rows if u not in existing_usernames)
+                                    n_new = sum(1 for k in valid_rows if k not in existing_by_key)
                                     n_upd = len(valid_rows) - n_new
                                     if valid_rows:
                                         st.info(
@@ -1267,10 +1294,10 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
                                             created, updated = 0, 0
                                             with st.spinner("Writing accounts to SQLite..."):
-                                                for uname, (role, school, status, pwd) in valid_rows.items():
+                                                for key, (uname, role, school, status, pwd) in valid_rows.items():
                                                     pwd_hash = hash_password(pwd) if pwd else ""
                                                     save_user_sqlite(uname, pwd_hash, role, school, "", status)
-                                                    if uname in existing_usernames:
+                                                    if key in existing_by_key:
                                                         updated += 1
                                                     else:
                                                         created += 1
@@ -1280,11 +1307,109 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                                 f"{len(issues)} skipped."
                                             )
                                             st.success(f"✅ Bulk import complete: {created} account(s) created, {updated} updated.")
+                                            st.session_state["bulk_import_key_v"] = bulk_import_key_v + 1
                                             st.cache_data.clear()
                                             st.balloons()
                                             st.rerun()
                             except Exception as ex:
                                 st.error(f"Failed to parse or write CSV: {ex}")
+
+                    st.divider()
+                    st.markdown("##### **Bulk Remove (CSV)**")
+                    st.write("Delete many accounts at once - upload a CSV with a `Username` column "
+                             "(other columns are ignored, so the same file you imported can be re-used). "
+                             "Matched case-insensitively against existing accounts. This cannot be undone.")
+
+                    # Same reset-after-success reasoning as the importer above -
+                    # without it, the file stays attached through the
+                    # st.rerun() below and the very next run re-matches the
+                    # same CSV against the now-just-emptied accounts, showing
+                    # a confusing "not found" for everything that was in fact
+                    # just removed.
+                    bulk_remove_key_v = st.session_state.get("bulk_remove_key_v", 0)
+                    bulk_remove_upload = st.file_uploader(
+                        "Choose CSV file (must include a Username column)",
+                        type="csv",
+                        key=f"uploader_users_bulk_remove_{bulk_remove_key_v}"
+                    )
+
+                    if bulk_remove_upload is not None:
+                        try:
+                            df_remove = pd.read_csv(bulk_remove_upload, dtype=str, keep_default_na=False)
+                            if "Username" not in df_remove.columns:
+                                st.error("🚫 CSV must include a `Username` column.")
+                            else:
+                                real_username = st.session_state.get("real_username", st.session_state.get("username", ""))
+                                real_username_key = str(real_username).strip().upper()
+
+                                existing_by_key_rm = {}
+                                for u in df_users["Username"]:
+                                    u = str(u)
+                                    existing_by_key_rm.setdefault(u.strip().upper(), u)
+
+                                to_remove = {}
+                                not_found = []
+                                blocked = []
+                                seen_keys = set()
+
+                                for idx, row in df_remove.iterrows():
+                                    uname_input = str(row.get("Username", "")).strip()
+                                    if not uname_input:
+                                        continue
+                                    key = uname_input.upper()
+                                    if key in seen_keys:
+                                        continue
+                                    seen_keys.add(key)
+
+                                    if key not in existing_by_key_rm:
+                                        not_found.append(uname_input)
+                                        continue
+
+                                    real_uname = existing_by_key_rm[key]
+
+                                    if key == real_username_key:
+                                        blocked.append(f"{real_uname} (that's your own account - can't remove it here)")
+                                        continue
+
+                                    role_matches = df_users.loc[df_users["Username"] == real_uname, "Role"]
+                                    role_val = role_matches.iloc[0] if not role_matches.empty else ""
+                                    if not is_full_admin and role_val in admin_role_names:
+                                        blocked.append(f"{real_uname} (admin account - requires full Admin access)")
+                                        continue
+
+                                    to_remove[key] = real_uname
+
+                                st.markdown("**Sanity Check**")
+                                if to_remove:
+                                    st.warning(
+                                        f"⚠️ {len(to_remove)} account(s) will be permanently deleted:\n\n" +
+                                        "\n".join(f"- {u}" for u in to_remove.values())
+                                    )
+                                if not_found:
+                                    st.info(f"ℹ️ {len(not_found)} username(s) not found, skipped: {', '.join(not_found)}")
+                                if blocked:
+                                    st.error("🚫 Blocked (not deletable by you):\n\n" + "\n".join(f"- {b}" for b in blocked))
+
+                                if not to_remove:
+                                    st.info("Nothing to remove.")
+                                else:
+                                    confirm_remove = st.checkbox(
+                                        f"Confirm: permanently delete these {len(to_remove)} account(s). "
+                                        "This cannot be undone.",
+                                        key="confirm_users_bulk_remove"
+                                    )
+                                    if st.button("🗑️ Execute Removal", type="primary", disabled=not confirm_remove, key="btn_remove_users_bulk"):
+                                        with st.spinner("Removing accounts from SQLite..."):
+                                            for uname in to_remove.values():
+                                                delete_user_sqlite(uname)
+
+                                        logging.info(f"👤 Bulk user removal: {len(to_remove)} account(s) deleted.")
+                                        st.success(f"✅ {len(to_remove)} account(s) removed.")
+                                        st.session_state["bulk_remove_key_v"] = bulk_remove_key_v + 1
+                                        st.cache_data.clear()
+                                        st.rerun()
+                        except Exception as ex:
+                            st.error(f"Failed to parse or remove accounts: {ex}")
 
                 if is_full_admin:
                     with sub_tabs[1]:
