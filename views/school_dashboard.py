@@ -13,14 +13,14 @@ from views.ally_widgets import (
     build_accessibility_risk_list,
 )
 
-def to_sentence_case(name: str) -> str:
-    """Convert name to sentence case (capitalize first letter only)."""
+def to_title_case(name: str) -> str:
+    """Convert name to title case (capitalize each word)."""
     if not name or pd.isna(name):
         return ""
     name_str = str(name).strip()
     if not name_str:
         return ""
-    return name_str[0].upper() + name_str[1:].lower() if len(name_str) > 0 else name_str
+    return name_str.title()
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     schools = list(FACULTY_SCHOOLS)
@@ -199,7 +199,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 # otherwise land in whatever order the last sync inserted them.
                 display_df = display_df.sort_values('New module code').reset_index(drop=True)
                 # Apply sentence case to Module Lead names
-                display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_sentence_case)
+                display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_title_case)
                 cols = ['New module code', 'Module name', 'Mod. lead']
                 configs = {
                     "New module code": "Module Code",
@@ -211,6 +211,17 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 # in the data, so that part of the spread stays on the DLA's
                 # own knowledge of their school.
                 if 'UG/ PG/ Other' in display_df.columns:
+                    # Abbreviated here only - this table is tight on space.
+                    # Full text ('Foundation', 'UG Level 1', ...) is still
+                    # what's stored and what other pages show.
+                    _level_abbrev = {
+                        'Foundation': 'FY',
+                        'UG Level 1': 'UG1',
+                        'UG Level 2': 'UG2',
+                        'UG Level 3': 'UG3',
+                    }
+                    display_df['UG/ PG/ Other'] = display_df['UG/ PG/ Other'].apply(
+                        lambda v: _level_abbrev.get(v, v))
                     cols.append('UG/ PG/ Other')
                     configs['UG/ PG/ Other'] = "Level"
                 # Ally score, qualified by how far the course has been built - an
@@ -228,11 +239,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                             v = r.get('Ally Overall')
                             if pd.notna(v):
                                 return f"{v * 100:.1f}%"
-                        return maturity if maturity else "—"
+                        if not maturity:
+                            return "—"
+                        # Matches the Module Report's own banner wording
+                        # (views/module_report.py) so the two pages say the
+                        # same thing for the same state.
+                        return "Not started" if maturity == "Not yet built" else maturity
                     display_df['Score / Stage'] = display_df.apply(_score_or_stage, axis=1)
                     cols.append('Score / Stage')
                     configs['Score / Stage'] = st.column_config.TextColumn(
-                        "Score / Build Stage",
+                        "Ally Score",
                         help="Ally's accessibility score once a module has content "
                              "beyond its template ('In progress'); otherwise the build "
                              "stage itself, since an untouched template scores near "
@@ -243,48 +259,27 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 if 'Leganto Missing' in display_df.columns:
                     def _leganto_display(r):
                         if r.get('Leganto Missing') is True:
-                            return "❌ No List"
+                            return "❌ Missing"
                         status = r.get('Leganto List Status', '')
-                        items = r.get('Leganto List Items', 0)
                         if status == 'Published':
-                            return f"✅ Published ({items})"
+                            return "✅ Published"
                         if status in ('Draft', 'Mixed'):
-                            return f"📝 Draft ({items})"
-                        return "✅ OK"
+                            return "📝 Draft"
+                        if status == 'No List Expected':
+                            return "➖ Not needed"
+                        # Blank status: not in Leganto Missing, and absent
+                        # from the has-a-list export too. No signal either
+                        # way, but a DLA scanning this column still needs to
+                        # act on it, so it reads the same as a confirmed one.
+                        return "❌ Missing"
                     display_df['Leganto'] = display_df.apply(_leganto_display, axis=1)
                     cols.append('Leganto')
-                    configs['Leganto'] = "Leganto Status"
-
-                # Template alignment, reported as the module-lead sections only.
-                # The vendor completeness score restates the visible-section
-                # count and sits on the same value for most of a school after a
-                # rollover, so it would sort nothing.
-                if 'Lead Sections Ready' in display_df.columns:
-                    def _template_display(r):
-                        ready = r.get('Lead Sections Ready')
-                        if ready is None or pd.isna(ready):
-                            return "— No data"
-                        total = int(r.get('Lead Sections Total') or 0)
-                        blocking = r.get('Template Blocking') or []
-                        drafted = int(r.get('Lead Sections Drafted') or 0)
-                        mark = "✅" if total and ready == total else "📋"
-                        if len(blocking):
-                            mark = "⚠️"
-                        cell = f"{mark} {int(ready)} of {total}"
-                        # Surfaced here because it is the cheapest win in the
-                        # school: the content exists and only needs unhiding.
-                        if drafted:
-                            cell += f" · 👁 {drafted} to unhide"
-                        return cell
-                    display_df['Template'] = display_df.apply(_template_display, axis=1)
-                    cols.append('Template')
-                    configs['Template'] = st.column_config.TextColumn(
-                        "Template Sections",
-                        help="The Blackboard template sections the module lead is "
-                             "responsible for, and whether they're visible to students. "
-                             "👁 marks sections already worked on but still hidden — those "
-                             "only need making visible. ⚠️ marks a section deleted from or "
-                             "missing in the Blackboard course.")
+                    configs['Leganto'] = st.column_config.TextColumn(
+                        "Reading List",
+                        help="Published/Draft - list status in Leganto. Not needed - "
+                             "Leganto's own export confirms no list is expected for "
+                             "this course. Missing - no list found, or the module "
+                             "doesn't yet appear in either Leganto export.")
 
                 # Latest spot-check status per module, fetched once for the
                 # whole school rather than a query per row. A module can have
@@ -428,7 +423,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                     else:
                         table = school_df.copy()
                         table['_code'] = table['New module code'].astype(str).str.strip().str.upper()
-                        table['Mod. lead'] = table['Mod. lead'].apply(to_sentence_case)
+                        table['Mod. lead'] = table['Mod. lead'].apply(to_title_case)
 
                         if filters_active:
                             table_issues = severity_scoped
