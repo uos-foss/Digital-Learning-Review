@@ -517,15 +517,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             elif selected_view == "✅ Template Alignment":
                 st.subheader(f"Template Alignment Analysis ({semester})")
                 st.caption(
-                    "Each bar is one checklist item, showing the percentage of this "
-                    "school's modules that already meet it. For most items this is read "
-                    "straight from Blackboard - if a module's page already shows that "
-                    "section to students, it counts as done, with no need for a Digital "
-                    "Learning Advisor to have audited it first. Where a DLA has recorded "
-                    "an answer during an audit, that verified answer always takes priority "
-                    "over what Blackboard shows. 'Learning Materials' is the one item "
-                    "Blackboard has no equivalent for, so it only counts once it's been "
-                    "audited."
+                    "How ready each part of the Blackboard template is across this "
+                    "school's modules."
                 )
 
                 from processing import calculate_dynamic_compliance_gap
@@ -578,17 +571,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
                 if boolean_fields and not school_df.empty:
                     st.markdown("#### Item-by-item status")
                     st.caption(
-                        "Every auditable item for each module in this school - the same "
-                        "checklist, reading list and accessibility items shown on that "
-                        "module's own report page. ✅ means the item already counts as "
-                        "done; ❌ means it's still outstanding. Accessibility isn't a "
-                        "done/not-done item like the others - 🚩 flags a module with a "
-                        "severe Ally issue, or with Ally switched off, for someone to "
-                        "look at. Major-only issues aren't flagged here: almost every "
-                        "module with real content has at least one major issue type, "
-                        "so on their own they're too common to be a useful signal in "
-                        "an overview like this - see the Accessibility Report tab for "
-                        "the full picture."
+                        "A detailed view of the status of Blackboard template items "
+                        "across the School's modules. ✅ done · ❌ outstanding · "
+                        "🚩 accessibility needs a look."
                     )
                     matrix_rows = []
                     for _, r in school_df.iterrows():
