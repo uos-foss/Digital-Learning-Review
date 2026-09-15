@@ -1973,7 +1973,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             st.write("Mark modules as inactive (skeleton modules, not used, etc.) to exclude them from audits and analytics.")
 
             try:
-                from database import get_inactive_modules, mark_module_inactive, mark_module_active
+                from database import get_inactive_modules, mark_module_inactive, mark_module_active, get_all_sits_modules
 
                 # Load all modules from the dataframes
                 all_modules_set = set()
@@ -2001,6 +2001,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         },
                         use_container_width=True,
                         hide_index=True
+                    )
+
+                    export_csv = inactive_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Inactive Modules (CSV)",
+                        data=export_csv,
+                        file_name=f"inactive_modules_export_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        key="export_btn_inactive_modules"
                     )
 
                     st.divider()
@@ -2044,6 +2053,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             "Archived",
                             "Other"
                         ],
+                        index=4,
                         key="mark_inactive_reason"
                     )
 
@@ -2057,6 +2067,116 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error marking module as inactive: {e}")
+
+                st.divider()
+                st.markdown("##### **Bulk Mark as Inactive (CSV)**")
+                st.write(
+                    "Upload a CSV with a `module_code` column to mark many modules inactive at "
+                    "once, all with the same reason. Unrecognized codes are skipped, not rejected."
+                )
+
+                bulk_reason = st.selectbox(
+                    "Reason for this batch:",
+                    options=[
+                        "Skeleton module",
+                        "Not used this year",
+                        "Merged with another module",
+                        "Archived",
+                        "Other"
+                    ],
+                    index=4,
+                    key="bulk_mark_inactive_reason"
+                )
+
+                bulk_inactive_key_v = st.session_state.get("bulk_inactive_key_v", 0)
+                bulk_inactive_upload = st.file_uploader(
+                    "Choose CSV file (column: module_code)", type="csv",
+                    key=f"uploader_inactive_bulk_{bulk_inactive_key_v}"
+                )
+
+                if bulk_inactive_upload is not None:
+                    try:
+                        df_bulk_inactive = pd.read_csv(bulk_inactive_upload, dtype=str, keep_default_na=False)
+
+                        col_lookup = {c.strip().lower().replace(" ", "_"): c for c in df_bulk_inactive.columns}
+                        code_col = next(
+                            (col_lookup[k] for k in ("module_code", "modulecode", "code") if k in col_lookup),
+                            None
+                        )
+                        if code_col is None and len(df_bulk_inactive.columns) == 1:
+                            code_col = df_bulk_inactive.columns[0]
+
+                        if code_col is None:
+                            st.error("🚫 CSV must include a `module_code` column.")
+                        else:
+                            raw_codes = df_bulk_inactive[code_col].astype(str).str.strip().str.upper()
+                            raw_codes = raw_codes[raw_codes != ""]
+
+                            if raw_codes.empty:
+                                st.error("No module codes found in that column.")
+                            else:
+                                unique_codes = list(dict.fromkeys(raw_codes.tolist()))
+
+                                sits_df = get_all_sits_modules()
+                                if sits_df.empty:
+                                    st.warning(
+                                        "⚠️ No SITS modules are loaded to validate against yet - "
+                                        "every code below will show as unrecognized until SITS data is imported."
+                                    )
+                                valid_universe = set(sits_df['module_code']) if not sits_df.empty else set()
+
+                                recognized = [c for c in unique_codes if c in valid_universe]
+                                unrecognized = [c for c in unique_codes if c not in valid_universe]
+                                already_inactive_batch = [c for c in recognized if c in inactive_codes]
+                                newly_inactive_batch = [c for c in recognized if c not in inactive_codes]
+
+                                m1, m2, m3 = st.columns(3)
+                                m1.metric("Will mark inactive", len(recognized))
+                                m2.metric("Unrecognized (skipped)", len(unrecognized))
+                                m3.metric("Already inactive", len(already_inactive_batch))
+
+                                if unrecognized:
+                                    st.warning(
+                                        "⚠️ These codes aren't recognized as SITS modules and will be "
+                                        "skipped:\n\n" + ", ".join(unrecognized)
+                                    )
+
+                                if recognized:
+                                    info_parts = [f"{len(newly_inactive_batch)} newly marked inactive"]
+                                    if already_inactive_batch:
+                                        info_parts.append(
+                                            f"{len(already_inactive_batch)} already inactive "
+                                            "(will be refreshed with this reason/date)"
+                                        )
+                                    st.info("✅ " + ", ".join(info_parts) + ".")
+
+                                    confirm_bulk_inactive = st.checkbox(
+                                        "Confirm: I want to mark these modules as inactive.",
+                                        key="confirm_bulk_mark_inactive"
+                                    )
+
+                                    if st.button(
+                                        "🚫 Bulk Mark as Inactive", type="primary",
+                                        disabled=not confirm_bulk_inactive, key="btn_bulk_mark_inactive"
+                                    ):
+                                        username = st.session_state.get("username", "Unknown")
+                                        with st.spinner("Marking modules as inactive..."):
+                                            for code in recognized:
+                                                mark_module_inactive(code, bulk_reason, username)
+                                        logging.info(
+                                            f"Bulk-marked {len(recognized)} modules inactive via CSV "
+                                            f"(reason: {bulk_reason}, {len(unrecognized)} unrecognized skipped)."
+                                        )
+                                        st.success(f"✅ {len(recognized)} module(s) marked as inactive.")
+                                        st.session_state["bulk_inactive_key_v"] = bulk_inactive_key_v + 1
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                else:
+                                    st.error("No recognized module codes to import - fix the CSV and re-upload.")
+                    except pd.errors.EmptyDataError:
+                        st.error("That CSV file appears to be empty.")
+                    except Exception as ex:
+                        st.error(f"Failed to parse CSV: {ex}")
 
                 st.divider()
                 st.markdown("##### **Ally / SITS Reconciliation**")
