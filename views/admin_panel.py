@@ -1147,7 +1147,145 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                         st.rerun()
                                     except Exception as ex:
                                         st.error(f"Error creating user account: {ex}")
-                                    
+
+                    st.divider()
+                    st.markdown("##### **Bulk Import / Export (CSV)**")
+                    st.write("Add or update many accounts at once, without pre-hashed passwords - "
+                             "hashing happens on import, same as the single-account form above.")
+                    bulk_c1, bulk_c2 = st.columns(2)
+
+                    with bulk_c1:
+                        st.markdown("**Export Registry**")
+                        st.caption("Password hashes are excluded - re-import onto an existing "
+                                   "Username with a blank Password to leave it unchanged.")
+                        export_cols = [c for c in df_users.columns if c not in ("PasswordHash", "Capabilities")]
+                        bulk_export_df = df_users[export_cols].copy()
+                        if "Password" not in bulk_export_df.columns:
+                            bulk_export_df.insert(1, "Password", "")
+                        bulk_csv = bulk_export_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Download User Accounts (CSV)",
+                            data=bulk_csv,
+                            file_name=f"user_accounts_export_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv",
+                            key="export_btn_users_bulk"
+                        )
+
+                    with bulk_c2:
+                        st.markdown("**Import Registry**")
+                        st.caption("Columns: `Username` (required), `Password` (plaintext, leave blank to "
+                                   "keep/skip), `Role`, `School`, `Status` (`Active`/`Disabled`, default Active). "
+                                   "Existing usernames are updated; new ones are created.")
+                        bulk_upload = st.file_uploader("Choose CSV file", type="csv", key="uploader_users_bulk")
+
+                        if bulk_upload is not None:
+                            try:
+                                df_bulk = pd.read_csv(bulk_upload, dtype=str, keep_default_na=False)
+                                st.markdown("**Uploaded Data Preview:**")
+                                st.dataframe(df_bulk.head(5), use_container_width=True)
+                                st.metric("Records parsed from CSV", len(df_bulk))
+
+                                if "Username" not in df_bulk.columns:
+                                    st.error("🚫 CSV must include a `Username` column.")
+                                else:
+                                    # Sanity check: parse and validate every row up front -
+                                    # against permitted Roles, real School codes, and
+                                    # duplicate Usernames within the file itself - and show
+                                    # what will actually happen before anything is written.
+                                    # save_user_sqlite() upserts per-row, so an un-flagged
+                                    # in-file duplicate would otherwise just silently let
+                                    # its last occurrence win with no record of the earlier
+                                    # one being discarded.
+                                    existing_usernames = set(df_users["Username"].str.upper())
+                                    valid_rows = {}
+                                    issues = []
+
+                                    for idx, row in df_bulk.iterrows():
+                                        line = idx + 2  # +1 for header, +1 for 1-indexing
+                                        uname = str(row.get("Username", "")).strip().upper()
+                                        if not uname:
+                                            issues.append(f"Row {line}: blank Username, skipped.")
+                                            continue
+
+                                        role = str(row.get("Role", "")).strip()
+                                        if not role:
+                                            issues.append(f"Row {line} ('{uname}'): no Role given, skipped.")
+                                            continue
+                                        if role not in creatable_roles_list:
+                                            issues.append(
+                                                f"Row {line} ('{uname}'): Role '{role}' is not one you're "
+                                                f"permitted to assign, skipped."
+                                            )
+                                            continue
+
+                                        school_raw = str(row.get("School", "")).strip()
+                                        school_codes = parse_user_schools(school_raw) if school_raw else ["All"]
+                                        bad_schools = [c for c in school_codes if c != "All" and c not in FACULTY_SCHOOLS]
+                                        if bad_schools:
+                                            issues.append(
+                                                f"Row {line} ('{uname}'): unrecognised School code(s) "
+                                                f"{bad_schools}, skipped."
+                                            )
+                                            continue
+                                        school = format_user_schools(school_codes)
+
+                                        status_raw = str(row.get("Status", "")).strip().title()
+                                        status = "Active" if status_raw not in ("Active", "Disabled") else status_raw
+                                        pwd = str(row.get("Password", "")).strip()
+
+                                        if uname in valid_rows:
+                                            issues.append(
+                                                f"Row {line}: duplicate Username '{uname}' in this file - "
+                                                f"the later row wins, the earlier one is discarded."
+                                            )
+                                        valid_rows[uname] = (role, school, status, pwd)
+
+                                    st.markdown("**Sanity Check**")
+                                    n_new = sum(1 for u in valid_rows if u not in existing_usernames)
+                                    n_upd = len(valid_rows) - n_new
+                                    if valid_rows:
+                                        st.info(
+                                            f"✅ {len(valid_rows)} account(s) ready to import "
+                                            f"({n_new} new, {n_upd} update{'s' if n_upd != 1 else ''})."
+                                        )
+                                    if issues:
+                                        st.warning(
+                                            f"⚠️ {len(issues)} issue(s) found - these rows won't be "
+                                            "written as shown:\n\n" + "\n".join(f"- {e}" for e in issues)
+                                        )
+
+                                    if not valid_rows:
+                                        st.error("No valid rows to import - fix the issues above and re-upload.")
+                                    else:
+                                        confirm_bulk = st.checkbox(
+                                            "Confirm: I want to create/update these accounts in SQLite.",
+                                            key="confirm_users_bulk_import"
+                                        )
+
+                                        if st.button("🚀 Execute Import", type="primary", disabled=not confirm_bulk, key="btn_import_users_bulk"):
+                                            from security import hash_password
+
+                                            created, updated = 0, 0
+                                            with st.spinner("Writing accounts to SQLite..."):
+                                                for uname, (role, school, status, pwd) in valid_rows.items():
+                                                    pwd_hash = hash_password(pwd) if pwd else ""
+                                                    save_user_sqlite(uname, pwd_hash, role, school, "", status)
+                                                    if uname in existing_usernames:
+                                                        updated += 1
+                                                    else:
+                                                        created += 1
+
+                                            logging.info(
+                                                f"👤 Bulk user import: {created} created, {updated} updated, "
+                                                f"{len(issues)} skipped."
+                                            )
+                                            st.success(f"✅ Bulk import complete: {created} account(s) created, {updated} updated.")
+                                            st.cache_data.clear()
+                                            st.balloons()
+                                            st.rerun()
+                            except Exception as ex:
+                                st.error(f"Failed to parse or write CSV: {ex}")
+
                 if is_full_admin:
                     with sub_tabs[1]:
                         st.markdown("##### **Role Capabilities Directory**")
@@ -1559,6 +1697,19 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             "this tab, not here. Export from these tables still works."
                         )
 
+                    elif target_table == "users":
+                        # This path expected a pre-hashed PasswordHash column,
+                        # which meant staging accounts anywhere else first.
+                        # The 👤 User Control importer hashes plaintext
+                        # passwords on the way in and upserts by Username, so
+                        # bulk account creation/updates happen from the same
+                        # screen as everything else about a user.
+                        raise ValueError(
+                            "User accounts are imported through the 👤 User Control > "
+                            "👤 User Accounts tab's Bulk Import / Export section, not "
+                            "here. Export from this table still works."
+                        )
+
                     st.markdown("**Uploaded Data Preview:**")
                     st.dataframe(df_import.head(3), use_container_width=True)
                     st.metric("Records parsed from CSV", len(df_import))
@@ -1591,13 +1742,13 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
                         with st.spinner("Writing records to SQLite..."):
                             with get_db_connection() as conn:
-                                # No Ally tables here - they are import-blocked above
-                                # and handled by the dedicated Ally importer.
-                                predefined_tables = ["audit_fields", "audit_responses", "users", "roles", "leganto_nolist"]
+                                # No Ally, readiness or users tables here - they are
+                                # import-blocked above and handled by their own
+                                # dedicated importers.
+                                predefined_tables = ["audit_fields", "audit_responses", "roles", "leganto_nolist"]
                                 expected_cols = {
                                     "audit_fields": ['id', 'label', 'action_label', 'description', 'field_type', 'is_active', 'display_order', 'is_gating'],
                                     "audit_responses": ['module_code', 'field_id', 'value', 'auditor_username', 'timestamp'],
-                                    "users": ['Username', 'PasswordHash', 'Role', 'School', 'Capabilities', 'Status'],
                                     "roles": ['Role', 'Capabilities'],
                                     "leganto_nolist": ['module_code']
                                 }
@@ -1624,7 +1775,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                             "sits_assessment_2026_27": None,
                                             "audit_fields": "id",
                                             "audit_responses": ["module_code", "field_id"],
-                                            "users": "Username",
                                             "roles": "Role",
                                             "leganto_nolist": "module_code",
                                             "main_vle_audit_aut": None,
