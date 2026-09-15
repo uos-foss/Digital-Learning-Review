@@ -1196,16 +1196,32 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                     # in-file duplicate would otherwise just silently let
                                     # its last occurrence win with no record of the earlier
                                     # one being discarded.
-                                    existing_usernames = set(df_users["Username"].str.upper())
+                                    # Username is a case-sensitive TEXT PRIMARY KEY (no
+                                    # COLLATE NOCASE) - several existing accounts, mostly
+                                    # email-style DLA/staff logins, are stored lowercase.
+                                    # Matching/writing them back in a different case than
+                                    # they're already stored in would miss save_user_sqlite's
+                                    # ON CONFLICT(Username) and silently insert a duplicate
+                                    # row instead of updating the real one - so an existing
+                                    # account's casing is always preserved exactly as
+                                    # stored, and a genuinely new account keeps whatever
+                                    # casing the CSV used rather than having one forced on it.
+                                    existing_by_key = {}
+                                    for u in df_users["Username"]:
+                                        u = str(u)
+                                        existing_by_key.setdefault(u.strip().upper(), u)
+
                                     valid_rows = {}
                                     issues = []
 
                                     for idx, row in df_bulk.iterrows():
                                         line = idx + 2  # +1 for header, +1 for 1-indexing
-                                        uname = str(row.get("Username", "")).strip().upper()
-                                        if not uname:
+                                        uname_input = str(row.get("Username", "")).strip()
+                                        if not uname_input:
                                             issues.append(f"Row {line}: blank Username, skipped.")
                                             continue
+                                        key = uname_input.upper()
+                                        uname = existing_by_key.get(key, uname_input)
 
                                         role = str(row.get("Role", "")).strip()
                                         if not role:
@@ -1233,15 +1249,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                         status = "Active" if status_raw not in ("Active", "Disabled") else status_raw
                                         pwd = str(row.get("Password", "")).strip()
 
-                                        if uname in valid_rows:
+                                        if key in valid_rows:
                                             issues.append(
                                                 f"Row {line}: duplicate Username '{uname}' in this file - "
                                                 f"the later row wins, the earlier one is discarded."
                                             )
-                                        valid_rows[uname] = (role, school, status, pwd)
+                                        valid_rows[key] = (uname, role, school, status, pwd)
 
                                     st.markdown("**Sanity Check**")
-                                    n_new = sum(1 for u in valid_rows if u not in existing_usernames)
+                                    n_new = sum(1 for k in valid_rows if k not in existing_by_key)
                                     n_upd = len(valid_rows) - n_new
                                     if valid_rows:
                                         st.info(
@@ -1267,10 +1283,10 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
                                             created, updated = 0, 0
                                             with st.spinner("Writing accounts to SQLite..."):
-                                                for uname, (role, school, status, pwd) in valid_rows.items():
+                                                for key, (uname, role, school, status, pwd) in valid_rows.items():
                                                     pwd_hash = hash_password(pwd) if pwd else ""
                                                     save_user_sqlite(uname, pwd_hash, role, school, "", status)
-                                                    if uname in existing_usernames:
+                                                    if key in existing_by_key:
                                                         updated += 1
                                                     else:
                                                         created += 1
