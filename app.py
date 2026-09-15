@@ -99,6 +99,7 @@ role = st.session_state.get("username", "USER")
 # Determine accessible pages based on capabilities
 can_view_faculty = any(c.lower() == "view_all" for c in user_caps)
 is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
+has_limited_admin = any(c.lower() == "access_admin_limited" for c in user_caps)
 is_dla_or_admin = any(c.lower() in ["edit_checklist", "access_admin_panel"] for c in user_caps)
 can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
 
@@ -674,7 +675,7 @@ if can_audit:
     pages_list.append(pg_audit)
 pages_list.append(pg_resources)
 
-if is_admin:
+if is_admin or has_limited_admin:
     pages_list.append(pg_admin)
 
 nav = st.navigation(pages_list, position="hidden")
@@ -723,7 +724,7 @@ with st.sidebar:
         st.page_link(pg_audit)
     st.page_link(pg_resources)
 
-    if is_admin:
+    if is_admin or has_limited_admin:
         st.caption("Admin/Developer")
         st.page_link(pg_admin)
             
