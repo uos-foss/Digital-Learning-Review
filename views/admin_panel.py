@@ -968,7 +968,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 roles_list = sorted(df_roles["Role"].unique().tolist())
                 schools_list = ["All"] + list(FACULTY_SCHOOLS)
-                available_caps = ["view_all", "view_school", "edit_checklist", "access_admin_panel", "access_admin_limited"]
+                available_caps = ["view_all", "view_school", "view_school_dashboard", "edit_checklist", "access_admin_panel", "access_admin_limited"]
 
                 # Roles that carry either admin capability - excluded from the
                 # role-assignment dropdowns below when acting as a limited admin,

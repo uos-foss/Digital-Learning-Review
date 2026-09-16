@@ -767,8 +767,26 @@ snapshot/diff logic is I/O-free in `processing.py`
   *both* Autumn and Spring frames; "All year" narrows to just those.
 - **Capability checks**: `any(c.lower() == "edit_checklist" for c in user_caps)`
   where `user_caps = st.session_state.get("capabilities", [])`. Capabilities are
-  lowercase tokens: `view_all`, `view_school`, `edit_checklist`,
-  `access_admin_panel`.
+  lowercase tokens: `view_all`, `view_school`, `view_school_dashboard`,
+  `edit_checklist`, `access_admin_panel`, `access_admin_limited`.
+- **`view_school` is scoping, not page access — it never gates a page.** It
+  only drives `only_own_school` (own-school vs faculty-wide filtering) inside
+  School Dashboard, Audit Portal and Module Report; every role that can reach
+  those pages at all holds it. Gating a page's *visibility* on a role needs a
+  dedicated capability instead — `view_school_dashboard` (added 16-09-2026)
+  is `pg_school`'s gate in `app.py`, deliberately separate from `view_school`
+  so ML can keep the scoping capability (needed for Audit Portal/Module
+  Report) while being excluded from the School Dashboard nav entry, the
+  sidebar link, and the drill-down button on Faculty Overview
+  (`views/faculty_overview.py`) — the same `st.switch_page`-raises-on-an-
+  unregistered-page hazard `pg_audit`/`edit_checklist` already guards against,
+  applied here too. Every other seeded role (`admin`, `DLA`, `FOSS`, `SA`,
+  `SL`) was given `view_school_dashboard` alongside its existing capabilities
+  in `auth.py`'s `EnvAuthProvider` and `data_manager.py`'s Sheets/SQLite seed
+  defaults; a live deployment's SQLite `roles` table needs an admin to tick
+  the new capability per existing role in the Admin Panel's Role Capabilities
+  tab (`views/admin_panel.py`'s `available_caps`) — seeding doesn't touch
+  rows that already exist.
 - **Cross-page navigation**: `st.switch_page(st.session_state.pg_module)` — page
   objects are stashed in session state in `app.py`. Do not set a session key and
   call `st.rerun()`; the old `view_selection` router was removed in v1.8 and

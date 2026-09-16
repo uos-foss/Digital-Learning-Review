@@ -98,6 +98,7 @@ role = st.session_state.get("username", "USER")
 
 # Determine accessible pages based on capabilities
 can_view_faculty = any(c.lower() == "view_all" for c in user_caps)
+can_view_school_dashboard = any(c.lower() == "view_school_dashboard" for c in user_caps)
 is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
 has_limited_admin = any(c.lower() == "access_admin_limited" for c in user_caps)
 is_dla_or_admin = any(c.lower() in ["edit_checklist", "access_admin_panel"] for c in user_caps)
@@ -704,7 +705,8 @@ st.session_state.pg_school = pg_school
 pages_list = [pg_about]
 if can_view_faculty:
     pages_list.append(pg_faculty)
-pages_list.append(pg_school)
+if can_view_school_dashboard:
+    pages_list.append(pg_school)
 pages_list.append(pg_module)
 if can_audit:
     pages_list.append(pg_audit)
@@ -753,7 +755,8 @@ with st.sidebar:
     st.page_link(pg_about)
     if can_view_faculty:
         st.page_link(pg_faculty)
-    st.page_link(pg_school)
+    if can_view_school_dashboard:
+        st.page_link(pg_school)
     st.page_link(pg_module)
     if can_audit:
         st.page_link(pg_audit)
