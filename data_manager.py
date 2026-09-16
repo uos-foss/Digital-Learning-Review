@@ -208,7 +208,7 @@ def initialize_users_sheet(spreadsheet_id):
                 elif role == "FOSS":
                     caps = "view_all, view_school_dashboard"
                 else:
-                    caps = "view_school, edit_checklist"
+                    caps = "view_school"
                 seed_rows.append([username, pass_hash, role, school, caps, "Active"])
                 
         if seed_rows:
@@ -249,9 +249,9 @@ def initialize_roles_sheet(spreadsheet_id):
             ["admin", "view_all, edit_checklist, access_admin_panel, view_school_dashboard"],
             ["DLA", "view_all, edit_checklist, view_school_dashboard"],
             ["FOSS", "view_all, view_school_dashboard"],
-            ["ML", "view_school, edit_checklist"],
+            ["ML", "view_school"],
             ["SA", "view_school, view_school_dashboard"],
-            ["SL", "view_all, view_school, view_school_dashboard"]
+            ["SL", "view_school, view_school_dashboard"]
         ]
         worksheet.append_rows(seed_roles)
         logging.info(f"🌱 Seeded {len(seed_roles)} default roles into Google Sheets database.")
