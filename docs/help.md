@@ -6,24 +6,22 @@ part of the dashboard does and where its numbers come from.
 The sidebar shows only the pages your account has access to, so you may not see
 all of these.
 
-1. **Faculty Overview** — All schools side by side. Requires the `view_all`
-   capability.
-2. **School Dashboard** — One school at a time, with module-level detail.
+1. **School Dashboard** — One school at a time, with module-level detail.
    Requires the `view_school_dashboard` capability. Accounts holding
    `view_school` are locked to their own school; everyone else can switch
    schools from the selector at the top of the page.
-3. **Module report** — A single module in full: metadata, Ally accessibility
+2. **Module report** — A single module in full: metadata, Ally accessibility
    profile, reading-list status, audit responses and SITS assessment strategy,
    organised as Accessibility Report and Module Checks and Readiness tabs,
    with a single Actions panel listing everything still outstanding across
    every source.
-4. **Audit Portal** — Where Digital Learning Advisors carry out a module's
+3. **Audit Portal** — Where Digital Learning Advisors carry out a module's
    audit on the module lead's behalf, recording checklist findings and notes.
    Audits can be saved as a draft and submitted when complete. Requires the
    `edit_checklist` capability.
-5. **Resources & Support** — This page: help, the release changelog, and a form
+4. **Resources & Support** — This page: help, the release changelog, and a form
    for reporting bugs or requesting features.
-6. **Admin Panel** — User and role management, audit field configuration, data
+5. **Admin Panel** — User and role management, audit field configuration, data
    import/export, logs and diagnostics. Requires `access_admin_panel`, or the
    reduced `access_admin_limited` scope (Module Manager and a restricted User
    Control tab only — no Role Capabilities, no delete/password-reset/
@@ -39,47 +37,17 @@ Modules that run across the whole year appear in **both** Autumn and Spring, so
 they are never missed by someone working in a single semester. Selecting
 **All year** narrows the view to those year-long modules on their own.
 
-### 🏛️ Faculty Overview
-
-Five tabs:
-
-* **School Comparison** — One row per school: module count, audit coverage,
-  average Ally score, VLE compliance and an overall status badge. Faculty-wide
-  totals sit beneath the table. Click any row to open that school's dashboard.
-* **Template Alignment** — How well modules follow the Blackboard template
-  that gives students a consistent, accessible experience across the
-  faculty, combining the Template Alignment Report's data with manual audit
-  answers where recorded.
-* **Ally Analytics** — The faculty's accessibility profile, in five tabs: the
-  issue league table, build-out tracker, severity load by school, score
-  distribution and a data-coverage check.
-* **Priority Action List** — Modules most in need of attention.
-* **Assessment Types** — SITS assessment strategy overall, or compared across
-  schools as absolute counts or normalised percentages, with a cross-tab pivot
-  under the expandable table.
-
-> **Ally Analytics and Priority Action List are temporarily admin-only.**
-> While those views are being reworked, only accounts with `access_admin_panel`
-> see these two tabs; everyone else sees School Comparison, Template Alignment
-> and Assessment Types as normal. This is expected to be temporary.
-
-> **Reading VLE Compliance correctly.** Compliance is calculated across
-> **submitted audits only** — an unaudited module tells us nothing about
-> whether it complies. Always read the figure alongside the Audited column: a
-> school showing 95% compliance on 3 of 60 modules audited is not in better
-> shape than one showing 70% on 55 of 60. The status badge reflects both Ally
-> and compliance, and shows "— No Data" where neither is available.
-
 ### 🏫 School Dashboard
 
-Note that these are **not** the same set as the Faculty Overview — this page
-has Modules Overview and Trends, and does not have School Comparison.
+Seven tabs:
 
 * **Modules Overview** — Four summary cards (total modules, modules with no
   activity, average Ally score, outstanding actionable items), then every
   module in the school with its lead, level, Ally score, reading-list status,
   build stage and audit status.
-* **Template Alignment** — As on the Faculty Overview, scoped to this school,
+* **Template Alignment** — How well modules follow the Blackboard template
+  that gives students a consistent, accessible experience, combining the
+  Template Alignment Report's data with manual audit answers where recorded,
   plus a per-module item table (checklist, readiness, Leganto and Ally
   findings) beneath the chart.
 * **Ally Analytics** — A single view: the issue-by-severity chart and the
@@ -90,15 +58,23 @@ has Modules Overview and Trends, and does not have School Comparison.
   check, not an accessibility metric.)
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
-* **Priority Action List**, **Assessment Types** — As on the Faculty
-  Overview, scoped to this school.
+* **Priority Action List** — Modules most in need of attention.
+* **Assessment Types** — SITS assessment strategy for this school's modules.
 * **Spot-Checks** — Every module the school has flagged this year, its status
   and agreement result once checked; see "Data Reliability and Audit
   Rationale" below for what spot-checking is for.
 
 > **Ally Analytics, Trends and Priority Action List are temporarily
-> admin-only**, for the same reason as on the Faculty Overview — see the
-> note there.
+> admin-only.** While those views are being reworked, only accounts with
+> `access_admin_panel` see these three tabs; everyone else sees the other
+> three as normal. This is expected to be temporary.
+
+> **Reading Template Alignment compliance figures correctly.** Compliance is
+> calculated across **submitted audits only** — an unaudited module tells us
+> nothing about whether it complies. Always read the figure alongside how
+> many modules have actually been audited, not on its own: a high compliance
+> figure drawn from a handful of audited modules is not the same claim as one
+> drawn from most of the school.
 
 > **Reading Ally scores correctly.** Ally reports three scores, and the portal
 > shows all three because they mean different things:
@@ -129,12 +105,7 @@ has Modules Overview and Trends, and does not have School Comparison.
 
 Click any row in the module tables on the School Dashboard to reveal buttons
 that take you straight to that module's **Module report** or open it in the
-**Audit Portal**, without going back through the menus. The same applies to
-rows in the Faculty Overview's School Comparison table, which open the relevant
-school dashboard.
-
-Opening a school this way is a one-off: it does not change your saved school
-preference.
+**Audit Portal**, without going back through the menus.
 
 ### 🔑 Signing In
 
