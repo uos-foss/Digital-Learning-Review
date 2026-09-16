@@ -20,6 +20,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     user_caps = st.session_state.get("capabilities", [])
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
     can_view_school_dashboard = any(c.lower() == "view_school_dashboard" for c in user_caps)
+    is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
 
     # Determine active data based on chosen semester
     semester = st.session_state.get('semester', 'Autumn')
@@ -61,7 +62,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     # disabled - add them back to this list to restore. Their view code below
     # is untouched.
     view_options = ["🏫 School Comparison", "✅ Template Alignment", "📊 Ally Analytics", "⚠️ Priority Action List"]
-    
+    if not is_admin:
+        view_options = [v for v in view_options
+                         if v not in ("📊 Ally Analytics", "⚠️ Priority Action List")]
+
     selected_view = st.segmented_control(
         "Navigate View:", 
         options=view_options, 
