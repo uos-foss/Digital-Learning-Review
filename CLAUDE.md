@@ -907,3 +907,13 @@ needs a real sign-in — ask the user rather than entering credentials.
 `app.log` is the best evidence for auth and sync behaviour; it records logins,
 cookie restores, syncs and audit submissions. `diagnostics/` holds ad-hoc
 inspection scripts, not tests.
+
+## Known outstanding issues
+
+`CODE_REVIEW_FINDINGS.md` records what a September 2026 sweep for
+redundancies and improvements turned up, including the items not yet fixed —
+most notably that **masquerade mode does not actually gate writes** in the
+Admin Panel or the School Dashboard's spot-check actions, despite
+`masquerade.py`'s docstring and the sidebar banner both saying it is
+view-only. Read it before starting work in those areas, and mark an item
+`[RESOLVED]` there rather than deleting it when you fix one.
