@@ -32,6 +32,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
     # and st.switch_page raises on an unregistered page - so hide the jump button
     # from everyone else rather than letting it fail on click.
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
+    is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
 
     # A school handed over from the Faculty School Comparison table. Consumed
     # once, then cleared, so the user's saved_school preference is untouched.
@@ -163,6 +164,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
             # disabled - add them back to this list to restore. Their view code
             # below is untouched.
             view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List", "🎯 Spot-Checks"]
+            if not is_admin:
+                view_options = [v for v in view_options
+                                 if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
