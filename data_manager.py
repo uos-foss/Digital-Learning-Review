@@ -202,13 +202,13 @@ def initialize_users_sheet(spreadsheet_id):
                 pass_hash = hash_password(password)
                 # Simplified Capabilities string
                 if role == "admin":
-                    caps = "view_all, edit_checklist, access_admin_panel"
+                    caps = "view_all, edit_checklist, access_admin_panel, view_school_dashboard"
                 elif role == "DLA":
-                    caps = "view_all, edit_checklist"
+                    caps = "view_all, edit_checklist, view_school_dashboard"
                 elif role == "FOSS":
-                    caps = "view_all"
+                    caps = "view_all, view_school_dashboard"
                 else:
-                    caps = "view_school, edit_checklist"
+                    caps = "view_school"
                 seed_rows.append([username, pass_hash, role, school, caps, "Active"])
                 
         if seed_rows:
@@ -246,12 +246,12 @@ def initialize_roles_sheet(spreadsheet_id):
     # If there are no data rows, perform auto-seeding
     if len(data) <= 1:
         seed_roles = [
-            ["admin", "view_all, edit_checklist, access_admin_panel"],
-            ["DLA", "view_all, edit_checklist"],
-            ["FOSS", "view_all"],
-            ["ML", "view_school, edit_checklist"],
-            ["SA", "view_school"],
-            ["SL", "view_all, view_school"]
+            ["admin", "view_all, edit_checklist, access_admin_panel, view_school_dashboard"],
+            ["DLA", "view_all, edit_checklist, view_school_dashboard"],
+            ["FOSS", "view_all, view_school_dashboard"],
+            ["ML", "view_school"],
+            ["SA", "view_school, view_school_dashboard"],
+            ["SL", "view_school, view_school_dashboard"]
         ]
         worksheet.append_rows(seed_roles)
         logging.info(f"🌱 Seeded {len(seed_roles)} default roles into Google Sheets database.")

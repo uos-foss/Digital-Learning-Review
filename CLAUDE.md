@@ -767,8 +767,41 @@ snapshot/diff logic is I/O-free in `processing.py`
   *both* Autumn and Spring frames; "All year" narrows to just those.
 - **Capability checks**: `any(c.lower() == "edit_checklist" for c in user_caps)`
   where `user_caps = st.session_state.get("capabilities", [])`. Capabilities are
-  lowercase tokens: `view_all`, `view_school`, `edit_checklist`,
-  `access_admin_panel`.
+  lowercase tokens: `view_all`, `view_school`, `view_school_dashboard`,
+  `edit_checklist`, `access_admin_panel`, `access_admin_limited`.
+- **`view_school` is scoping, not page access — it never gates a page.** It
+  only drives `only_own_school` (own-school vs faculty-wide filtering) inside
+  School Dashboard, Audit Portal and Module Report; every role that can reach
+  those pages at all holds it. Gating a page's *visibility* on a role needs a
+  dedicated capability instead — `view_school_dashboard` (added 16-09-2026)
+  is `pg_school`'s gate in `app.py`, deliberately separate from `view_school`
+  so ML can keep the scoping capability (needed to lock Module Report, the
+  only school-scoped page ML can still reach, to their own school) while
+  being excluded from the School Dashboard nav entry, the sidebar link, and
+  the drill-down button on Faculty Overview (`views/faculty_overview.py`) —
+  the same `st.switch_page`-raises-on-an-unregistered-page hazard
+  `pg_audit`/`edit_checklist` already guards against, applied here too.
+  Every other seeded role (`admin`, `DLA`, `FOSS`, `SA`, `SL`) was given
+  `view_school_dashboard` alongside its existing capabilities in `auth.py`'s
+  `EnvAuthProvider` and `data_manager.py`'s Sheets/SQLite seed defaults; a
+  live deployment's SQLite `roles` table needs an admin to tick the new
+  capability per existing role in the Admin Panel's Role Capabilities tab
+  (`views/admin_panel.py`'s `available_caps`) — seeding doesn't touch rows
+  that already exist.
+- **ML never holds `edit_checklist`.** Every hardcoded capability mapping
+  (`auth.py`'s `EnvAuthProvider` and the `ActiveDirectoryAuthProvider`
+  placeholder, `data_manager.py`'s Sheets/SQLite seed defaults) used to give
+  ML `edit_checklist` alongside `view_school` — wrong per "Who does what"
+  above: DLAs audit on the module lead's behalf, module leads do not fill in
+  their own audits. Caught 16-09-2026 while fixing the `view_school_dashboard`
+  rollout above: an admin correcting the live `roles` table by hand kept
+  re-adding `edit_checklist` to ML because that's what the (buggy) seed
+  defaults had always shipped. Fixed in code to `["view_school"]` only. This
+  also means ML was never actually meant to reach the Audit Portal at all —
+  `can_audit`/`is_dla_or_admin` in `app.py` and the `edit_checklist` check in
+  `views/audit_portal.py` already gate that page correctly on `edit_checklist`
+  regardless of `view_school`; ML's `view_school` capability is now doing
+  exactly one job, scoping Module Report to their own school.
 - **Cross-page navigation**: `st.switch_page(st.session_state.pg_module)` — page
   objects are stashed in session state in `app.py`. Do not set a session key and
   call `st.rerun()`; the old `view_selection` router was removed in v1.8 and

@@ -16,8 +16,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     # pg_audit is only added to the navigation when the user holds edit_checklist,
     # and st.switch_page raises on a page that is not registered - so the button
     # that jumps there must be hidden from everyone else, not just fail on click.
+    # Same applies to pg_school and view_school_dashboard.
     user_caps = st.session_state.get("capabilities", [])
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
+    can_view_school_dashboard = any(c.lower() == "view_school_dashboard" for c in user_caps)
 
     # Determine active data based on chosen semester
     semester = st.session_state.get('semester', 'Autumn')
@@ -136,11 +138,12 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
 
                 st.divider()
                 st.info(f"🚀 Launch Control: **{clicked_school}**")
-                if st.button(f"🏫 Open {clicked_school} School Dashboard",
-                             width="stretch", type="primary",
-                             key="faculty_school_comparison_drilldown"):
-                    st.session_state.drilldown_school = clicked_school
-                    st.switch_page(st.session_state.pg_school)
+                if can_view_school_dashboard:
+                    if st.button(f"🏫 Open {clicked_school} School Dashboard",
+                                 width="stretch", type="primary",
+                                 key="faculty_school_comparison_drilldown"):
+                        st.session_state.drilldown_school = clicked_school
+                        st.switch_page(st.session_state.pg_school)
                 st.divider()
 
             csv_schools = comparison_df.to_csv(index=False).encode('utf-8')

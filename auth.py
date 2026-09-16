@@ -80,17 +80,17 @@ class EnvAuthProvider(BaseAuthProvider):
     def get_user_capabilities(self, username: str) -> list:
         role = self.get_user_role(username)
         if role == "admin":
-            return ["view_all", "edit_checklist", "access_admin_panel"]
+            return ["view_all", "edit_checklist", "access_admin_panel", "view_school_dashboard"]
         elif role == "DLA":
-            return ["view_all", "edit_checklist", "access_admin_limited"]
+            return ["view_all", "edit_checklist", "access_admin_limited", "view_school_dashboard"]
         elif role == "FOSS":
-            return ["view_all"]
+            return ["view_all", "view_school_dashboard"]
         elif role == "ML":
-            return ["view_school", "edit_checklist"]
-        elif role == "SA":
             return ["view_school"]
+        elif role == "SA":
+            return ["view_school", "view_school_dashboard"]
         elif role == "SL":
-            return ["view_all", "view_school"]
+            return ["view_school", "view_school_dashboard"]
         return []
 
 @st.cache_data(ttl=60)
@@ -250,7 +250,7 @@ class ActiveDirectoryAuthProvider(BaseAuthProvider):
         return "ML"
 
     def get_user_capabilities(self, username: str) -> list:
-        return ["view_school", "edit_checklist"]
+        return ["view_school"]
 
 class GoogleOAuthProvider(BaseAuthProvider):
     """
