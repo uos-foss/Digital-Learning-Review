@@ -1076,9 +1076,19 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 current_idx = i + 1
                 break
 
+    # A static key only applies index= on the widget's first render - once
+    # Streamlit has a stored value for the key, a later rerun that changes
+    # selected_module_code some other way (a jump from School Dashboard, the
+    # Audit Portal's spot-check panel) leaves the dropdown showing whatever
+    # it last held instead of the new module. Keying the widget by the
+    # module code it should show forces a fresh widget instance whenever
+    # that code changes, so index= is honoured again.
+    widget_key = f"unified_search_{st.session_state.selected_module_code or 'none'}"
+
     def on_module_change():
-        if st.session_state.unified_search:
-            st.session_state.selected_module_code = st.session_state.unified_search.split(" - ")[0]
+        picked = st.session_state[widget_key]
+        if picked:
+            st.session_state.selected_module_code = picked.split(" - ")[0]
         else:
             st.session_state.selected_module_code = ""
 
@@ -1086,13 +1096,19 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         "Search by Module Code or Name",
         options=[""] + combined_options,
         index=current_idx,
-        key="unified_search",
+        key=widget_key,
         on_change=on_module_change
     )
 
     selected_code = st.session_state.selected_module_code
 
     if selected_code:
+        # A persistent heading naming the module being viewed, so it's never
+        # ambiguous which module the report below belongs to - e.g. after
+        # jumping here from School Dashboard, without having to first check
+        # the dropdown above.
+        st.markdown(f"#### {selected_code} — {module_mapping.get(selected_code, selected_code)}")
+
         # Extract Autumn and Spring module audit rows
         aut_m = df_aut[df_aut['New module code'] == selected_code] if not df_aut.empty else pd.DataFrame()
         spr_m = df_spr[df_spr['New module code'] == selected_code] if not df_spr.empty else pd.DataFrame()
