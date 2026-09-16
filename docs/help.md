@@ -9,10 +9,14 @@ all of these.
 1. **Faculty Overview** — All schools side by side. Requires the `view_all`
    capability.
 2. **School Dashboard** — One school at a time, with module-level detail.
-   Accounts holding `view_school` are locked to their own school; everyone else
-   can switch schools from the selector at the top of the page.
+   Requires the `view_school_dashboard` capability. Accounts holding
+   `view_school` are locked to their own school; everyone else can switch
+   schools from the selector at the top of the page.
 3. **Module report** — A single module in full: metadata, Ally accessibility
-   profile, reading-list status, audit responses and SITS assessment strategy.
+   profile, reading-list status, audit responses and SITS assessment strategy,
+   organised as Accessibility Report and Module Checks and Readiness tabs,
+   with a single Actions panel listing everything still outstanding across
+   every source.
 4. **Audit Portal** — Where Digital Learning Advisors carry out a module's
    audit on the module lead's behalf, recording checklist findings and notes.
    Audits can be saved as a draft and submitted when complete. Requires the
@@ -20,7 +24,11 @@ all of these.
 5. **Resources & Support** — This page: help, the release changelog, and a form
    for reporting bugs or requesting features.
 6. **Admin Panel** — User and role management, audit field configuration, data
-   import/export, logs and diagnostics. Requires `access_admin_panel`.
+   import/export, logs and diagnostics. Requires `access_admin_panel`, or the
+   reduced `access_admin_limited` scope (Module Manager and a restricted User
+   Control tab only — no Role Capabilities, no delete/password-reset/
+   masquerade, no assigning admin roles) available to Digital Learning
+   Advisors.
 
 ### 🗓️ Semester Selector
 
@@ -38,17 +46,22 @@ Five tabs:
 * **School Comparison** — One row per school: module count, audit coverage,
   average Ally score, VLE compliance and an overall status badge. Faculty-wide
   totals sit beneath the table. Click any row to open that school's dashboard.
-* **Ally Analytics** — The faculty's accessibility profile, in five tabs: the
-  issue league table, build-out tracker, severity load by school, score
-  distribution and a data-coverage check.
 * **Template Alignment** — How well modules follow the Blackboard template
   that gives students a consistent, accessible experience across the
   faculty, combining the Template Alignment Report's data with manual audit
   answers where recorded.
+* **Ally Analytics** — The faculty's accessibility profile, in five tabs: the
+  issue league table, build-out tracker, severity load by school, score
+  distribution and a data-coverage check.
 * **Priority Action List** — Modules most in need of attention.
 * **Assessment Types** — SITS assessment strategy overall, or compared across
   schools as absolute counts or normalised percentages, with a cross-tab pivot
   under the expandable table.
+
+> **Ally Analytics and Priority Action List are temporarily admin-only.**
+> While those views are being reworked, only accounts with `access_admin_panel`
+> see these two tabs; everyone else sees School Comparison, Template Alignment
+> and Assessment Types as normal. This is expected to be temporary.
 
 > **Reading VLE Compliance correctly.** Compliance is calculated across
 > **submitted audits only** — an unaudited module tells us nothing about
@@ -64,8 +77,11 @@ has Modules Overview and Trends, and does not have School Comparison.
 
 * **Modules Overview** — Four summary cards (total modules, modules with no
   activity, average Ally score, outstanding actionable items), then every
-  module in the school with its lead, Ally score, build stage and audit
-  status.
+  module in the school with its lead, level, Ally score, reading-list status,
+  build stage and audit status.
+* **Template Alignment** — As on the Faculty Overview, scoped to this school,
+  plus a per-module item table (checklist, readiness, Leganto and Ally
+  findings) beneath the chart.
 * **Ally Analytics** — A single view: the issue-by-severity chart and the
   module table side by side, both driven by the severity and issue filters
   above them. No filters shows every module; narrowing to Severe replaces
@@ -74,8 +90,15 @@ has Modules Overview and Trends, and does not have School Comparison.
   check, not an accessibility metric.)
 * **Trends** — The school's accessibility score and content volume over the
   stored Ally snapshots.
-* **Template Alignment**, **Priority Action List**, **Assessment Types** —
-  As on the Faculty Overview, scoped to this school.
+* **Priority Action List**, **Assessment Types** — As on the Faculty
+  Overview, scoped to this school.
+* **Spot-Checks** — Every module the school has flagged this year, its status
+  and agreement result once checked; see "Data Reliability and Audit
+  Rationale" below for what spot-checking is for.
+
+> **Ally Analytics, Trends and Priority Action List are temporarily
+> admin-only**, for the same reason as on the Faculty Overview — see the
+> note there.
 
 > **Reading Ally scores correctly.** Ally reports three scores, and the portal
 > shows all three because they mean different things:
@@ -179,17 +202,21 @@ labels the two differently throughout ("Automatically detected" versus
 ### 🗂️ Module Manager
 
 The Admin Panel's Module Manager tab covers two things: which modules are
-active, and who leads them.
+active, and who leads them. It's reachable with either `access_admin_panel`
+or the reduced `access_admin_limited` scope, so Digital Learning Advisors can
+use it without full admin rights.
 
 **Inactive Modules** — Some modules in SITS are not really running — skeleton
 shells, modules merged into another, or archived records. Administrators can
-mark these as inactive, which removes them from every dashboard, count and
-analytic so they do not drag down a school's figures. They can be restored at
-any time. The same sub-tab also shows the Ally/SITS reconciliation: Blackboard
-courses Ally tracks with no matching SITS module (usually shell, custom or
-programme-level sites — candidates for marking inactive, but occasionally real
-provision SITS hasn't caught up on), and SITS modules with no Blackboard
-course.
+mark these as inactive, one at a time or in bulk from a module_code CSV with
+a single reason applied to the batch, which removes them from every
+dashboard, count and analytic so they do not drag down a school's figures.
+They can be restored at any time, and the current inactive list can be
+exported to CSV for round-trip editing. The same sub-tab also shows the
+Ally/SITS reconciliation: Blackboard courses Ally tracks with no matching
+SITS module (usually shell, custom or programme-level sites — candidates for
+marking inactive, but occasionally real provision SITS hasn't caught up on),
+and SITS modules with no Blackboard course.
 
 **Module Leads** — An overview of every module lead, grouped by name, so
 inconsistent spellings or casing for the same person are visible as separate
@@ -197,6 +224,24 @@ rows rather than hidden — renaming a group updates every module carrying that
 exact name in one action. A second, per-module list below covers active and
 inactive modules alike for one-off corrections, such as reassigning a single
 module to a different lead.
+
+### 👤 User Control
+
+The Admin Panel's User Control tab manages accounts and roles. Full admin
+holders see the whole tab, including Role Capabilities; the reduced
+`access_admin_limited` scope hides Role Capabilities entirely and excludes
+delete, password-reset and masquerade actions, and can't assign an admin
+role to anyone.
+
+User Accounts includes a Bulk Import/Export section: importing a CSV of
+usernames, roles, schools and plaintext passwords validates every row up
+front (permitted roles, real school codes, in-file duplicate usernames)
+before writing anything, and hashes passwords on the way in. A matching
+Bulk Remove accepts a CSV of usernames — the same file used to import works
+— behind a confirmation checkbox; it skips your own account and, for a
+limited admin, any admin account. Usernames are matched case-insensitively
+throughout, so re-importing an existing account never creates a duplicate
+under different casing.
 
 ### 📜 Activity Logging
 

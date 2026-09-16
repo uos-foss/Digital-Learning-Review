@@ -1,6 +1,73 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.21.0 (Current) — *A Welcome page*
+### 🚀 Version 1.23.0 (Current) — *Scoped Admin Access & Bulk User Tools*
+*16 September 2026*
+
+* **Digital Learning Advisors can now handle routine admin tasks without full
+  admin rights.** A new scoped access level opens Module Manager and a
+  reduced User Control tab — no Role Capabilities sub-tab, no delete,
+  password-reset or masquerade, and no reassigning an account to an admin
+  role — without granting everything the Admin Panel can do.
+* **Bulk CSV tools for managing accounts and modules.** User Control's User
+  Accounts tab gains bulk import (validated up front against permitted
+  roles, real school codes and duplicate usernames, with passwords hashed on
+  import) and bulk removal by CSV. Module Manager gains bulk CSV import for
+  marking many modules inactive at once in one go, plus a CSV export of the
+  current inactive list for round-trip editing.
+* **Fixed a bug that could silently duplicate user accounts.** Usernames are
+  now matched case-insensitively, so importing or updating an existing
+  lowercase account — common for staff and DLA logins — no longer creates a
+  second, uppercase duplicate.
+* **School Dashboard's module table is easier to scan**: level codes are
+  abbreviated, Ally score wording matches the module report's own banner
+  text, reading-list status is simplified to Published/Draft/Not
+  needed/Missing, and module lead names are consistently title-cased. The
+  Actionable Items column now carries the same explanatory tooltip as its
+  dashboard summary tile.
+* **School Dashboard now needs its own permission to be visible**, separate
+  from the permission that scopes a school-based account to its own school.
+  This closes a gap where module leads could reach the School Dashboard even
+  though it was never intended for them.
+* **Ally Analytics, Trends and Priority Action List are temporarily
+  restricted to administrators** on both Faculty Overview and School
+  Dashboard while those views are reworked. Nothing else on either page is
+  affected, and the tabs are expected to reopen once the redesign lands.
+
+### 🚀 Version 1.22.0 — *Module Report Redesign*
+*14–15 September 2026*
+
+* **The module report's template section list now mirrors the actual
+  Blackboard Ultra course menu**, nesting sections the way they appear in
+  the course — with a content-type icon for each (learning module, folder,
+  document, link, plus approximated brand badges for the four LTI tools) —
+  instead of a flat card list next to a separate table.
+* **One Actions panel replaces two lists that could disagree.** Checklist,
+  reading-list, template-alignment and accessibility findings that still
+  need attention now appear together in a single consolidated panel beside
+  the Blackboard Template sections, rather than a separate checklist list
+  that could describe the same section differently from its own Blackboard
+  Template card. A severe or major Ally accessibility issue now shows here
+  too, quoting the module's actual Ally score, so the Actionable Items count
+  on the dashboards always has something on this page explaining what it's
+  counting.
+* **Accessibility Report and Module Checks and Readiness are now tabs**
+  (Checks first), with a short data-reliability summary above both showing
+  each source's import date and a plain-English note on what's automated
+  versus what a Digital Learning Advisor has manually verified.
+* **Fixed a mapping bug**: the Student Voice checklist question was pointing
+  at the wrong Blackboard folder, so unticking it could flag an unrelated
+  section as incomplete on the module report. Audit field labels are now
+  locked to their mapped section's name so this can't silently drift again.
+* **Fixed accessibility data intermittently going missing on refresh** — a
+  module could show real Ally scores alongside "No accessibility issues
+  reported", correcting itself on some page refreshes and not others. The
+  underlying caching bug only ever populated some users' sessions with the
+  data behind it.
+* Section-state badges have been recoloured (amber for sections needing
+  attention; red is now reserved for deleted or missing sections only), and
+  captions across the Template Alignment tab have been shortened.
+
+### 🚀 Version 1.21.0 — *A Welcome page*
 *14 September 2026*
 
 * **The portal now opens on a new Welcome page**, a plain-English
