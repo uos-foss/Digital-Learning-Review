@@ -798,13 +798,14 @@ def _render_sits_import():
         st.caption(
             "Tick **Keep current** where the lead shown in the app now is right and SITS is "
             "wrong - it becomes a hand-set lead that later imports keep too. Rows start "
-            "ticked when the current lead was set in Module Manager: either recorded as "
-            "hand-set, or written in mixed case (SITS writes names in capitals). Unticked "
-            "rows take the SITS lead."
+            "ticked when the current lead looks set in Module Manager: recorded as hand-set, "
+            "written in mixed case (SITS writes names in capitals), or the SITS name with a "
+            "middle name taken out. Unticked rows take the SITS lead."
         )
         lc = diff['lead_changes']
-        leads = lc.assign(
-            keep=lc['module_code'].isin(override_codes) | lc['current_lead'].map(lead_looks_hand_set))
+        looks_hand_set = [lead_looks_hand_set(cur, sits)
+                          for cur, sits in zip(lc['current_lead'], lc['sits_lead'])]
+        leads = lc.assign(keep=lc['module_code'].isin(override_codes) | pd.Series(looks_hand_set, index=lc.index, dtype=bool))
         st.caption(f"{int(leads['keep'].sum())} of {len(leads)} rows start ticked.")
         edited = st.data_editor(
             leads.rename(columns={'module_code': 'Module Code', 'module_name': 'Module Name',

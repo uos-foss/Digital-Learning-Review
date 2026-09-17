@@ -840,13 +840,27 @@ def _norm_lead(value):
     'RUTH  HAMILTON' and 'Ruth Hamilton' are not reported as a change."""
     return ' '.join(str(value or '').split()).upper()
 
-def lead_looks_hand_set(value):
-    """True when a stored lead name contains lowercase letters. SITS writes
-    every name in capitals ('KATHERINE ANNE NICHOLS'), so mixed case means
-    someone typed it in Module Manager - including edits made before
+def lead_looks_hand_set(current_lead, sits_lead):
+    """Whether the lead the app shows now looks typed in Module Manager
+    rather than taken from SITS - including edits made before
     module_lead_overrides existed to record them. Only used to pre-tick the
-    SITS importer's "Keep current" box; the person importing still decides."""
-    return any(ch.islower() for ch in str(value or ''))
+    SITS importer's "Keep current" box; the person importing still decides.
+
+    Two signs, either is enough:
+    - lowercase letters: SITS writes every name in capitals
+      ('KATHERINE ANNE NICHOLS');
+    - the SITS name with words removed, the rest in order ('PAUL BRINDLEY'
+      for 'PAUL GAVIN BRINDLEY'): someone dropped a middle name but kept
+      the capitals. SITS's own spacing can't be used instead - it is mostly
+      a double space for two-word names but not always ('SARAH MOORE').
+    """
+    current = str(current_lead or '')
+    if any(ch.islower() for ch in current):
+        return True
+    cur_words = current.upper().split()
+    sits_words = iter(str(sits_lead or '').upper().split())
+    sits_len = len(str(sits_lead or '').split())
+    return 0 < len(cur_words) < sits_len and all(w in sits_words for w in cur_words)
 
 def parse_sits_export(df, academic_year):
     """

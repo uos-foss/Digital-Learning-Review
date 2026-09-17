@@ -84,7 +84,10 @@ retired and the lead data had gone stale since ~May 2026.
   per import: a ticked "Keep current" row keeps/creates the override (this is
   also how edits made before overrides existed get captured - rows start
   ticked when already overridden or when `lead_looks_hand_set()` sees
-  lowercase, since SITS writes names in capitals; the first live import on
+  lowercase (SITS writes names in capitals) or the SITS name with words
+  removed (a dropped middle name typed in capitals, e.g. PAUL BRINDLEY for
+  PAUL GAVIN BRINDLEY - SITS spacing is too inconsistent to detect this any
+  other way); the first live import on
   17-09-2026 had 98 such pre-override hand edits, made days *after* the
   export's own data, which the user wanted kept), an unticked one
   clears it, and an override whose lead now matches SITS (ignoring case and
