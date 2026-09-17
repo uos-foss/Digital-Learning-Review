@@ -23,7 +23,7 @@ def to_title_case(name: str) -> str:
         return ""
     return name_str.title()
 
-def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
+def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_freshness=None):
     schools = list(FACULTY_SCHOOLS)
     
     user_caps = st.session_state.get("capabilities", [])
@@ -130,7 +130,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None):
         
     semester = st.session_state.semester
     st.header(f"{school} - {semester} Semester")
-    
+    if data_freshness:
+        st.caption(f"📅 Latest data from: {data_freshness}")
+
     target_df = resolve_semester_df(df_aut, df_spr, semester)
     
     if not target_df.empty:
