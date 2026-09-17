@@ -1,7 +1,6 @@
 import sqlite3
 import os
 import pandas as pd
-import platform
 import logging
 from processing import parse_custom_observations  # noqa: F401 - re-exported, see below
 

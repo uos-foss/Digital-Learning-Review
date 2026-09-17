@@ -2460,8 +2460,6 @@ def derive_module_findings(active_row, responses, active_fields):
 
     return findings
 
-    return result, totals
-
 def compute_audit_verdict(active_fields, responses):
     """
     Ready / Not Ready / Blank verdict for one module, from whichever

@@ -174,7 +174,11 @@ def build_accessibility_risk_list(df):
     # behind it. Score alone is a poor ranking: a module can score well overall
     # and still hide an unreadable scanned document.
     at_risk = at_risk.sort_values(['_severe', '_students', '_major'], ascending=False)
-    at_risk['Score'] = at_risk['_score'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+    # Left numeric and formatted by column_config rather than pre-formatted into
+    # a string: st.dataframe sorts a text column lexicographically, which puts
+    # "9.1%" above "94.9%" the moment a reader clicks the header. Same bug, and
+    # the same fix, as the Ally Score column in views/school_dashboard.py.
+    at_risk['Score'] = at_risk['_score'] * 100
     at_risk['Severe'] = at_risk['_severe'].astype(int)
     at_risk['Major'] = at_risk['_major'].astype(int)
     at_risk['Students'] = at_risk['_students'].astype(int)
@@ -187,12 +191,15 @@ def build_accessibility_risk_list(df):
                                                 help="Content items that block access outright."),
         "Major": st.column_config.NumberColumn("Major", format="%d"),
         "Students": st.column_config.NumberColumn("Students", format="%d"),
-        "Score": st.column_config.TextColumn("Ally Overall"),
+        "Score": st.column_config.NumberColumn("Ally Overall", format="%.1f%%"),
     }
-    note = f"🎯 {len(at_risk)} module(s) with content need accessibility work, worst first."
+    # What "Severe" means, carried in the status note rather than a trailing
+    # st.caption() - the callers render this text above the table, where a
+    # caption after the return statement never rendered at all.
+    note = (f"🎯 {len(at_risk)} module(s) with content need accessibility work, worst first. "
+            "Severe issues are unreadable scans, corrupt files, documents locked against "
+            "screen readers, and images that can trigger seizures - these block access "
+            "outright rather than making it harder.")
     if skipped:
         note += f" {skipped} module(s) not yet started are excluded."
     return at_risk[cols].reset_index(drop=True), configs, note, "warning"
-    st.caption("Severe issues are unreadable scans, corrupt files, documents locked "
-               "against screen readers, and images that can trigger seizures. These "
-               "block access outright rather than making it harder.")
