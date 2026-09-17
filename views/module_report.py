@@ -1258,18 +1258,41 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         # 2. Module Checks and Readiness first - it's the actionable tab for
         # a module lead - then Accessibility Report.
-        tab_checks, tab_accessibility = st.tabs(
-            ["📋 Module Checks and Readiness", "♿ Accessibility Report"])
+        # Streamlit's default tabs are small underlined text that's easy to
+        # miss below the health banner, so their labels are enlarged (the
+        # standard underline style is kept). The CSS is scoped to the keyed
+        # container (Streamlit adds an `st-key-<key>` class) so no other
+        # st.tabs in the app are affected.
+        st.markdown(
+            """<style>
+            .st-key-mr_report_tabs [data-baseweb="tab-list"] {
+                gap: 28px;
+            }
+            .st-key-mr_report_tabs [data-baseweb="tab"] {
+                height: auto;
+                padding: 6px 2px 10px;
+            }
+            .st-key-mr_report_tabs [data-baseweb="tab"] p {
+                font-size: 1.3rem;
+            }
+            .st-key-mr_report_tabs [data-baseweb="tab"][aria-selected="true"] p {
+                font-weight: 600;
+            }
+            </style>""", unsafe_allow_html=True)
 
-        with tab_checks:
-            _render_module_checks(actions, has_audit, active_row, responses,
-                                  leganto_missing, leganto_status, leganto_items, leganto_draft_items)
+        with st.container(key="mr_report_tabs"):
+            tab_checks, tab_accessibility = st.tabs(
+                ["📋 Module Checks and Readiness", "♿ Accessibility Report"])
 
-            comments_val = str(responses.get('comments', '') or '').strip()
-            if has_audit and comments_val:
-                st.info(f"**Additional Comments:**\n\n{comments_val}")
+            with tab_checks:
+                _render_module_checks(actions, has_audit, active_row, responses,
+                                      leganto_missing, leganto_status, leganto_items, leganto_draft_items)
 
-        with tab_accessibility:
-            _render_ally_card(selected_code, active_row, ally_profile, ally_categories)
+                comments_val = str(responses.get('comments', '') or '').strip()
+                if has_audit and comments_val:
+                    st.info(f"**Additional Comments:**\n\n{comments_val}")
+
+            with tab_accessibility:
+                _render_ally_card(selected_code, active_row, ally_profile, ally_categories)
 
         st.caption(f"Last updated: {last_updated_str}")
