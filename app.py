@@ -656,7 +656,8 @@ def page_faculty_overview():
     view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess)
 
 def page_school_dashboard():
-    view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess)
+    # `freshness` is built in the sidebar block below, which runs before nav.run().
+    view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess, data_freshness=freshness)
 
 def page_module_report():
     view_module_report(df_aut, df_spr, checklist_sums, df_assess, load_checklist_data)
