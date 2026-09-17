@@ -815,6 +815,130 @@ def parse_leganto_lists_export(df, academic_year, snapshot_date):
     result['lists'] = lists_df
     return result
 
+# The SITS "Current Assessment Patterns" export, one row per assessment
+# component. Stored verbatim (all text) in sits_assessment_2026_27, which the
+# satellite AI-Audit app also reads - so the column names are a contract, not
+# just this app's business.
+SITS_COLUMNS = [
+    'Academic year', 'Faculty name', 'Department name', 'CIS unit code',
+    'Module code', 'Module name', 'Module level', 'Module credits',
+    'Academic contact', 'MAP code', 'MAV occurence', 'Period', 'MAB sequence',
+    'Assessment type code', 'Assessment type', 'Assessment weighting',
+    'Module mark scheme', 'Module mark scheme description',
+    'Component mark scheme', 'Component mark scheme description',
+    'Qualifying mark', 'Qualifying set', 'Reassessment', 'Assessment title',
+    'Word Count', 'Exam duration (per hour)', 'Assessment group',
+    'Cross module assessment', 'Final assessment flag',
+]
+
+def sits_academic_year_label(academic_year):
+    """'2026-27' (CURRENT_ACADEMIC_YEAR's form) -> '2026/27' (SITS's form)."""
+    return str(academic_year).replace('-', '/')
+
+def _norm_lead(value):
+    """Lead names compared ignoring case and SITS's double spaces, so
+    'RUTH  HAMILTON' and 'Ruth Hamilton' are not reported as a change."""
+    return ' '.join(str(value or '').split()).upper()
+
+def lead_looks_hand_set(value):
+    """True when a stored lead name contains lowercase letters. SITS writes
+    every name in capitals ('KATHERINE ANNE NICHOLS'), so mixed case means
+    someone typed it in Module Manager - including edits made before
+    module_lead_overrides existed to record them. Only used to pre-tick the
+    SITS importer's "Keep current" box; the person importing still decides."""
+    return any(ch.islower() for ch in str(value or ''))
+
+def parse_sits_export(df, academic_year):
+    """
+    Validates and scopes a SITS assessment-pattern export for
+    database.replace_sits_assessment().
+
+    The caller must read the CSV with dtype=str, keep_default_na=False -
+    SITS values like MAB sequence '001' or weighting '20.00' are identifiers
+    and display text, not numbers, and the generic importer's default read
+    silently rewrote them.
+
+    Rows whose module code prefix is not one of FACULTY_SCHOOLS (e.g. FCS
+    cross-faculty provision, or new SCS/POL codes) are dropped: every view
+    assigns a school from the first three letters of the code, so such rows
+    would sit in the module list belonging to no school.
+
+    Kept I/O-free. Returns {'rows', 'rows_in', 'dropped_out_of_faculty',
+    'dropped_codes'}; raises ValueError when the file is not a usable export.
+    """
+    missing = [c for c in SITS_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "This does not look like a SITS assessment-pattern export - missing "
+            + ", ".join(missing))
+
+    df = df[SITS_COLUMNS].copy().fillna('').astype(str)
+    result = {'rows': pd.DataFrame(columns=SITS_COLUMNS), 'rows_in': len(df),
+              'dropped_out_of_faculty': 0, 'dropped_codes': []}
+    if df.empty:
+        return result
+
+    for col in ('CIS unit code', 'Module code'):
+        df[col] = df[col].str.strip().str.upper()
+
+    expected_year = sits_academic_year_label(academic_year)
+    years = sorted(set(df['Academic year'].str.strip()) - {''})
+    wrong_years = [y for y in years if y != expected_year]
+    if wrong_years:
+        raise ValueError(
+            f"This export contains academic year(s) {', '.join(wrong_years)}; "
+            f"only {expected_year} can be imported.")
+
+    in_faculty = (df['CIS unit code'] != '') & df['CIS unit code'].str[:3].isin(FACULTY_SCHOOLS)
+    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
+    result['dropped_codes'] = sorted(set(df.loc[~in_faculty, 'CIS unit code']) - {''})
+    result['rows'] = df[in_faculty].reset_index(drop=True)
+    return result
+
+def diff_sits_modules(current_df, new_df):
+    """
+    Module-grain comparison of the stored SITS table against a parsed export,
+    for the importer's preview. Reads the first row per CIS unit code, the
+    same row app.py's load_audit_data() takes a module's name/lead/period
+    from.
+
+    current_df's leads already carry any hand-edit overrides (they are
+    applied into the stored table), so a lead change here means "what the
+    app shows now" vs "what SITS says".
+
+    Returns {'added', 'removed', 'lead_changes' (DataFrame: module_code,
+    module_name, current_lead, sits_lead), 'period_changes' (DataFrame:
+    module_code, module_name, current_period, sits_period)}.
+    """
+    def _modules(df):
+        if df is None or df.empty or 'CIS unit code' not in df.columns:
+            return pd.DataFrame(columns=['Module name', 'Academic contact', 'Period'])
+        d = df.copy()
+        d['CIS unit code'] = d['CIS unit code'].astype(str).str.strip().str.upper()
+        return d.drop_duplicates(subset=['CIS unit code']).set_index('CIS unit code')
+
+    cur, new = _modules(current_df), _modules(new_df)
+    both = sorted(set(cur.index) & set(new.index))
+
+    lead_changes = [
+        {'module_code': c, 'module_name': new.at[c, 'Module name'],
+         'current_lead': cur.at[c, 'Academic contact'], 'sits_lead': new.at[c, 'Academic contact']}
+        for c in both
+        if _norm_lead(cur.at[c, 'Academic contact']) != _norm_lead(new.at[c, 'Academic contact'])
+    ]
+    period_changes = [
+        {'module_code': c, 'module_name': new.at[c, 'Module name'],
+         'current_period': cur.at[c, 'Period'], 'sits_period': new.at[c, 'Period']}
+        for c in both
+        if str(cur.at[c, 'Period']).strip().upper() != str(new.at[c, 'Period']).strip().upper()
+    ]
+    return {
+        'added': sorted(set(new.index) - set(cur.index)),
+        'removed': sorted(set(cur.index) - set(new.index)),
+        'lead_changes': pd.DataFrame(lead_changes, columns=['module_code', 'module_name', 'current_lead', 'sits_lead']),
+        'period_changes': pd.DataFrame(period_changes, columns=['module_code', 'module_name', 'current_period', 'sits_period']),
+    }
+
 # Uploaded-file count separates a rolled-over template from a course somebody
 # has started populating, and it separates them cleanly. In 2025-26 - a fully
 # taught year - only 4 of 1034 courses held 5 files or fewer, and the 10th

@@ -29,11 +29,20 @@ from database import (
     init_db,
     get_all_sits_modules,
     update_module_lead_sqlite,
-    bulk_rename_module_lead
+    bulk_rename_module_lead,
+    get_module_lead_overrides,
+    revert_module_lead,
+    get_modules_with_audit_activity,
+    replace_sits_assessment,
 )
 from processing import (
     FACULTY_SCHOOLS,
     CURRENT_ACADEMIC_YEAR,
+    parse_sits_export,
+    diff_sits_modules,
+    lead_looks_hand_set,
+    sits_academic_year_label,
+    fmt_report_date,
     parse_ally_export,
     reconcile_ally_modules,
     parse_leganto_lists_export,
@@ -688,6 +697,152 @@ def _render_readiness_import():
                 removed = purge_readiness(purge_year)
                 st.success(f"Removed {removed} courses (and their sections) for {purge_year}.")
                 st.cache_data.clear()
+
+
+def _render_sits_import():
+    """
+    Importer for the SITS "Current Assessment Patterns" export - the module
+    list, leads and assessments every other view is built from.
+
+    Dedicated rather than generic because the generic hub read the file with
+    type inference (MAB sequence '001' became 1, weighting '20.00' became
+    20.0), did not normalise module codes, appended a second copy of every
+    row in its default Merge mode (SITS has no key), recorded no import date,
+    and wiped hand-corrected leads. Always a full replace, scoped to
+    CURRENT_ACADEMIC_YEAR and FACULTY_SCHOOLS, with lead corrections carried
+    through module_lead_overrides.
+    """
+    st.markdown("---")
+    st.subheader("🎓 SITS Assessment Patterns Import")
+    st.write(
+        "Upload the SITS *Current Assessment Patterns* export. It replaces the "
+        "module list, module leads and assessment data for "
+        f"{CURRENT_ACADEMIC_YEAR}. You'll see what changes before anything is written."
+    )
+
+    sits_file = st.file_uploader("Choose the SITS assessment-pattern export (CSV)",
+                                 type="csv", key="uploader_sits_assessment")
+    if sits_file is None:
+        with st.expander("What this import expects"):
+            st.markdown(
+                "- The standard 29 columns, from `Academic year` through `Final assessment flag`.\n"
+                f"- Every row for {sits_academic_year_label(CURRENT_ACADEMIC_YEAR)} - a file "
+                "containing any other year is rejected.\n"
+                "- Modules whose code doesn't start with one of this faculty's school prefixes "
+                f"({', '.join(FACULTY_SCHOOLS)}) are dropped and listed before you commit.\n"
+                "- Values are stored exactly as SITS writes them (e.g. `001`, `20.00`).\n"
+                "- Module leads corrected by hand in 🗂️ Module Manager are kept unless you "
+                "untick them in the lead-change table."
+            )
+        return
+
+    try:
+        df_raw = pd.read_csv(sits_file, dtype=str, keep_default_na=False)
+        parsed = parse_sits_export(df_raw, CURRENT_ACADEMIC_YEAR)
+    except Exception as exc:
+        st.error(f"❌ {exc}")
+        return
+
+    rows = parsed['rows']
+    if rows.empty:
+        st.warning(f"No in-faculty rows found ({parsed['rows_in']} rows read).")
+        return
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sits_assessment_2026_27'")
+        current = (pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
+                   if cursor.fetchone() else pd.DataFrame())
+    diff = diff_sits_modules(current, rows)
+    overrides = get_module_lead_overrides()
+    override_codes = set(overrides['module_code'])
+    new_codes = set(rows['CIS unit code'])
+
+    st.markdown("**What this file contains**")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Rows read", f"{parsed['rows_in']:,}")
+    m2.metric("Outside faculty dropped", f"{parsed['dropped_out_of_faculty']:,}")
+    m3.metric("Modules in file", f"{len(new_codes):,}")
+    m4.metric("Modules now", f"{current['CIS unit code'].nunique() if not current.empty else 0:,}")
+    if parsed['dropped_codes']:
+        st.caption("Dropped (no matching school prefix): " + ", ".join(parsed['dropped_codes']))
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Modules added", f"{len(diff['added']):,}")
+    c2.metric("Modules removed", f"{len(diff['removed']):,}")
+    c3.metric("Lead changes", f"{len(diff['lead_changes']):,}")
+    c4.metric("Semester changes", f"{len(diff['period_changes']):,}")
+
+    if diff['added']:
+        with st.expander(f"Modules added ({len(diff['added'])})"):
+            st.code(", ".join(diff['added']))
+    if diff['removed']:
+        worked_on = get_modules_with_audit_activity(diff['removed'])
+        if worked_on:
+            st.warning(
+                "⚠️ These modules are not in the new file but have audit activity - they will "
+                "drop out of every view: "
+                + "; ".join(f"**{c}** ({', '.join(r)})" for c, r in sorted(worked_on.items())))
+        with st.expander(f"Modules removed ({len(diff['removed'])})"):
+            st.code(", ".join(diff['removed']))
+    if not diff['period_changes'].empty:
+        with st.expander(f"Semester (period) changes ({len(diff['period_changes'])})"):
+            st.dataframe(diff['period_changes'].rename(columns={
+                'module_code': 'Module Code', 'module_name': 'Module Name',
+                'current_period': 'Current Period', 'sits_period': 'SITS Period'}),
+                use_container_width=True, hide_index=True)
+
+    keep_codes = set()
+    if not diff['lead_changes'].empty:
+        st.markdown("**Module lead changes**")
+        st.caption(
+            "Tick **Keep current** where the lead shown in the app now is right and SITS is "
+            "wrong - it becomes a hand-set lead that later imports keep too. Rows start "
+            "ticked when the current lead was set in Module Manager: either recorded as "
+            "hand-set, or written in mixed case (SITS writes names in capitals). Unticked "
+            "rows take the SITS lead."
+        )
+        lc = diff['lead_changes']
+        leads = lc.assign(
+            keep=lc['module_code'].isin(override_codes) | lc['current_lead'].map(lead_looks_hand_set))
+        st.caption(f"{int(leads['keep'].sum())} of {len(leads)} rows start ticked.")
+        edited = st.data_editor(
+            leads.rename(columns={'module_code': 'Module Code', 'module_name': 'Module Name',
+                                  'current_lead': 'Current Lead', 'sits_lead': 'SITS Lead',
+                                  'keep': 'Keep current'}),
+            use_container_width=True, hide_index=True,
+            disabled=['Module Code', 'Module Name', 'Current Lead', 'SITS Lead'],
+            key=f"sits_lead_editor_{sits_file.name}_{sits_file.size}",
+        )
+        keep_codes = set(edited.loc[edited['Keep current'], 'Module Code'])
+
+    agreed = override_codes & new_codes - set(diff['lead_changes']['module_code'])
+    if agreed:
+        st.info(
+            f"ℹ️ {len(agreed)} hand-set lead(s) now match SITS and will be cleared: "
+            + ", ".join(sorted(agreed)))
+
+    confirm = st.checkbox(
+        f"Confirm: replace the SITS data with this file ({len(rows):,} rows, {len(new_codes):,} modules).",
+        key="sits_import_confirm")
+    if st.button("🚀 Import SITS data", type="primary", disabled=not confirm, key="btn_import_sits"):
+        username = st.session_state.get("username", "Unknown")
+        try:
+            with st.spinner("Replacing SITS data..."):
+                result = replace_sits_assessment(rows, CURRENT_ACADEMIC_YEAR, sits_file.name,
+                                                 username, keep_codes)
+            logging.info(
+                "🎓 SITS import by '%s' from %s: %s rows, %s modules, %s hand-set leads kept, %s cleared",
+                username, sits_file.name, result['rows'], result['modules'],
+                result['overrides_kept'], result['overrides_cleared'])
+            st.cache_data.clear()
+            st.success(
+                f"✅ Imported {result['rows']:,} rows across {result['modules']:,} modules. "
+                f"{result['overrides_kept']} hand-set lead(s) kept, "
+                f"{result['overrides_cleared']} cleared.")
+        except Exception as exc:
+            st.error(f"❌ SITS import failed: {exc}")
+            logging.error(f"SITS import error: {exc}")
 
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
@@ -1704,6 +1859,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             "Legacy Audit Baseline (Spring 25/26)": "main_vle_audit_spr"
         }
 
+        _render_sits_import()
         _render_ally_import()
         _render_leganto_import()
         _render_readiness_import()
@@ -1822,6 +1978,16 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             "this tab, not here. Export from these tables still works."
                         )
 
+                    elif target_table == "sits_assessment_2026_27":
+                        # This path inferred types (MAB sequence '001' -> 1),
+                        # skipped code normalisation, appended a duplicate of
+                        # every row in Merge mode and wiped hand-set leads.
+                        raise ValueError(
+                            "SITS data is imported through the 🎓 SITS Assessment Patterns "
+                            "Import section at the top of this tab, not here. Export from "
+                            "this table still works."
+                        )
+
                     elif target_table == "users":
                         # This path expected a pre-hashed PasswordHash column,
                         # which meant staging accounts anywhere else first.
@@ -1897,7 +2063,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                         df_existing = pd.read_sql_query(f"SELECT * FROM {target_table}", conn)
                                         
                                         pk_map = {
-                                            "sits_assessment_2026_27": None,
                                             "audit_fields": "id",
                                             "audit_responses": ["module_code", "field_id"],
                                             "roles": "Role",
@@ -2263,7 +2428,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 st.warning("Lead name cannot be empty.")
                             else:
                                 try:
-                                    bulk_rename_module_lead(old_lead, new_lead_bulk)
+                                    bulk_rename_module_lead(old_lead, new_lead_bulk,
+                                                            st.session_state.get('username', 'Unknown'))
                                     logging.info(
                                         f"Bulk-renamed module lead '{old_lead}' -> '{new_lead_bulk}' "
                                         f"across {len(affected_codes)} modules by "
@@ -2289,13 +2455,15 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             view_df['lead'].str.lower().str.contains(q, na=False)
                         ]
 
+                    overrides = get_module_lead_overrides().set_index('module_code')
                     view_df = view_df.assign(
                         School=view_df['module_code'].str[:3],
                         Status=view_df['module_code'].apply(lambda c: "🚫 Inactive" if c in inactive_codes else "✅ Active"),
-                        **{"Current Lead": view_df['lead'].apply(title_case_name)}
+                        **{"Current Lead": view_df['lead'].apply(title_case_name),
+                           "Hand-set": view_df['module_code'].isin(overrides.index)}
                     ).rename(columns={'module_code': 'Module Code', 'module_name': 'Module Name'})
 
-                    display_cols = ['Module Code', 'Module Name', 'School', 'Status', 'Current Lead']
+                    display_cols = ['Module Code', 'Module Name', 'School', 'Status', 'Current Lead', 'Hand-set']
                     selection = st.dataframe(
                         view_df[display_cols], use_container_width=True, hide_index=True,
                         on_select="rerun", selection_mode="single-row", key="admin_module_leads_dataframe"
@@ -2313,7 +2481,8 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                 st.warning("Lead name cannot be empty.")
                             else:
                                 try:
-                                    update_module_lead_sqlite(sel_code, new_lead)
+                                    update_module_lead_sqlite(sel_code, new_lead,
+                                                              st.session_state.get('username', 'Unknown'))
                                     logging.info(
                                         f"Module lead updated for '{sel_code}' by "
                                         f"'{st.session_state.get('username', 'Unknown')}'."
@@ -2323,6 +2492,26 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error updating module lead: {e}")
+
+                        if sel_code in overrides.index:
+                            ov = overrides.loc[sel_code]
+                            st.caption(
+                                f"Hand-set by {ov['updated_by']} on {fmt_report_date(ov['updated_at'])}, "
+                                "so SITS imports keep it. SITS itself says: "
+                                f"**{title_case_name(ov['sits_lead']) if ov['sits_lead'] else 'unknown'}**."
+                            )
+                            if st.button("↩️ Revert to SITS lead", key=f"btn_revert_lead_{sel_code}",
+                                         disabled=not ov['sits_lead']):
+                                try:
+                                    revert_module_lead(sel_code)
+                                    logging.info(
+                                        f"Module lead for '{sel_code}' reverted to SITS by "
+                                        f"'{st.session_state.get('username', 'Unknown')}'."
+                                    )
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error reverting module lead: {e}")
 
             except Exception as e:
                 st.error(f"Error managing module leads: {e}")
@@ -2385,21 +2574,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     st.success("Database schemas checked and verified! All structures are intact.")
                 except Exception as e:
                     st.error(f"Schema verification failed: {e}")
-                    
-        st.markdown("##### **Google Sheets Synchronization**")
-        with st.container(border=True):
-            st.write("Fetch the latest data (including Users, Roles, Checklist Fields, Comment Bank, and Audits) directly from Google Sheets into the local database cache.")
-            if st.button("🔄 Trigger Full Sync from Google Sheets", use_container_width=True):
-                with st.spinner("Synchronizing data from Google Sheets... Please wait..."):
-                    try:
-                        from sync_data import run_synchronization
-                        run_synchronization()
-                        st.cache_data.clear()
-                        st.success("Google Sheets synchronization completed successfully!")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"Synchronization failed: {e}")
-                    
+
         st.markdown("##### **Diagnostics Logs Control**")
         with st.container(border=True):
             st.write("Safely clear the `app.log` contents to free up space. This action is irreversible.")

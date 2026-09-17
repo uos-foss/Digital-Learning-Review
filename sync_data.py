@@ -4,26 +4,6 @@ import pandas as pd
 from database import cache_dataframe_to_sqlite, init_db, save_checklist_record, get_db_connection
 
 
-def sync_assessment_data():
-    print("🔄 Pulling SITS Assessment Data...")
-    from data_manager import get_spreadsheet_data
-    sheet_id = os.getenv("ASSESSMENT_SPREADSHEET_ID")
-    if sheet_id:
-        try:
-            ss, _ = get_spreadsheet_data(sheet_id)
-            sheet = ss.worksheet("All Schools 2026/27")
-            data = sheet.get_all_values()
-            if len(data) > 1:
-                df = pd.DataFrame(data[1:], columns=data[0])
-                if 'CIS unit code' in df.columns:
-                    df['CIS unit code'] = df['CIS unit code'].astype(str).str.strip().str.upper()
-                if 'Module code' in df.columns:
-                    df['Module code'] = df['Module code'].astype(str).str.strip().str.upper()
-                cache_dataframe_to_sqlite(df, "sits_assessment_2026_27")
-            print("✅ Assessment Data synced.")
-        except Exception as e:
-            print(f"❌ Error syncing Assessment Data: {e}")
-
 def sync_new_users_only(df_users):
     """
     Adds accounts present in the Users sheet but missing from SQLite, and
@@ -354,7 +334,10 @@ def run_synchronization():
         # for Prog. lead, module URLs and the Ally/Leganto fallbacks), so nothing here
         # may rebuild them - cache_dataframe_to_sqlite replaces, which would wipe the
         # snapshot with an empty frame.
-        sync_assessment_data()
+        # SITS is no longer pulled from Sheets - it arrives through the Admin
+        # Panel's dedicated SITS importer (views/admin_panel.py,
+        # _render_sits_import()), which keeps hand-set module leads. A pull
+        # here would replace that import with the stale sheet copy.
         sync_users_and_roles()
         sync_checklists()
         # ai_audit_responses is not ours to sync. The satellite AI-Audit app

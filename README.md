@@ -23,13 +23,14 @@ Deployed at
 
 ## 📊 How Data Flows
 
-**SQLite is the source of truth.** Every page reads from it. Google Sheets is
-an upstream source only, drained into SQLite by `sync_data.py` when an
-administrator triggers a full sync — it is not touched during a page load.
+**SQLite is the source of truth.** Every page reads from it. External data
+(SITS, Ally, Leganto, the Template Alignment Report) comes in through the
+Admin Panel's dedicated importers — nothing external is touched during a page
+load.
 
 | Source | Contents | Updated |
 | :--- | :--- | :--- |
-| SITS | Module list, teaching periods, assessment strategy | Annually |
+| SITS | Module list, module leads, teaching periods, assessment strategy | Admin Panel import, as exports are refreshed |
 | Ally | Accessibility scores, content counts and per-check issue counts, with history | Institutional report, imported periodically |
 | Leganto | Modules missing a reading list | Monthly |
 | Blackboard | Module VLE links | CSV import in the Admin Panel |

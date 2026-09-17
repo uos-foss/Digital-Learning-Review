@@ -1,5 +1,24 @@
 Recent updates and releases for the Digital Learning Review portal.
 
+### 🛠️ Unreleased — *SITS Import*
+
+* **SITS data now has its own importer** in the Admin Panel's Data
+  Import/Export tab. Before anything is written it shows the modules added
+  and removed (warning about any with audit activity), module lead changes
+  and semester changes. Values are stored exactly as SITS writes them, the
+  table is always replaced rather than merged, and each import is logged -
+  the sidebar's "Latest data from" line now includes SITS.
+* **Hand-corrected module leads survive a SITS import.** A lead set in
+  Module Manager is kept on every later import unless it is unticked in the
+  importer's lead-change table, and Module Manager can revert one to the
+  SITS name.
+* **Modules outside the faculty's school prefixes are dropped on import**
+  (e.g. cross-faculty FCS provision), so no module sits in the list without
+  a school.
+* **Trigger Full Sync from Google Sheets has been removed** from System
+  Maintenance. SITS can no longer be imported through the generic CSV hub,
+  which duplicated rows in Merge mode and altered values.
+
 ### 🚀 Version 1.23.0 (Current) — *Scoped Admin Access & Bulk User Tools*
 *16 September 2026*
 

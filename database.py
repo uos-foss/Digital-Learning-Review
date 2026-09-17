@@ -308,6 +308,38 @@ def init_db():
         )
     """)
 
+    # Module leads corrected by hand in the Admin Panel's Module Manager.
+    # sits_assessment_2026_27 is replaced wholesale on every SITS import, so
+    # without this a correction lasted only until the next import. The
+    # override is applied into the SITS table itself after each import
+    # (replace_sits_assessment()), so every reader - including the satellite
+    # AI-Audit app - keeps reading [Academic contact] with no join. sits_lead
+    # is what SITS itself said at the last import, for Revert.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS module_lead_overrides (
+            module_code TEXT PRIMARY KEY,
+            lead TEXT,
+            sits_lead TEXT,
+            updated_by TEXT,
+            updated_at TEXT
+        )
+    """)
+
+    # One row per SITS import through the Admin Panel. The SITS table itself
+    # carries no import date, so this is the only record of when it was last
+    # refreshed.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sits_imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            imported_at TEXT,
+            academic_year TEXT,
+            filename TEXT,
+            rows INTEGER,
+            modules INTEGER,
+            imported_by TEXT
+        )
+    """)
+
     # Spot-check flagging: a Digital Learning Advisor picks a module from
     # their School Dashboard to double-check by hand, based on their own
     # judgement rather than an algorithmic sample. One row per flag, from the
@@ -515,12 +547,15 @@ def get_last_import_dates():
     strings, or None for a source with no rows yet - callers format for
     display.
 
-    The Google Sheets full sync (users, roles, checklists) and the generic
-    CSV-to-table hub (leganto_nolist, inactive_modules, blackboard_links)
-    overwrite their tables wholesale with no per-row timestamp, so there is
-    nothing to read for them.
+    'sits' comes from the sits_imports log rather than a snapshot column -
+    the SITS table is replaced wholesale and carries no date of its own.
+
+    The generic CSV-to-table hub (leganto_nolist, inactive_modules,
+    blackboard_links) overwrites its tables wholesale with no per-row
+    timestamp, so there is nothing to read for those.
     """
     sources = {
+        'sits': ("sits_imports", "SELECT MAX(imported_at) FROM sits_imports"),
         'bb': ("readiness_courses", "SELECT MAX(snapshot_date) FROM readiness_courses"),
         'ally': ("ally_courses", "SELECT MAX(snapshot_date) FROM ally_courses"),
         'leganto': ("leganto_lists", "SELECT MAX(snapshot_date) FROM leganto_lists"),
@@ -1635,16 +1670,36 @@ def delete_role_sqlite(role_name: str):
         cursor.execute("DELETE FROM roles WHERE Role = ?", (role_name.strip(),))
         conn.commit()
 
-def update_module_lead_sqlite(module_code: str, new_lead: str):
-    """Updates the module lead name in SITS and main vle audit tables if they exist."""
+def _upsert_lead_override(cursor, module_code, lead, sits_lead, updated_by, updated_at):
+    """Records a hand-set lead. An existing override keeps its original
+    sits_lead - that is what SITS said, not the previous hand edit."""
+    cursor.execute("""
+        INSERT INTO module_lead_overrides (module_code, lead, sits_lead, updated_by, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(module_code) DO UPDATE SET
+            lead = excluded.lead,
+            updated_by = excluded.updated_by,
+            updated_at = excluded.updated_at
+    """, (module_code, lead, sits_lead, updated_by, updated_at))
+
+def update_module_lead_sqlite(module_code: str, new_lead: str, updated_by: str = "Unknown"):
+    """Updates the module lead name in SITS and main vle audit tables if they
+    exist, and records it in module_lead_overrides so the next SITS import
+    does not silently undo it."""
+    import datetime
     module_code = module_code.strip().upper()
     new_lead = new_lead.strip()
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Check and update sits_assessment_2026_27
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sits_assessment_2026_27'")
         if cursor.fetchone():
+            row = cursor.execute(
+                "SELECT [Academic contact] FROM sits_assessment_2026_27 WHERE [CIS unit code] = ? LIMIT 1",
+                (module_code,)).fetchone()
+            _upsert_lead_override(cursor, module_code, new_lead, row[0] if row else None, updated_by, now)
             cursor.execute("UPDATE sits_assessment_2026_27 SET [Academic contact] = ? WHERE [CIS unit code] = ?", (new_lead, module_code))
             
         # Check and update main_vle_audit_aut
@@ -1720,20 +1775,160 @@ def get_all_sits_modules():
     df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
     return df.drop_duplicates(subset=['module_code']).reset_index(drop=True)
 
-def bulk_rename_module_lead(old_lead: str, new_lead: str):
+def bulk_rename_module_lead(old_lead: str, new_lead: str, updated_by: str = "Unknown"):
     """Renames every module currently carrying old_lead (exact string match)
-    to new_lead, across SITS and the legacy VLE audit tables."""
+    to new_lead, across SITS and the legacy VLE audit tables, recording each
+    renamed module in module_lead_overrides like a single-module edit."""
+    import datetime
     old_lead = old_lead.strip()
     new_lead = new_lead.strip()
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     with get_db_connection() as conn:
         cursor = conn.cursor()
         if table_exists(conn, "sits_assessment_2026_27"):
+            codes = [r[0] for r in cursor.execute(
+                "SELECT DISTINCT [CIS unit code] FROM sits_assessment_2026_27 WHERE [Academic contact] = ?",
+                (old_lead,)).fetchall()]
+            for code in codes:
+                _upsert_lead_override(cursor, str(code).strip().upper(), new_lead, old_lead, updated_by, now)
             cursor.execute("UPDATE sits_assessment_2026_27 SET [Academic contact] = ? WHERE [Academic contact] = ?", (new_lead, old_lead))
         if table_exists(conn, "main_vle_audit_aut"):
             cursor.execute("UPDATE main_vle_audit_aut SET [Mod. lead] = ? WHERE [Mod. lead] = ?", (new_lead, old_lead))
         if table_exists(conn, "main_vle_audit_spr"):
             cursor.execute("UPDATE main_vle_audit_spr SET [Mod. lead] = ? WHERE [Mod. lead] = ?", (new_lead, old_lead))
         conn.commit()
+
+def get_module_lead_overrides():
+    """Every hand-set module lead, as a DataFrame (module_code, lead,
+    sits_lead, updated_by, updated_at)."""
+    with get_db_connection() as conn:
+        return pd.read_sql_query(
+            "SELECT module_code, lead, sits_lead, updated_by, updated_at "
+            "FROM module_lead_overrides ORDER BY module_code", conn)
+
+def revert_module_lead(module_code: str):
+    """Drops a hand-set lead and puts back what SITS said at the last import.
+    The frozen 25/26 legacy tables are left as they are."""
+    module_code = module_code.strip().upper()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT sits_lead FROM module_lead_overrides WHERE module_code = ?", (module_code,)).fetchone()
+        if row is None:
+            return
+        if row[0] is not None and table_exists(conn, "sits_assessment_2026_27"):
+            cursor.execute("UPDATE sits_assessment_2026_27 SET [Academic contact] = ? WHERE [CIS unit code] = ?",
+                           (row[0], module_code))
+        cursor.execute("DELETE FROM module_lead_overrides WHERE module_code = ?", (module_code,))
+        conn.commit()
+
+def get_modules_with_audit_activity(module_codes):
+    """Of the given codes, those with any audit response or spot-check, as
+    {code: [reason, ...]} - so the SITS importer can warn before an import
+    drops a module someone has actually worked on."""
+    codes = sorted({str(c).strip().upper() for c in module_codes if str(c).strip()})
+    found = {}
+    if not codes:
+        return found
+    placeholders = ",".join("?" * len(codes))
+    with get_db_connection() as conn:
+        for table, reason in (("audit_responses", "audit responses"), ("spot_checks", "spot-checks")):
+            if not table_exists(conn, table):
+                continue
+            for (code,) in conn.execute(
+                    f"SELECT DISTINCT UPPER(TRIM(module_code)) FROM {table} "
+                    f"WHERE UPPER(TRIM(module_code)) IN ({placeholders})", codes):
+                found.setdefault(code, []).append(reason)
+    return found
+
+def replace_sits_assessment(df, academic_year, filename, imported_by, keep_current_codes):
+    """
+    Replaces sits_assessment_2026_27 with a parsed export
+    (processing.parse_sits_export()'s 'rows') in one transaction.
+
+    Every column is stored as TEXT, as the old Sheets sync stored it - the
+    satellite AI-Audit app reads this table too, and values such as MAB
+    sequence '001' must survive verbatim. Rows are inserted by hand rather
+    than with DataFrame.to_sql, which commits on its own and would break the
+    single transaction.
+
+    keep_current_codes is the importer's "keep current lead" selection - the
+    complete set of modules whose hand-set lead should win over SITS:
+    - a code in it keeps the lead the app shows now (an existing override,
+      or - for an edit made before overrides existed - the stored value),
+      recorded as an override with sits_lead refreshed from the file;
+    - an existing override for a module in the file but not in it is
+      dropped, so the module takes SITS's lead;
+    - an override for a module absent from the file is left alone, in case
+      the module comes back.
+
+    Returns {'rows', 'modules', 'overrides_kept', 'overrides_cleared'}.
+    """
+    import datetime
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    table = "sits_assessment_2026_27"
+    columns = list(df.columns)
+    keep = {str(c).strip().upper() for c in keep_current_codes}
+    new_leads = (df.drop_duplicates(subset=['CIS unit code'])
+                   .set_index('CIS unit code')['Academic contact'].to_dict())
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+
+        current_leads = {}
+        if table_exists(conn, table):
+            for code, lead in cursor.execute(
+                    f"SELECT [CIS unit code], [Academic contact] FROM {table}").fetchall():
+                current_leads.setdefault(str(code).strip().upper(), lead)
+        existing = {r[0]: r for r in cursor.execute(
+            "SELECT module_code, lead, sits_lead, updated_by, updated_at FROM module_lead_overrides").fetchall()}
+
+        cursor.execute(f"DROP TABLE IF EXISTS {table}")
+        col_defs = ", ".join('"' + c.replace('"', '""') + '" TEXT' for c in columns)
+        cursor.execute(f"CREATE TABLE {table} ({col_defs})")
+        cursor.executemany(
+            f"INSERT INTO {table} VALUES ({','.join('?' * len(columns))})",
+            df[columns].astype(str).itertuples(index=False, name=None))
+
+        kept = cleared = 0
+        for code, sits_lead in new_leads.items():
+            if code in keep:
+                prior = existing.get(code)
+                lead = prior[1] if prior else current_leads.get(code, sits_lead)
+                cursor.execute("""
+                    INSERT OR REPLACE INTO module_lead_overrides
+                        (module_code, lead, sits_lead, updated_by, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (code, lead, sits_lead,
+                      prior[3] if prior else imported_by,
+                      prior[4] if prior else now))
+                kept += 1
+            elif code in existing:
+                cursor.execute("DELETE FROM module_lead_overrides WHERE module_code = ?", (code,))
+                cleared += 1
+
+        cursor.execute(f"""
+            UPDATE {table}
+            SET [Academic contact] = (
+                SELECT o.lead FROM module_lead_overrides o WHERE o.module_code = {table}.[CIS unit code])
+            WHERE [CIS unit code] IN (SELECT module_code FROM module_lead_overrides)
+        """)
+
+        cursor.execute("""
+            INSERT INTO sits_imports (imported_at, academic_year, filename, rows, modules, imported_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (now, academic_year, filename, len(df), len(new_leads), imported_by))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {'rows': len(df), 'modules': len(new_leads),
+            'overrides_kept': kept, 'overrides_cleared': cleared}
 
 
 # Automatically initialize/migrate database when imported
