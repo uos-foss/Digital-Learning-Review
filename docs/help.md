@@ -129,7 +129,7 @@ That database is populated from several sources:
 
 | Source | Contents | How it is updated |
 | :--- | :--- | :--- |
-| **SITS** | Module list, teaching periods, assessment strategy | Imported annually |
+| **SITS** | Module list, module leads, teaching periods, assessment strategy | Imported in the Admin Panel whenever a fresh export is available |
 | **Ally** | Accessibility scores, content counts and per-check issue counts, with history | Institutional report, imported periodically |
 | **Leganto** | Which modules have no reading list, and whether a list is Draft or Published | Monthly |
 | **Template Alignment Report** | Which required Blackboard template sections are visible, hidden, deleted or missing, and when each changed | Faculty report, imported periodically |
@@ -137,9 +137,13 @@ That database is populated from several sources:
 | **Audits** | Advisor findings against each module | Saved in the Audit Portal as advisors work |
 
 Audits are saved straight to the portal's own database — nothing is written
-back to a spreadsheet. Google Sheets is now used only as an **upstream source**:
-an administrator refreshes from it on demand using **Trigger Full Sync** in the
-Admin Panel. This is why the portal no longer runs into spreadsheet API limits.
+back to a spreadsheet. External data arrives through the importers in the
+Admin Panel's **Data Import/Export** tab rather than a live spreadsheet
+connection, which is why the portal no longer runs into spreadsheet API limits.
+
+Module leads corrected by hand in **Module Manager** are kept when a new SITS
+export is imported, unless the administrator importing it chooses to take the
+SITS name instead.
 
 ### 🎯 Data Reliability and Audit Rationale
 

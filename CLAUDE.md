@@ -31,8 +31,9 @@ about who does the work, so do not reintroduce it.
 
 **SQLite is the source of truth.** `database.py` owns the schema and every
 query. Google Sheets is an *upstream source only*, drained into SQLite by
-`sync_data.py` when an admin clicks Trigger Full Sync, or by running that module
-as a script.
+running `sync_data.py` as a script. The Admin Panel's Trigger Full Sync button
+was removed 17-09-2026 - Sheets sync is no longer part of normal operation, and
+SITS in particular no longer comes from Sheets at all (see "SITS data" below).
 
 - Never add a gspread call to a request path. If a page needs data, it comes
   from SQLite. The whole point of the v1.9 migration was removing Sheets from
@@ -50,6 +51,48 @@ insert genuinely new accounts — `sync_new_users_only()`. Anything that rebuild
 the table (`if_exists='replace'`) silently reverts role and status edits, and
 would undo the scrypt password migration. Roles do sync wholesale; those are
 genuinely sheet-managed.
+
+## SITS data
+
+`sits_assessment_2026_27` (one row per assessment component) is the module
+list, module leads and periods every view is built from. It is loaded only by
+the dedicated importer, `_render_sits_import()` in `views/admin_panel.py`, via
+`processing.parse_sits_export()` / `diff_sits_modules()` and
+`database.replace_sits_assessment()`. Added 17-09-2026, when Sheets sync was
+retired and the lead data had gone stale since ~May 2026.
+
+- **The satellite AI-Audit app reads this table directly** (same shared
+  database) - its name and column names (`processing.SITS_COLUMNS`) are a
+  contract with that app. Every column is stored as TEXT: read the CSV with
+  `dtype=str, keep_default_na=False`. The generic CSV hub used type inference
+  and turned MAB sequence `001` into `1`; SITS is blocked there now.
+- **Always a full replace, in one transaction.** SITS has no key, so the
+  generic hub's Merge mode appended a duplicate of every row. Rows are
+  inserted with `executemany`, not `DataFrame.to_sql` (which commits on its
+  own and would break the transaction).
+- **Only `CURRENT_ACADEMIC_YEAR` is accepted**, and rows whose code prefix is
+  not in `FACULTY_SCHOOLS` are dropped (FCS cross-faculty provision, and the
+  SCS/POL codes that appeared in the 2026-27 export) - every view derives a
+  school from the first three letters of the code, so those would belong to
+  no school. A deliberate user decision; revisit alongside any prefix-to-school
+  mapping work rather than quietly admitting them.
+- **Hand-set module leads live in `module_lead_overrides`** and are applied
+  *into* the SITS table after each import, so readers (including AI-Audit)
+  never need a join. `update_module_lead_sqlite()` / `bulk_rename_module_lead()`
+  (Module Manager) record an override; `revert_module_lead()` restores
+  `sits_lead`. The importer's lead-change table decides the full override set
+  per import: a ticked "Keep current" row keeps/creates the override (this is
+  also how edits made before overrides existed get captured - rows start
+  ticked when already overridden or when `lead_looks_hand_set()` sees
+  lowercase, since SITS writes names in capitals; the first live import on
+  17-09-2026 had 98 such pre-override hand edits, made days *after* the
+  export's own data, which the user wanted kept), an unticked one
+  clears it, and an override whose lead now matches SITS (ignoring case and
+  whitespace) is cleared automatically. Overrides for modules absent from the
+  file are left alone.
+- **`sits_imports` logs every import** - the SITS table itself has no date, so
+  this is the only answer to "when was SITS last imported", and feeds
+  `get_last_import_dates()['sits']` in the sidebar.
 
 ## Ally accessibility data
 
