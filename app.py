@@ -733,7 +733,7 @@ with st.sidebar:
     import_dates = load_last_import_dates()
     freshness = ", ".join(
         f"{label} ({fmt_report_date(import_dates[key]) if import_dates[key] else 'no data'})"
-        for key, label in (('bb', 'Bb'), ('ally', 'Ally'), ('leganto', 'Leganto'))
+        for key, label in (('bb', 'Blackboard Template Alignment'), ('ally', 'Ally'), ('leganto', 'Leganto'))
     )
     st.caption(f"Latest data from: {freshness}")
 
