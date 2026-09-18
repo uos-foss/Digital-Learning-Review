@@ -1,6 +1,34 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.24.0 (Current): *SITS Import*
+### 🚀 Version 1.25.0 (Current): *Frequently Asked Questions*
+*18 September 2026*
+
+* **A new FAQs tab** on Resources & Support, with a section for everyone plus
+  one each for Digital Learning Advisors, module leads and school leadership.
+  Questions are collapsed by default so the page can be scanned, and every
+  section is visible to every account rather than filtered by role.
+* **The advisor section covers the checklist and the data**: why some boxes
+  arrive already ticked, why a Visible section is not always enough to tick
+  one, that unticking a box is permanent and no later import will override
+  it, and that saving records the whole form rather than only the box that
+  changed.
+* **The module lead section** explains what the Module report page is showing,
+  what the Audit Status labels mean, which template sections are theirs to
+  fill in, and why a fix may not show up straight away.
+* **The school leadership section** covers how to read the two compliance
+  figures, why so few modules are audited by hand, what the spot-check
+  agreement figure does and does not measure, and what the portal cannot tell
+  you about a module.
+* **The welcome page is shorter.** The spot-check and data source detail it
+  used to repeat now lives in the FAQs, and the walkthrough of the Module
+  report page has moved into the module lead section.
+* **Corrected on the Help page:** the guidance on reading compliance figures
+  described the wrong one. Template Alignment is measured across every module
+  in a school, falling back to the Blackboard Template Alignment Report where
+  nobody has audited it; VLE Compliance, on the Faculty Overview's School
+  Comparison table, is the figure measured across submitted audits only.
+
+### 🚀 Version 1.24.0: *SITS Import*
 *17 September 2026*
 
 * **SITS data now has its own importer** in the Admin Panel's Data
