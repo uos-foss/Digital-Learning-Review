@@ -1,6 +1,19 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.26.0 (Current): *Spot-Check Comments*
+### 🚀 Version 1.26.1 (Current): *Dated Spot-Checks*
+*18 September 2026*
+
+* **The module report's Audit Status now says when a spot-check happened**,
+  not just that one did - "Spot checked on 18-09-2026 14:03:27" in place of a
+  bare "Spot checked". A module lead can now tell a check saved this week from
+  one saved months ago without asking.
+* The date shown is when an advisor last saved their answers for the module,
+  so a re-audit moves it forward.
+* **The "Last updated" line at the foot of the page** now writes that same
+  moment the same way, in the portal's usual DD-MM-YYYY format rather than the
+  raw stored value.
+
+### 🚀 Version 1.26.0: *Spot-Check Comments*
 *18 September 2026*
 
 * **A new Spot-Check Comments view on the School Dashboard**, beside
