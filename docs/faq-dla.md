@@ -149,6 +149,34 @@ Remove the flag from the School Dashboard's Spot-Checks tab, then re-flag it
 from All Modules. Removing a checked flag also removes its agreement result,
 which is why it sits behind a confirmation.
 
+### Where do the comments I write end up?
+
+Additional Comments are saved with the audit and turn up in three places: on
+the module's own report page, under Module Checks and Readiness; in full on the
+School Dashboard's Spot-Check Comments tab, for any module that was flagged for
+a spot-check; and cut to a single line in the comment column of the Spot-Checks
+tab next to it.
+
+Spot-Check Comments is the one built for reading them. One card per flagged
+module, most recently written first, with the module name, the flag status, and
+who audited and flagged it. There is a search box across module codes and
+comment text, a filter for checked or pending flags, and a CSV export. A
+flagged module nobody has audited yet has nothing to show, so those are hidden
+unless you tick the box to include them.
+
+What appears there is the module's current answer, not a copy taken when the
+flag was closed. Revise the audit and the comment changes with it.
+
+### Are those comments private to advisors?
+
+No. Write them for the module lead, because the module lead reads them: the
+comment appears on their own Module report page, and school leadership can read
+it on the School Dashboard. The internal-only notes field the portal used to
+have was removed, so there is no advisor-only box any more.
+
+Say what is outstanding and what would resolve it, rather than leaving a note
+to yourself.
+
 ## Counts and badges
 
 ### A module I've never audited shows items outstanding on its page but nothing on the dashboard badge. Why?
