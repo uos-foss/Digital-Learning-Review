@@ -43,6 +43,17 @@ recent spot-check. It is not a mark or a grade for you personally. A card
 showing a section still hidden is telling you what to do next, not recording a
 failing.
 
+### There is a written comment on my module. Who wrote it?
+
+A Digital Learning Advisor, when they audited the module. It appears under
+Module Checks and Readiness as Additional Comments, and it is the one part of
+the page written by a person rather than drawn from a system.
+
+It is meant for you: usually what is outstanding and what would resolve it. It
+stays as written until the advisor revises that audit, so it can describe
+something you have since fixed. See "I have fixed the problem. Why does the
+portal still show it?" below.
+
 ### What does "Data-derived" mean at the top of my module report?
 
 It's the **Audit Status**, and it says how much human attention the module has

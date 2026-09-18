@@ -51,6 +51,23 @@ figure is how often the two matched.
 signals are a poor guide for that kind of module, which is worth knowing. It is
 not a performance measure of anybody.
 
+### Can I read what the advisor actually said about a module?
+
+Yes, for modules that were spot-checked. The School Dashboard's Spot-Check
+Comments tab shows the advisor's own Additional Comments in full, most recently
+written first, one card per module, with the module name and who audited it.
+You can search across them, narrow to checked or pending flags, and export what
+is on screen as a CSV.
+
+This is the part of the audit that says what is actually wrong with a course in
+an advisor's own words, rather than as a status. It is worth reading alongside
+the figures, not instead of them.
+
+Two things to keep in mind. Only flagged modules appear there, and only a
+handful are flagged each year, so it is a sample rather than a survey of the
+school. A comment on a module audited months ago describes the course as it was
+then.
+
 ### Why do average Ally scores exclude some courses?
 
 Because a freshly rolled-over course contains only its template, a couple of
