@@ -734,6 +734,24 @@ snapshot/diff logic is I/O-free in `processing.py`
   signal to compare.
 - `database.purge_spot_checks(academic_year)` drops one year - there is no
   `sample_round` to scope a purge to, unlike the abandoned sampled design.
+- **The free-text comment on a spot-checked module is read through
+  `database.get_spot_check_comments()`**, which joins `spot_checks` to each
+  module's *current* `audit_responses` row for the `comments` field. Both
+  School Dashboard views that show it read that one query - the "🎯
+  Spot-Checks" table's comment column and the "💬 Spot-Check Comments" view
+  beside it - so the two can't show different text for the same module, and
+  neither reads the whole of `audit_responses` to find it. The comment is
+  whatever the audit says now, not a snapshot taken when the flag was closed;
+  `audit_response_history` is the trail if an earlier wording is needed.
+  `views/school_dashboard.py`'s `comment_field_label()` takes the heading from
+  `audit_fields` rather than hardcoding "Additional Comments", and
+  `format_comment_markdown()` turns a stored value into display markdown:
+  single newlines become line breaks, and the legacy observation/action JSON
+  a handful of modules still carry (see `INERT_TEXT_FIELD_IDS` under "Unified
+  module findings") is unpacked into labelled lines instead of being shown
+  raw. A module re-flagged later in the same year has one row per flag; the
+  comments view collapses those to one card per module, keeping the most
+  recent flag, since there is only ever one comment to read.
 - **`database.delete_spot_check(id)`** removes one row outright - reachable
   from the "🎯 Spot-Checks" view's Remove Flag action, behind a confirm
   checkbox since deleting a `checked` row also deletes its agreement result.

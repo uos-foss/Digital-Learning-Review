@@ -63,6 +63,12 @@ Seven tabs:
 * **Spot-Checks**: every module the school has flagged this year, its status
   and agreement result once checked; see "Data Reliability and Audit
   Rationale" below for what spot-checking is for.
+* **Spot-Check Comments**: the Additional Comments an advisor wrote when
+  auditing those flagged modules, in full and newest first, with a search box
+  and a CSV export. The Spot-Checks view shows the same text one line at a
+  time and holds the jump and remove-flag actions; this view is for reading
+  it. A flagged module nobody has audited yet has no comment, and is hidden
+  unless you tick "Include flagged modules with no comment yet".
 
 > **Ally Analytics, Trends and Priority Action List are temporarily
 > admin-only.** While those views are being reworked, only accounts with
