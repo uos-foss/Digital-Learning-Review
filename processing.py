@@ -1741,6 +1741,15 @@ def fmt_report_date(value):
     parsed = pd.to_datetime(str(value or ""), errors='coerce')
     return "" if pd.isna(parsed) else parsed.strftime('%d-%m-%Y')
 
+def fmt_report_datetime(value):
+    """ISO storage to the DD-MM-YYYY HH:MM:SS the portal shows users where the
+    time of day matters too - a module lead reading "Spot checked on ..." needs
+    to know how fresh the check is, not just which day it landed on. Blank if
+    unusable, including for the "Never"/"Unknown" sentinels app.py's checklist
+    summaries carry in place of a real timestamp."""
+    parsed = pd.to_datetime(str(value or ""), errors='coerce')
+    return "" if pd.isna(parsed) else parsed.strftime('%d-%m-%Y %H:%M:%S')
+
 def readiness_evidence_words(state, created_date):
     """The plain sentence under a section's status, saying what the data does
     and does not show.

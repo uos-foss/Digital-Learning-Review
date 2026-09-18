@@ -63,7 +63,9 @@ had. There are three:
   Most modules show this.
 * **Spot check-pending**: a Digital Learning Advisor has chosen this module
   for a closer look this year, and that hasn't happened yet.
-* **Spot checked**: that closer look has already happened.
+* **Spot checked on <date>**: that closer look has already happened, and the
+  date and time shown is when an advisor last saved their answers - so you
+  can tell a check made this week from one made months ago.
 
 None of the three is a pass or a fail. They describe where the module is in
 the review process, not how good it is.

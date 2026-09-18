@@ -19,6 +19,7 @@ from processing import (
     readiness_manual_override,
     compute_audit_verdict,
     fmt_report_date,
+    fmt_report_datetime,
     readiness_evidence_words,
     readiness_created_date,
     resolve_active_row,
@@ -1154,8 +1155,14 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         has_audit = bool(sum_entry) and sum_entry.get('Auditor') not in (None, '', 'System')
         if sum_entry:
             responses = sum_entry.get('Responses', {})
-            last_updated_str = (f"{sum_entry.get('Timestamp', 'Never')} by {sum_entry.get('Auditor', 'Unknown')}"
-                                if has_audit else "Never")
+            # Same timestamp the Audit Status line above reads, formatted the
+            # same way - it was showing the raw ISO storage value, against the
+            # DD-MM-YYYY convention, and the two sat on one page disagreeing
+            # about how to write the same moment.
+            last_updated_str = (
+                f"{fmt_report_datetime(sum_entry.get('Timestamp')) or 'Unknown'}"
+                f" by {sum_entry.get('Auditor', 'Unknown')}"
+                if has_audit else "Never")
         else:
             responses = {}
             last_updated_str = "Never"
@@ -1223,9 +1230,22 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             # findings" in CLAUDE.md); a pending spot_checks row for this
             # module/year distinguishes "flagged, not yet done" from "never
             # looked at" for everything else.
+            #
+            # A bare "Spot checked" gave a module lead no way to tell a check
+            # saved this morning from one saved last October, so the date and
+            # time of the most recent saved answer is shown alongside it. That
+            # is sum_entry['Timestamp'] (the latest audit_responses row for the
+            # module), not spot_checks.checked_on: the label fires on has_audit,
+            # which covers audits that were never flagged as a spot-check at
+            # all, and a re-audit moves the response timestamp while checked_on
+            # stays frozen at the original close-out. The label falls back to
+            # the bare wording if that value is one of app.py's "Unknown" /
+            # "Never" sentinels rather than a real timestamp.
             pending_spot_check = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
             if has_audit:
-                audit_status_label = "Spot checked"
+                checked_on = fmt_report_datetime(sum_entry.get('Timestamp'))
+                audit_status_label = (f"Spot checked on {checked_on}" if checked_on
+                                      else "Spot checked")
             elif pending_spot_check:
                 audit_status_label = "Spot check-pending"
             else:
@@ -1245,7 +1265,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
                     <span><b>Module Site:</b> {vle_value}</span>
-                    <span title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor."><b>Audit Status:</b> {audit_status_label}</span>
+                    <span title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor - and, if it has, when that check was last saved."><b>Audit Status:</b> {audit_status_label}</span>
                 </div>""", unsafe_allow_html=True)
 
         _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
