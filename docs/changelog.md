@@ -1,6 +1,25 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.25.0 (Current): *Frequently Asked Questions*
+### 🚀 Version 1.26.0 (Current): *Spot-Check Comments*
+*18 September 2026*
+
+* **A new Spot-Check Comments view on the School Dashboard**, beside
+  Spot-Checks. It shows what advisors actually wrote in Additional Comments
+  when they audited the school's flagged modules, in full and with the most
+  recently written first, one card per module with the module name, its flag
+  status, and who audited and flagged it.
+* **The comments are shown as they were typed.** Line breaks are kept, and
+  the older observation/action notes a handful of modules still carry are
+  shown as labelled lines rather than as raw data.
+* **Search, filter and export.** Search across module codes and comment text,
+  narrow to checked or pending flags, and download what is on screen as a CSV.
+  Flagged modules nobody has audited yet have no comment to read, so they are
+  hidden unless you ask for them.
+* **The Spot-Checks view is unchanged** and still holds the jump and
+  remove-flag actions. Its comment column and the new view now read the same
+  data, so the two can no longer show different text for the same module.
+
+### 🚀 Version 1.25.0: *Frequently Asked Questions*
 *18 September 2026*
 
 * **A new FAQs tab** on Resources & Support, with a section for everyone plus
