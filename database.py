@@ -1424,6 +1424,46 @@ def get_school_spot_checks(school: str, academic_year: str = None):
         sql += " ORDER BY flagged_on DESC"
         return pd.read_sql_query(sql, conn, params=params)
 
+def get_spot_check_comments(school: str, academic_year: str = None,
+                            field_id: str = 'comments'):
+    """Every spot-check flagged for modules in one school, each with the
+    free-text audit field an advisor wrote against that module - the source
+    for the School Dashboard's "Spot-Check Comments" view and for the comment
+    column on the "Spot-Checks" view beside it, so the two can never show a
+    different comment for the same module.
+
+    One join rather than reading all of audit_responses and filtering in
+    pandas: only the flagged modules are of interest here.
+
+    The comment is the module's *current* answer for that field, not a
+    snapshot frozen when the spot-check was closed - audit_responses holds one
+    row per module/field and re-saving an audit revises it in place
+    (audit_response_history keeps the trail). Flagged modules with no comment
+    come back too, with an empty string, so a caller can show what is still
+    awaiting one.
+    """
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return pd.DataFrame()
+        sql = """
+            SELECT s.id, s.module_code, s.academic_year, s.status,
+                   s.flagged_by, s.flagged_on, s.checked_by, s.checked_on,
+                   COALESCE(r.value, '') AS comment,
+                   r.auditor_username AS comment_by,
+                   r.timestamp AS comment_on
+            FROM spot_checks s
+            LEFT JOIN audit_responses r
+                   ON UPPER(TRIM(r.module_code)) = UPPER(TRIM(s.module_code))
+                  AND r.field_id = ?
+            WHERE s.module_code LIKE ?
+        """
+        params = [field_id, f"{school.strip().upper()}%"]
+        if academic_year:
+            sql += " AND s.academic_year = ?"
+            params.append(academic_year)
+        sql += " ORDER BY s.flagged_on DESC"
+        return pd.read_sql_query(sql, conn, params=params)
+
 def get_spot_checks_for_schools(schools, academic_year: str = None, status: str = None):
     """Every spot-check flagged for modules across one or more schools - the
     A flag belongs to whichever school(s) it's in, not to whoever raised it

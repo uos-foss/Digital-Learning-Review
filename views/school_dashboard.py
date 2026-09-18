@@ -5,10 +5,12 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
-                        derive_module_findings, short_field_label)
+                        derive_module_findings, short_field_label,
+                        parse_custom_observations, fmt_report_date)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
-                      get_school_spot_checks, get_spot_check_agreement_summary)
+                      get_school_spot_checks, get_spot_check_agreement_summary,
+                      get_spot_check_comments)
 from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_issue_profile,
     build_accessibility_risk_list,
@@ -22,6 +24,52 @@ def to_title_case(name: str) -> str:
     if not name_str:
         return ""
     return name_str.title()
+
+# 'comments' ("Additional Comments") is the audit field both spot-check views
+# read: a column on "Spot-Checks", the whole of "Spot-Check Comments". Its
+# heading comes from audit_fields so a relabel there can't drift from what
+# either view calls it.
+SPOT_CHECK_COMMENT_FIELD = 'comments'
+
+def comment_field_label():
+    """The active label for the free-text comment field, or its stock name if
+    an administrator has deactivated it."""
+    for field in get_active_audit_fields():
+        if field['id'] == SPOT_CHECK_COMMENT_FIELD:
+            return field['label']
+    return "Additional Comments"
+
+def format_comment_markdown(value):
+    """One stored comment, ready for st.markdown.
+
+    Two shapes reach this. Almost everything is what an advisor typed into the
+    Audit Portal's text area, where single newlines are meant as line breaks
+    and markdown would otherwise run them together. A handful of modules still
+    hold the structured observation/action JSON the field carried before the
+    tag-picker UI was dropped (see INERT_TEXT_FIELD_IDS in processing.py);
+    those are unpacked into labelled lines rather than shown as raw JSON.
+    """
+    raw = str(value or '').strip()
+    if not raw:
+        return ""
+    if raw.startswith(("[", "{")) or "**Observation:**" in raw:
+        parsed = parse_custom_observations(raw)
+        # parse_custom_observations() falls back to handing plain text back as
+        # a lone observation, so something that merely starts with a bracket
+        # would otherwise pick up a spurious "Observation:" heading. Only the
+        # genuinely structured values are reformatted.
+        echoed = (len(parsed) == 1 and parsed[0].get('observation') == raw
+                  and not parsed[0].get('action'))
+        if parsed and not echoed:
+            lines = []
+            for item in parsed:
+                if item.get('observation'):
+                    lines.append(f"**Observation:** {item['observation']}")
+                if item.get('action'):
+                    lines.append(f"**Action:** {item['action']}")
+            if lines:
+                return "\n\n".join(lines)
+    return raw.replace("\n", "  \n")
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_freshness=None):
     schools = list(FACULTY_SCHOOLS)
@@ -165,7 +213,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
             # disabled - add them back to this list to restore. Their view code
             # below is untouched.
-            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List", "🎯 Spot-Checks"]
+            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List", "🎯 Spot-Checks", "💬 Spot-Check Comments"]
             if not is_admin:
                 view_options = [v for v in view_options
                                  if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
@@ -963,38 +1011,24 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             return "n/a"
                         return f"{int(r['agreement_agreed'])}/{int(total)}"
 
-                    # 'comments' ("Additional Comments") is shown as its own
-                    # column, pulled from each module's *current* audit
-                    # responses - one query for every flagged module rather
-                    # than one query per row. Its label comes from
-                    # audit_fields so a relabel there doesn't drift from
-                    # this header.
-                    text_field_labels = {
-                        f['id']: f['label'] for f in get_active_audit_fields()
-                        if f['field_type'] == 'text'
-                    }
-                    comments_label = text_field_labels.get('comments', 'Additional Comments')
-                    notes_by_module = {}
-                    if text_field_labels:
-                        all_responses = get_all_audit_responses()
-                        if not all_responses.empty:
-                            notes_df = all_responses[all_responses['field_id'] == 'comments']
-                            for _, nrow in notes_df.iterrows():
-                                val = str(nrow['value'] or '').strip()
-                                if not val:
-                                    continue
-                                ncode = str(nrow['module_code']).strip().upper()
-                                notes_by_module.setdefault(ncode, {})[nrow['field_id']] = val
-
-                    def _field_display(module_code, field_id):
-                        code = str(module_code).strip().upper()
-                        return notes_by_module.get(code, {}).get(field_id, "")
+                    # The comment column here and the "Spot-Check Comments"
+                    # view below read the same query, so neither can show a
+                    # different comment from the other for the same module.
+                    # It is each module's *current* audit answer, one query
+                    # for every flagged module rather than one per row.
+                    comments_label = comment_field_label()
+                    sc_comment_rows = get_spot_check_comments(school, CURRENT_ACADEMIC_YEAR)
+                    comments_by_module = {
+                        str(c).strip().upper(): str(v or '').strip()
+                        for c, v in zip(sc_comment_rows['module_code'], sc_comment_rows['comment'])
+                    } if not sc_comment_rows.empty else {}
 
                     shown = sc_df.copy()
                     shown['Module Name'] = shown['module_code'].map(names)
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown['Agreement'] = shown.apply(_agreement_display, axis=1)
-                    shown[comments_label] = shown['module_code'].map(lambda c: _field_display(c, 'comments'))
+                    shown[comments_label] = shown['module_code'].map(
+                        lambda c: comments_by_module.get(str(c).strip().upper(), ""))
                     shown = shown.reset_index(drop=True)
                     # 'id' stays out of the visible table but is kept aligned by
                     # position so a selected row can be deleted by primary key.
@@ -1073,6 +1107,133 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                         del st.session_state["school_dashboard_spot_check_dataframe"]
                                     st.rerun()
                         st.divider()
+
+            elif selected_view == "💬 Spot-Check Comments":
+                comments_label = comment_field_label()
+                st.subheader(f"Spot-Check Comments for {school}")
+                st.caption(
+                    f'What advisors actually wrote in "{comments_label}" when they '
+                    "audited this school's spot-checked modules, shown in full with "
+                    "the most recently written first. The Spot-Checks view beside "
+                    "this one lists the same text a line at a time, and holds the "
+                    "jump and remove-flag actions; this view is for reading it. Each "
+                    "comment is the module's current audit answer, so revising an "
+                    "audit in the Audit Portal changes what appears here."
+                )
+
+                sc_comments = get_spot_check_comments(school, CURRENT_ACADEMIC_YEAR)
+                if sc_comments.empty:
+                    st.info(
+                        "No modules flagged yet this year, so there is nothing to "
+                        "read. Select a module in '📋 Modules Overview' and use "
+                        "🎯 Flag for Spot-Check.")
+                else:
+                    sc_comments = sc_comments.copy()
+                    sc_comments['comment'] = (sc_comments['comment'].fillna('')
+                                              .astype(str).str.strip())
+                    # A module can legitimately be flagged more than once in a
+                    # year (re-flagged after a check), which the query returns
+                    # as one row per flag. There is only ever one comment to
+                    # read either way, so this view is one card per module,
+                    # keeping the most recent flag - the query orders by
+                    # flagged_on descending.
+                    sc_comments = sc_comments.drop_duplicates(
+                        subset='module_code', keep='first')
+                    has_comment = sc_comments['comment'] != ""
+
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Modules flagged this year", len(sc_comments))
+                    m2.metric("With a comment", int(has_comment.sum()))
+                    m3.metric("No comment yet", int((~has_comment).sum()),
+                              help="Usually a flag nobody has audited yet, since the "
+                                   "comment is written in the Audit Portal.")
+
+                    f1, f2 = st.columns([2, 1])
+                    with f1:
+                        comment_search = st.text_input(
+                            "Search", key="sd_sc_comment_search",
+                            placeholder="Module code, or any word in a comment")
+                    with f2:
+                        comment_status = st.selectbox(
+                            "Flag status", ["All", "Checked", "Pending"],
+                            key="sd_sc_comment_status")
+                    show_uncommented = st.checkbox(
+                        "Include flagged modules with no comment yet", value=False,
+                        key="sd_sc_comment_show_empty")
+
+                    filtered_comments = sc_comments
+                    if not show_uncommented:
+                        filtered_comments = filtered_comments[filtered_comments['comment'] != ""]
+                    if comment_status != "All":
+                        filtered_comments = filtered_comments[
+                            filtered_comments['status'] == comment_status.lower()]
+                    needle = comment_search.strip().lower()
+                    if needle:
+                        filtered_comments = filtered_comments[
+                            filtered_comments['module_code'].astype(str).str.lower().str.contains(needle)
+                            | filtered_comments['comment'].str.lower().str.contains(needle)]
+
+                    # Newest comment first, rather than the query's newest flag
+                    # first: what is being read here is the writing, and the two
+                    # orders differ once a colleague closes out an older flag.
+                    # comment_on is stored ISO, so a plain string sort is
+                    # chronological; modules with no comment fall to the bottom.
+                    filtered_comments = filtered_comments.sort_values(
+                        'comment_on', ascending=False, na_position='last')
+
+                    names = school_df.set_index(
+                        school_df['New module code'].astype(str).str.strip().str.upper()
+                    )['Module name'].to_dict()
+
+                    if filtered_comments.empty:
+                        st.info("No spot-check comments match those filters.")
+                    else:
+                        st.caption(f"Showing {len(filtered_comments)} of "
+                                   f"{len(sc_comments)} flagged module(s).")
+                        for _, comment_row in filtered_comments.iterrows():
+                            code = str(comment_row['module_code']).strip().upper()
+                            # A module flagged in the other semester is not in
+                            # school_df, and a SITS row can carry a blank name,
+                            # so this can come back missing or NaN.
+                            module_name = names.get(code, "")
+                            module_name = ("" if pd.isna(module_name)
+                                           else str(module_name).strip())
+                            status_badge = ("✅ Checked" if comment_row['status'] == 'checked'
+                                            else "⏳ Pending")
+                            with st.container(border=True):
+                                heading = f"**{code}**"
+                                if module_name:
+                                    heading += f" · {module_name}"
+                                st.markdown(f"{heading} · {status_badge}")
+
+                                body = format_comment_markdown(comment_row['comment'])
+                                if body:
+                                    st.markdown(body)
+                                else:
+                                    st.caption("Nothing written against this module yet.")
+
+                                trail = []
+                                author = str(comment_row.get('comment_by') or '').strip()
+                                written_on = fmt_report_date(comment_row.get('comment_on'))
+                                if body and author:
+                                    trail.append(f"Audited by {author}"
+                                                 + (f" on {written_on}" if written_on else ""))
+                                flagged_by = str(comment_row.get('flagged_by') or '').strip()
+                                flagged_on = fmt_report_date(comment_row.get('flagged_on'))
+                                if flagged_by:
+                                    trail.append(f"Flagged by {flagged_by}"
+                                                 + (f" on {flagged_on}" if flagged_on else ""))
+                                if trail:
+                                    st.caption(" · ".join(trail))
+
+                        export_comments = filtered_comments[
+                            ['module_code', 'status', 'comment', 'comment_by', 'comment_on',
+                             'flagged_by', 'flagged_on', 'checked_by', 'checked_on']]
+                        st.download_button(
+                            f"📥 Export {school} Spot-Check Comments",
+                            export_comments.to_csv(index=False).encode('utf-8'),
+                            f"{school}_spot_check_comments.csv", "text/csv",
+                            key="btn_sd_sc_comments_export")
 
             st.divider()
             csv_school = school_df.to_csv(index=False).encode('utf-8')
