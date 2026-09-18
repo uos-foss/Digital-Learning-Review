@@ -1,6 +1,6 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.24.0 (Current) — *SITS Import*
+### 🚀 Version 1.24.0 (Current): *SITS Import*
 *17 September 2026*
 
 * **SITS data now has its own importer** in the Admin Panel's Data
@@ -22,14 +22,14 @@ Recent updates and releases for the Digital Learning Review portal.
   Maintenance. SITS can no longer be imported through the generic CSV hub,
   which duplicated rows in Merge mode and altered values.
 
-### 🚀 Version 1.23.0 — *Scoped Admin Access & Bulk User Tools*
+### 🚀 Version 1.23.0: *Scoped Admin Access & Bulk User Tools*
 *16 September 2026*
 
 * **Digital Learning Advisors can now handle routine admin tasks without full
   admin rights.** A new scoped access level opens Module Manager and a
-  reduced User Control tab — no Role Capabilities sub-tab, no delete,
+  reduced User Control tab (no Role Capabilities sub-tab, no delete,
   password-reset or masquerade, and no reassigning an account to an admin
-  role — without granting everything the Admin Panel can do.
+  role) without granting everything the Admin Panel can do.
 * **Bulk CSV tools for managing accounts and modules.** User Control's User
   Accounts tab gains bulk import (validated up front against permitted
   roles, real school codes and duplicate usernames, with passwords hashed on
@@ -38,7 +38,7 @@ Recent updates and releases for the Digital Learning Review portal.
   current inactive list for round-trip editing.
 * **Fixed a bug that could silently duplicate user accounts.** Usernames are
   now matched case-insensitively, so importing or updating an existing
-  lowercase account — common for staff and DLA logins — no longer creates a
+  lowercase account, common for staff and DLA logins, no longer creates a
   second, uppercase duplicate.
 * **School Dashboard's module table is easier to scan**: level codes are
   abbreviated, Ally score wording matches the module report's own banner
@@ -55,13 +55,13 @@ Recent updates and releases for the Digital Learning Review portal.
   Dashboard while those views are reworked. Nothing else on either page is
   affected, and the tabs are expected to reopen once the redesign lands.
 
-### 🚀 Version 1.22.0 — *Module Report Redesign*
+### 🚀 Version 1.22.0: *Module Report Redesign*
 *14–15 September 2026*
 
 * **The module report's template section list now mirrors the actual
   Blackboard Ultra course menu**, nesting sections the way they appear in
-  the course — with a content-type icon for each (learning module, folder,
-  document, link, plus approximated brand badges for the four LTI tools) —
+  the course, with a content-type icon for each (learning module, folder,
+  document, link, plus approximated brand badges for the four LTI tools),
   instead of a flat card list next to a separate table.
 * **One Actions panel replaces two lists that could disagree.** Checklist,
   reading-list, template-alignment and accessibility findings that still
@@ -80,7 +80,7 @@ Recent updates and releases for the Digital Learning Review portal.
   at the wrong Blackboard folder, so unticking it could flag an unrelated
   section as incomplete on the module report. Audit field labels are now
   locked to their mapped section's name so this can't silently drift again.
-* **Fixed accessibility data intermittently going missing on refresh** — a
+* **Fixed accessibility data intermittently going missing on refresh.** A
   module could show real Ally scores alongside "No accessibility issues
   reported", correcting itself on some page refreshes and not others. The
   underlying caching bug only ever populated some users' sessions with the
@@ -89,7 +89,7 @@ Recent updates and releases for the Digital Learning Review portal.
   attention; red is now reserved for deleted or missing sections only), and
   captions across the Template Alignment tab have been shortened.
 
-### 🚀 Version 1.21.0 — *A Welcome page*
+### 🚀 Version 1.21.0: *A Welcome page*
 *14 September 2026*
 
 * **The portal now opens on a new Welcome page**, a plain-English
@@ -102,7 +102,7 @@ Recent updates and releases for the Digital Learning Review portal.
   page everyone sees after signing in, and is also reachable from the
   sidebar at any time.
 
-### 🚀 Version 1.20.0 — *Spot-check flagging*
+### 🚀 Version 1.20.0: *Spot-check flagging*
 *12 August 2026*
 
 * **Digital Learning Advisors can now flag modules for a spot-check, right
@@ -139,7 +139,7 @@ Recent updates and releases for the Digital Learning Review portal.
   covers one-off corrections, including on modules currently marked
   inactive.
 
-### 🚀 Version 1.19.0 — *The Audit Portal suggests answers from Blackboard*
+### 🚀 Version 1.19.0: *The Audit Portal suggests answers from Blackboard*
 *12 August 2026*
 
 * **Three checklist questions can now be pre-filled from what Blackboard
@@ -147,21 +147,21 @@ Recent updates and releases for the Digital Learning Review portal.
   Assessment Briefs are backed by the Template Alignment Report, so the Audit
   Portal now suggests a tick whenever the section is visible to students, with
   a plain-English note underneath explaining what the data shows and doesn't.
-  A suggestion never overwrites a saved answer — advisors always see and
+  A suggestion never overwrites a saved answer. Advisors always see and
   approve it, and nothing is written to the audit record until Save Draft or
   Submit Audit is pressed.
-* **Four more fields — SGAs, Student Voice, Assessment Details overview and
-  Encore Lecture Capture — get the same treatment**, since those sections are
+* **Four more fields (SGAs, Student Voice, Assessment Details overview and
+  Encore Lecture Capture) get the same treatment**, since those sections are
   institutional content nobody is expected to edit personally; "visible" is
   the only thing worth checking for them.
 * **A same-day batch of Blackboard edits across a school is not assumed to be
   an IT job any more.** Aside from the original template rollout, it's
   usually Professional Services or school admin staff working through a
-  batch of modules on the lead's behalf — genuine content work, just not
+  batch of modules on the lead's behalf, which is genuine content work, just not
   done by the lead. The suggestion above treats that the same as a section
   edited by the lead directly; the evidence note names which one it was.
 
-### 🚀 Version 1.18.0 — *One source of truth for "what's outstanding"*
+### 🚀 Version 1.18.0: *One source of truth for "what's outstanding"*
 *11 August 2026*
 
 * **The Actionable Items badge and the module report page can no longer
@@ -174,17 +174,17 @@ Recent updates and releases for the Digital Learning Review portal.
   dashboard used to prioritise across the school. There is now one function,
   `processing.derive_module_findings()`, that every consumer reads from.
 * **Expect Actionable Items numbers to change, mostly upward.** This is the
-  direct, intended consequence of the fix above — modules that were quietly
+  direct, intended consequence of the fix above: modules that were quietly
   undercounted (Leganto Draft, template readiness) now correctly show more
   outstanding items. A never-audited module's checklist fields still don't
   count toward the badge until the module has been opened in the Audit
-  Portal at least once — that was already the badge's behaviour and this
+  Portal at least once. That was already the badge's behaviour and this
   release does not change it, only closes the specific gaps above.
 * **A module report's "not yet audited" messaging is more reliable.** A
   module flagged only by data (Leganto, Ally, template readiness) with no
   human audit trail no longer misreports as audited.
 
-### 🚀 Version 1.17.0 — *Module Readiness from the Template Alignment Report*
+### 🚀 Version 1.17.0: *Module Readiness from the Template Alignment Report*
 *11 August 2026*
 
 * **The Blackboard template is now measured, not just audited by hand.** The
@@ -195,13 +195,13 @@ Recent updates and releases for the Digital Learning Review portal.
   year read from the file itself.
 * **Module reports show the three sections that actually matter.** Eleven of the
   fourteen sections ship visible and nobody is expected to touch them, so
-  "visible" there tells you nothing. Three — Welcome & Module Outline, Key Staff
-  Contacts and Assessment Detail — ship hidden and have to be unhidden by the
+  "visible" there tells you nothing. Three (Welcome & Module Outline, Key Staff
+  Contacts and Assessment Detail) ship hidden and have to be unhidden by the
   module lead. Those three are shown in full on the module report with a plain
   sentence on what the data does and does not show; the other eleven are
   collapsed behind an expander so a deleted or missing one is still findable.
 * **"Hidden" and "not started" are not the same thing.** A section that has been
-  worked on and left hidden is reported as exactly that — the content exists,
+  worked on and left hidden is reported as exactly that: the content exists,
   no student can see it, and making it visible is all that is outstanding.
   Across the faculty that is 34 sections in 25 modules, and it is the cheapest
   win in the dataset: a one-click fix, and a completely different conversation
@@ -220,16 +220,16 @@ Recent updates and releases for the Digital Learning Review portal.
   module-lead sections instead, and flag any section deleted from or missing in
   the course shell.
 * **Nothing here completes an audit on its own.** The template states are shown
-  as observations from an export, beside the checklist rather than inside it — a
+  as observations from an export, beside the checklist rather than inside it, since a
   recorded audit response still means something a Digital Learning Advisor
   recorded.
 
-### 🚀 Version 1.16.0 — *Ally Institutional Report*
+### 🚀 Version 1.16.0: *Ally Institutional Report*
 *5 August 2026*
 
 * **Ally now tells you what is wrong, not just how bad it is.** The full
-  Anthology institutional report carries a per-check breakdown — untagged PDFs,
-  scanned documents, missing image descriptions, low contrast, and 35 more —
+  Anthology institutional report carries a per-check breakdown (untagged PDFs,
+  scanned documents, missing image descriptions, low contrast, and 35 more)
   counted in the number of content items affected. Module reports list a
   module's own issues worst-first, each with plain-English advice and a note on
   whether it is fixable in the Blackboard editor or needs the source document
@@ -237,7 +237,7 @@ Recent updates and releases for the Digital Learning Review portal.
   table, so one intervention can be aimed at hundreds of items.
 * **Files and editor pages are scored separately.** Ally rates uploaded
   documents and pages built in Blackboard independently, and they behave very
-  differently — the two are now shown side by side with the volume of content
+  differently, so the two are now shown side by side with the volume of content
   behind each. A single blended number hid the distinction, and with it the
   answer to whether a school needs document-authoring support or Blackboard
   training.
@@ -245,7 +245,7 @@ Recent updates and releases for the Digital Learning Review portal.
   course fresh from rollover holds only its template and Ally scores that
   template close to 100%. Every average now covers only courses with content
   beyond the template, and the Priority Action List ignores the rest. There is
-  deliberately no "Built" or "Complete" state to report — module leads build
+  deliberately no "Built" or "Complete" state to report, because module leads build
   just-in-time throughout the course, often up to the final assessment, so a
   file count can only ever show a course has started, never that it is
   finished. A build-out tracker shows that progress instead. **Expect the
@@ -259,7 +259,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Severe accessibility issues raise an action.** An unreadable scanned
   document, a corrupt file, a document locked against screen readers, or Ally
   being switched off for a course now counts as an actionable item, in the same
-  way a missing Leganto list already did. No audit field is auto-answered — an
+  way a missing Leganto list already did. No audit field is auto-answered. An
   audit response still means something a Digital Learning Advisor recorded.
 * **The importer says what it dropped.** The Ally export covers every
   Blackboard course the institution has ever had, so the Admin Panel now asks
@@ -271,7 +271,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Fixed**: the Module Report crashed with a `NameError` when a module had an
   AI in the Curriculum declaration, a fault introduced in v1.15.0.
 
-### 🚀 Version 1.15.0 — *Legacy VLE Audit Spreadsheet Retired*
+### 🚀 Version 1.15.0: *Legacy VLE Audit Spreadsheet Retired*
 *4 August 2026*
 
 * **The 25/26 audit spreadsheet is no longer an upstream source.** A full sync
@@ -283,7 +283,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Critical Compliance Gaps now reflects live audits.** Both the Faculty
   Overview and School Dashboard lens read submitted audits rather than the
   25/26 answers, so the list tracks the current round. Modules that have not
-  been audited yet are no longer counted as failing every item — they appear in
+  been audited yet are no longer counted as failing every item. They appear in
   the Missing Audits lens instead, and the compliance figure now states how many
   audited modules it covers.
 * **Clearer warning on deleting the legacy tables.** The Admin Panel's cleanup
@@ -303,12 +303,12 @@ Recent updates and releases for the Digital Learning Review portal.
   Declarations against modules that no longer exist in SITS are shown as a
   warning rather than dropped, so they can be reconciled.
 
-### 🚀 Version 1.14.0 — *School Comparison, Blackboard Links & Security Hardening*
+### 🚀 Version 1.14.0: *School Comparison, Blackboard Links & Security Hardening*
 *31 July – 3 August 2026*
 
 * **Faculty School Comparison**: New default tab on the Faculty Overview showing
-  all seven schools side by side — modules, audit coverage, average Ally score,
-  VLE compliance and a status badge — with faculty totals beneath and row-click
+  all seven schools side by side (modules, audit coverage, average Ally score,
+  VLE compliance and a status badge), with faculty totals beneath and row-click
   drill-down into a school's dashboard. Compliance is measured across submitted
   audits only, and audit coverage is shown alongside so a high score on a small
   sample is visible as such.
@@ -320,7 +320,7 @@ Recent updates and releases for the Digital Learning Review portal.
   analytics, with a reason and an audit trail of who marked them. Restorable at
   any time.
 * **Password Hashing Migrated to scrypt**: Passwords were stored as unsalted
-  SHA-256. They are now hashed with scrypt — salted, memory-hard and
+  SHA-256. They are now hashed with scrypt: salted, memory-hard and
   work-factored. Existing accounts upgrade automatically the next time they sign
   in successfully; no resets were required and nobody was locked out.
 * **Sync No Longer Overwrites User Accounts**: A full sync previously rebuilt the
@@ -357,19 +357,19 @@ Recent updates and releases for the Digital Learning Review portal.
   no write-back to Sheets, the background push daemon introduced in v1.10.0 is no
   longer needed and has been switched off.
 
-### 📂 Version 1.13.0 — *Audit Portal*
+### 📂 Version 1.13.0: *Audit Portal*
 *30 July 2026*
 
 * **Dedicated Audit Portal**: The audit checklist moved out of the Module report
   and onto its own page, available to accounts with the `edit_checklist`
-  capability — in practice the Digital Learning Advisors who carry out audits.
+  capability, in practice the Digital Learning Advisors who carry out audits.
 * **Module Report Simplified**: The report card's inline editable checklist was
   replaced with a read-only summary and a button that opens the module in the
   Audit Portal, so there is now one place where audits are edited.
 * **Streamlined Audit Form**: Simplified the portal's layout and form handling,
   with draft and submitted states saved per module.
 
-### 📂 Version 1.12.0 — *Google Sign-In & Role-Based Access*
+### 📂 Version 1.12.0: *Google Sign-In & Role-Based Access*
 *29 July 2026*
 
 * **Sign in with Google**: Added Google OAuth as a sign-in option alongside the
@@ -387,7 +387,7 @@ Recent updates and releases for the Digital Learning Review portal.
   configuration, and support for parsing multiple observation and action pairs
   from a single response.
 
-### 📂 Version 1.11.0 — *Leganto Integration & Audit Field Enhancements*
+### 📂 Version 1.11.0: *Leganto Integration & Audit Field Enhancements*
 *27–28 July 2026*
 
 * **Leganto Reading List Status**: Modules with no reading list are now flagged
@@ -400,17 +400,17 @@ Recent updates and releases for the Digital Learning Review portal.
   description, synchronised in both directions with Google Sheets.
 * **Compact Module Report**: Added a condensed layout for the module report.
 
-### 📂 Version 1.10.0 — *Background Sync & SQLite Concurrency*
+### 📂 Version 1.10.0: *Background Sync & SQLite Concurrency*
 
 * **SQLite WAL Mode**: Moved the local database to Write-Ahead Logging with busy
   timeouts, allowing concurrent access from multiple dashboard instances.
 * **Batched Background Sync**: Replaced per-request Google Sheets writes with a
   background daemon pushing offline checklist edits to the cloud. *(Retired in
-  v1.14.0 — see above.)*
+  v1.14.0, see above.)*
 * **Database Mount Readiness**: Configured the container to use a mounted host
   volume for the database.
 
-### 📂 Version 1.9.0 — *SQLite Hybrid Cache & Operations Toolkit*
+### 📂 Version 1.9.0: *SQLite Hybrid Cache & Operations Toolkit*
 
 * **SQLite Database**: Migrated read operations and checklist submissions to a
   local SQLite database, substantially improving responsiveness and removing the
@@ -422,7 +422,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Retry Handling**: Added automatic retry with exponential backoff for
   spreadsheet writes.
 
-### 📂 Version 1.8.0 — *Navigation Refresh*
+### 📂 Version 1.8.0: *Navigation Refresh*
 
 * **Native Streamlit Navigation**: Moved from radio-based routing to
   `st.navigation()` and `st.page_link`.
@@ -433,14 +433,14 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Semester Selector**: Moved the semester control to the top of the sidebar and
   added an "All year" option.
 
-### 📂 Version 1.7.0 — *Pluggable Auth & Admin Panel*
+### 📂 Version 1.7.0: *Pluggable Auth & Admin Panel*
 
 * **Pluggable Authentication**: Introduced a provider-based authentication system
   reading users and roles from configurable sources.
 * **Admin Panel**: Added an interface for managing users, roles and application
   settings from within the dashboard.
 
-### 📂 Version 1.6.0 — *SITS Assessment Insights*
+### 📂 Version 1.6.0: *SITS Assessment Insights*
 
 * **SITS Assessment Integration**: Added the assessment type distribution to the
   Faculty Overview and assessment metrics to the School Dashboard.
@@ -452,7 +452,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Semester Toggle Fix**: Fixed the double-click bug on the semester selector by
   binding it to session state with an `on_change` callback.
 
-### 📂 Version 1.5.0 — *Feedback & Multi-School Access*
+### 📂 Version 1.5.0: *Feedback & Multi-School Access*
 
 * **Feedback Form**: Added a feedback and suggestions form to the portal.
   *(Submissions were originally written to Google Sheets; they are now stored in
@@ -466,7 +466,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Contribution Guide**: Added the collaboration slide deck to the "How to
   Contribute" view.
 
-### 📂 Version 1.4.0 — *Lazy Loading & Row Drill-Down*
+### 📂 Version 1.4.0: *Lazy Loading & Row Drill-Down*
 
 * **Segmented Control Navigation**: Replaced static tabs with stateful segmented
   controls that retain the selected view across interactions.
@@ -477,7 +477,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * **Compliance Lenses**: Reworked the Priority Action view to present compliance
   gap summaries and checklist rosters in a single layout.
 
-### 📂 Version 1.3.0 — *Activity Logging & Layout*
+### 📂 Version 1.3.0: *Activity Logging & Layout*
 
 * **File Logging**: Added a persistent `app.log` recording sign-ins, sign-outs,
   data syncs and audit submissions.
@@ -485,20 +485,20 @@ Recent updates and releases for the Digital Learning Review portal.
   no longer overrides the retained view state.
 * **Sidebar Layout**: Separated operational tools from help and changelog links.
 
-### 📂 Version 1.2.0 — *Code Modularisation*
+### 📂 Version 1.2.0: *Code Modularisation*
 
 * **Refactored Architecture**: Split the monolithic script into components under
   `views/`.
 * **Documentation Views**: Added the Help, Changelog and Developer Guide pages.
 
-### 🔐 Version 1.1.0 — *Persistent Authentication*
+### 🔐 Version 1.1.0: *Persistent Authentication*
 
 * **Cookie Persistence**: Added cookie-based session preservation across browser
   reloads.
 * **Credential Handling**: Removed plain-text credentials from source, reading
   them from environment variables instead.
 
-### 📈 Version 1.0.0 — *Saved Views & Session State*
+### 📈 Version 1.0.0: *Saved Views & Session State*
 
 * **Active School View**: Added sidebar preferences and default selectors to
   tailor views per user without restricting access to other schools.

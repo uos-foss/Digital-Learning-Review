@@ -41,31 +41,31 @@ touches the Sheets API.
 
 ### 📁 Modular File Structure
 
-* **`app.py`** — Entrypoint. Configures the root logger, holds `__version__`,
+* **`app.py`**: entrypoint. Configures the root logger, holds `__version__`,
   defines the cached data loaders, builds the sidebar and page routing, and
   wraps each view in a page function.
-* **`auth.py`** — Pluggable authentication. Four providers (`EnvAuthProvider`,
+* **`auth.py`**: pluggable authentication. Four providers (`EnvAuthProvider`,
   `SQLiteAuthProvider`, `ActiveDirectoryAuthProvider`, `GoogleOAuthProvider`),
   the OAuth callback handling, and cookie-based session restore and sign-out.
-* **`security.py`** — Password hashing primitives: `hash_password`,
+* **`security.py`**: password hashing primitives: `hash_password`,
   `verify_password`, `needs_rehash`.
-* **`database.py`** — Database path resolution, connection handling, schema
+* **`database.py`**: database path resolution, connection handling, schema
   initialisation and migration, and all table-level CRUD. The largest module,
   and the only one that should contain SQL.
-* **`data_manager.py`** — Low-level Google Sheets access: the gspread client,
+* **`data_manager.py`**: low-level Google Sheets access: the gspread client,
   reads, appends and header initialisation, with retry handling.
-* **`processing.py`** — Pandas transformations. Dataframe cleaning, the
+* **`processing.py`**: pandas transformations. Dataframe cleaning, the
   `FACULTY_SCHOOLS` list, semester resolution, compliance gap calculations and
   the school comparison aggregation. No I/O.
-* **`sync_data.py`** — The Sheets → SQLite ETL pipeline, the two push-back
+* **`sync_data.py`**: the Sheets → SQLite ETL pipeline, the two push-back
   functions, and the Blackboard links CSV importer. Runnable as a script.
-* **`background_tasks.py`** — A threaded scheduler that pushed unsynced
-  checklists to Sheets. **Currently disabled** — the import in `app.py` is
+* **`background_tasks.py`**: a threaded scheduler that pushed unsynced
+  checklists to Sheets. **Currently disabled**, since the import in `app.py` is
   commented out, since SQLite became the primary store and there is nothing to
   push. Retained in the tree rather than deleted.
-* **`views/`** — One module per page, separating rendering from the business
+* **`views/`**: one module per page, separating rendering from the business
   logic in `processing.py` and `database.py`.
-* **`docs/`** — The markdown rendered by the Resources & Support page.
+* **`docs/`**: the markdown rendered by the Resources & Support page.
 
 ### ⚙️ Environment Variables
 
@@ -76,16 +76,16 @@ All configuration comes from `.env`, injected into the container by
 | :--- | :--- |
 | `DB_PATH` | SQLite location inside the container. Defaults to `/app/data/audit_cache.db`. |
 | `AM_I_DOCKER` | Set to `true` to force container path resolution. |
-| `AUTH_PROVIDER` | Selects the sign-in provider — see below. |
+| `AUTH_PROVIDER` | Selects the sign-in provider, see below. |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` | Google sign-in. `REDIRECT_URI` is accepted as a fallback. |
-| `GOOGLE_SA_CLIENT_ID` | The service account's own client id — a different credential from the OAuth one. |
+| `GOOGLE_SA_CLIENT_ID` | The service account's own client id, a different credential from the OAuth one. |
 | `GOOGLE_TYPE`, `GOOGLE_PROJECT_ID`, `GOOGLE_PRIVATE_KEY_ID`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_AUTH_URI`, `GOOGLE_TOKEN_URI`, `GOOGLE_AUTH_PROVIDER_X509_CERT_URL`, `GOOGLE_CLIENT_X509_CERT_URL`, `GOOGLE_UNIVERSE_DOMAIN` | Service-account fields reassembled into credentials by `get_gspread_client()`. `GOOGLE_PRIVATE_KEY` keeps its `\n` escapes; they are expanded at load. |
 | `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for `sync_data.py`, now run only as a script - the Admin Panel's Trigger Full Sync button was removed. `ASSESSMENT_SPREADSHEET_ID` is no longer read: SITS arrives through the Admin Panel's SITS importer. Two were retired in v1.15.0: `MAIN_SPREADSHEET_ID` (the 25/26 baseline it fed is now a frozen SQLite-only snapshot) and `AI_RESPONSES_SPREADSHEET_ID` (owned by the satellite AI-Audit app, which writes `ai_audit_responses` into the shared database itself). |
 | `USER_ADMIN`, `USER_DLA`, `USER_FACULTY`, `USER_<SCHOOL>` | Seed credentials, used only by `EnvAuthProvider` and initial seeding. |
 
 > [!NOTE]
 > **`GOOGLE_CLIENT_ID` is deprecated.** It was previously read as *both* the
-> OAuth web client id and the service account's `client_id` — two different
+> OAuth web client id and the service account's `client_id`, two different
 > credentials sharing one variable. Where `.env` defined it twice, the last
 > definition won and the service account silently received the OAuth id. This
 > was harmless only because `from_service_account_info` signs with the private
@@ -102,13 +102,13 @@ All configuration comes from `.env`, injected into the container by
 
 1. Inside Docker (or with `AM_I_DOCKER=true`), the `DB_PATH` environment
    variable, defaulting to `/app/data/audit_cache.db`.
-2. A sibling `../shared-data/` directory, if present — used when several sibling
+2. A sibling `../shared-data/` directory, if present, used when several sibling
    apps share one database locally.
 3. Otherwise `./data/audit_cache.db` in the project folder.
 
 The database runs in WAL mode with busy timeouts so multiple containers can
 share it concurrently. In production it lives on a host volume, **not** in the
-image — rebuilding the container does not touch the data.
+image, so rebuilding the container does not touch the data.
 
 ### 🤝 Shared database contract
 
@@ -118,7 +118,7 @@ them, so this boundary is a convention that nothing enforces.
 
 | Table | Owner | Other app |
 | :--- | :--- | :--- |
-| `main_vle_audit_aut`, `main_vle_audit_spr` | this portal (frozen snapshot) | — |
+| `main_vle_audit_aut`, `main_vle_audit_spr` | this portal (frozen snapshot) | none |
 | `sits_assessment_2026_27` | this portal | AI-Audit reads |
 | `users`, `roles`, `audit_*`, `comment_bank`, `blackboard_links` | this portal | AI-Audit must not touch |
 | `ally_courses`, `ally_issues`, `ally_content`, `ally_scores` | this portal | AI-Audit must not touch |
@@ -128,7 +128,7 @@ them, so this boundary is a convention that nothing enforces.
 | `ai_audit_responses` | **AI-Audit** | this portal reads |
 
 **Ally tables.** `ally_courses` holds one row per Blackboard course per
-snapshot — a module can run more than one course shell, so rolling up to
+snapshot, and a module can run more than one course shell, so rolling up to
 `module_code` happens on read in `processing.aggregate_ally_to_modules()`.
 `ally_issues` and `ally_content` are long rather than wide so that a new
 Anthology check needs no migration, and only non-zero counts are stored.
@@ -137,7 +137,7 @@ Anthology check needs no migration, and only non-zero counts are stored.
 
 **Readiness tables.** `readiness_courses` holds one row per Blackboard course
 per snapshot from the faculty Template Alignment Report, with
-`readiness_sections` long beside it — one row per template section, so a revised
+`readiness_sections` long beside it, one row per template section, so a revised
 template needs no migration. Both keys include `academic_year`, unlike
 `ally_courses`, so a reference import of a prior year cannot collide with the
 real one. Roll up to `module_code` on read in
@@ -147,7 +147,7 @@ sections carry triage signal; see `CLAUDE.md` for why.
 `ally_scores` is the **legacy projection**, rebuilt from `ally_courses` on each
 import purely so that anything not yet migrated keeps working. Retire it once
 nothing reads it. Its historic contents were the **2025-26** academic year
-stored under column names implying otherwise — `measured` was Ally's files
+stored under column names implying otherwise. `measured` was Ally's files
 score and `weighted` its overall score, because the old importer matched
 columns by fuzzy name. The v1.16.0 import purges it.
 
@@ -160,7 +160,7 @@ Points that have already caused bugs:
 - Both apps call `init_db()` at start-up and both declare `ai_audit_queue` with
   `CREATE TABLE IF NOT EXISTS`. Whichever starts first defines the schema, so
   the column list must stay identical in both `database.py` files.
-- AI-Audit reads `sits_assessment_2026_27` but never populates it — that is
+- AI-Audit reads `sits_assessment_2026_27` but never populates it. That is
   `sync_assessment_data()` here. Both must name the same **"All Schools
   2026/27"** worksheet, or leads declare against a module list this portal does
   not report on.
@@ -175,12 +175,12 @@ Points that have already caused bugs:
 
 | Value | Provider |
 | :--- | :--- |
-| *(unset or unrecognised)* | `SQLiteAuthProvider` — the default |
-| `ENV` | `EnvAuthProvider` — credentials from environment variables |
+| *(unset or unrecognised)* | `SQLiteAuthProvider`, the default |
+| `ENV` | `EnvAuthProvider`, credentials from environment variables |
 | `AD` / `ACTIVE_DIRECTORY` | `ActiveDirectoryAuthProvider` |
 | `GOOGLE` / `GOOGLE_OAUTH` | `GoogleOAuthProvider` |
 
-Passwords are hashed with **scrypt** from the standard library — no third-party
+Passwords are hashed with **scrypt** from the standard library, with no third-party
 dependency. The stored format carries its own cost parameters so they can be
 raised later without a second migration:
 
@@ -195,7 +195,7 @@ least once.
 
 > [!IMPORTANT]
 > Accounts using Google sign-in legitimately carry an **empty** `PasswordHash`.
-> Those rows are not broken and must not be deleted as cleanup — deleting one
+> Those rows are not broken and must not be deleted as cleanup. Deleting one
 > revokes that person's access. They are not a bypass either: an empty stored
 > hash never matches any input.
 
@@ -203,7 +203,7 @@ least once.
 
 Configured globally in `app.py` and inherited by every module.
 
-* **Level**: `INFO` — normal operations, sign-ins, syncs, and all warnings and
+* **Level**: `INFO`, covering normal operations, sign-ins, syncs, and all warnings and
   errors.
 * **File**: `app.log` in the project root, git-ignored and mounted as a volume
   in production so it survives container rebuilds.
@@ -216,7 +216,7 @@ Versions follow **Semantic Versioning** and are kept in step with git tags.
 
 1. **Update the version**: increment `__version__` in `app.py`.
 2. **Write the release note**: add an entry to `docs/changelog.md`. This is
-   plain markdown — no Python change and no code review needed for wording.
+   plain markdown, so no Python change and no code review needed for wording.
 3. **Commit**: stage the changes and commit (e.g. `Release version 1.14.0`).
 4. **Tag**: create a matching tag (e.g. `v1.14.0`).
 5. **Push**: push commits and tags together.
@@ -228,12 +228,12 @@ The portal is containerised with **Docker Compose**. The image is built from
 
 #### Configuration
 
-* **`Dockerfile`** — Installs dependencies from `REQUIREMENTS.txt` in a separate
+* **`Dockerfile`**: installs dependencies from `REQUIREMENTS.txt` in a separate
   layer for caching, then copies the application.
-* **`docker-compose.yml`** — Injects `.env`, sets the restart policy, and mounts
+* **`docker-compose.yml`**: injects `.env`, sets the restart policy, and mounts
   three volumes: `app.log`, the read-only `.streamlit` config directory, and the
   shared database directory `/opt/shared-audit-data` → `/app/data`.
-* **Networking** — The container binds to `127.0.0.1:8500` on the host only, and
+* **Networking**: the container binds to `127.0.0.1:8500` on the host only, and
   serves under the base path `digital-learning-review`, so a native Caddy
   instance can reverse-proxy it alongside other Streamlit apps.
 
@@ -271,20 +271,20 @@ are untouched by a rebuild.
 A nightly systemd timer takes an online `sqlite3 .backup` of every database on
 the VM, verifies each with `PRAGMA integrity_check`, and uploads it through an
 encrypted rclone remote to Google Drive, together with an archive of the
-configuration files that exist nowhere else — each app's `.env`, the Caddyfile,
+configuration files that exist nowhere else: each app's `.env`, the Caddyfile,
 `rclone.conf` and each `config.toml`. Local copies are kept for 30 days in
 `/var/backups/sqlite`; remote copies for 30 days plus a monthly tier held for a
 year.
 
 **The database is the only copy of the audit record.** Audits and feedback are
-never written back to Google Sheets, and `background_tasks.py` — which once
-pushed checklists there — has been disabled since v1.9. Restoring from Sheets is
+never written back to Google Sheets, and `background_tasks.py`, which once
+pushed checklists there, has been disabled since v1.9. Restoring from Sheets is
 not an option for audit data, and a sync will not rebuild the `users` table
 either, because SQLite is authoritative for users and the Users sheet is
 permanently stale.
 
 **[`deploy/RESTORE.md`](https://github.com/uos-foss/Digital-Learning-Review/blob/main/deploy/RESTORE.md)
-is the recovery runbook** — database restore, full VM rebuild, and selective row
+is the recovery runbook**, covering database restore, full VM rebuild, and selective row
 recovery, written to be followed by someone who has not worked on this system
 before. Read it before you need it.
 
