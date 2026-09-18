@@ -19,7 +19,7 @@ from processing import CURRENT_ACADEMIC_YEAR, fmt_report_date
 from views.faculty_overview import view_faculty_overview
 from views.school_dashboard import view_school_dashboard
 from views.module_report import view_module_report
-from views.docs import view_about, view_help, view_changelog, view_developer_guide
+from views.docs import view_about, view_help, view_faq, view_changelog, view_developer_guide
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
 from views.audit_portal import view_audit_portal
@@ -663,7 +663,7 @@ def page_module_report():
     view_module_report(df_aut, df_spr, checklist_sums, df_assess, load_checklist_data)
 
 def page_resources_and_support():
-    tabs_list = ["💡 Help & Support", "💬 App Feedback", "📋 Release Changelog"]
+    tabs_list = ["💡 Help & Support", "❓ FAQs", "💬 App Feedback", "📋 Release Changelog"]
     if is_dla_or_admin:
         tabs_list.append("💻 Developer Guide")
 
@@ -672,12 +672,14 @@ def page_resources_and_support():
     with tabs[0]:
         view_help()
     with tabs[1]:
-        view_feedback()
+        view_faq()
     with tabs[2]:
+        view_feedback()
+    with tabs[3]:
         view_changelog()
 
     if is_dla_or_admin:
-        with tabs[3]:
+        with tabs[4]:
             view_developer_guide()
 
 def page_admin():

@@ -69,12 +69,21 @@ Seven tabs:
 > `access_admin_panel` see these three tabs; everyone else sees the other
 > three as normal. This is expected to be temporary.
 
-> **Reading Template Alignment compliance figures correctly.** Compliance is
-> calculated across **submitted audits only** — an unaudited module tells us
-> nothing about whether it complies. Always read the figure alongside how
-> many modules have actually been audited, not on its own: a high compliance
-> figure drawn from a handful of audited modules is not the same claim as one
-> drawn from most of the school.
+> **Reading the two compliance figures correctly.** The portal reports
+> compliance twice, over deliberately different sets of modules:
+>
+> * **Template Alignment** (this dashboard, and the Faculty Overview tab of
+>   the same name) covers **every module in the school**. A module an advisor
+>   has audited uses their recorded answer; a module nobody has audited falls
+>   back to the Template Alignment Report's own data, so it is not counted as
+>   a failure merely for being unaudited.
+> * **VLE Compliance** (the School Comparison table on the Faculty Overview)
+>   covers **submitted audits only**, because for a school-against-school
+>   comparison an unaudited module tells us nothing.
+>
+> Always read VLE Compliance alongside the **Audited %** column beside it: a
+> high figure drawn from a handful of audited modules is not the same claim as
+> one drawn from most of the school.
 
 > **Reading Ally scores correctly.** Ally reports three scores, and the portal
 > shows all three because they mean different things:
