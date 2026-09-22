@@ -1,4 +1,8 @@
 import os
+import base64
+import hashlib
+import hmac
+import time
 import streamlit as st
 import extra_streamlit_components as stx
 from datetime import datetime, timedelta
@@ -7,6 +11,112 @@ import logging
 
 # Explicitly load environment variables to ensure credentials are valid immediately on module load
 load_dotenv(override=True)
+
+# ---------------------------------------------------------------------------
+# Signed session cookie
+# ---------------------------------------------------------------------------
+# The cookie is written by JavaScript (CookieManager), so it can never be
+# HttpOnly and anyone can edit it in devtools. It therefore carries a token,
+# not a bare username: "v1.<base64url username>.<unix expiry>.<base64url HMAC>",
+# signed with SESSION_COOKIE_SECRET and checked server-side on every restore.
+# Plain-username cookies from before this change fail verification and are
+# ignored, so those users simply sign in once more.
+SESSION_TOKEN_VERSION = "v1"
+COOKIE_TTL_HOURS = 8
+_warned_missing_secret = False
+
+
+def _session_cookie_secret():
+    """Returns the signing key, or None (logging one warning per process) if unset."""
+    global _warned_missing_secret
+    secret = os.getenv("SESSION_COOKIE_SECRET", "").strip()
+    if not secret:
+        if not _warned_missing_secret:
+            logging.warning(
+                "⚠️ SESSION_COOKIE_SECRET is not set: sessions will not persist across "
+                "refreshes and existing session cookies will not be restored."
+            )
+            _warned_missing_secret = True
+        return None
+    return secret.encode("utf-8")
+
+
+def session_cookie_name() -> str:
+    """Cookie name, configurable so instances sharing a hostname don't collide."""
+    return os.getenv("SESSION_COOKIE_NAME", "").strip() or "vle_auth_user"
+
+
+def _b64e(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64d(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def _sign(secret: bytes, username: str, expiry: int) -> str:
+    msg = f"{SESSION_TOKEN_VERSION}|{username}|{expiry}".encode("utf-8")
+    return _b64e(hmac.new(secret, msg, hashlib.sha256).digest())
+
+
+def make_session_token(username: str, ttl_hours: int = COOKIE_TTL_HOURS):
+    """Returns a signed token for `username`, or None if no secret is configured."""
+    secret = _session_cookie_secret()
+    if secret is None:
+        return None
+    expiry = int(time.time()) + ttl_hours * 3600
+    return ".".join([
+        SESSION_TOKEN_VERSION,
+        _b64e(username.encode("utf-8")),
+        str(expiry),
+        _sign(secret, username, expiry),
+    ])
+
+
+def verify_session_token(token):
+    """Returns the username from a valid, unexpired token, otherwise None."""
+    secret = _session_cookie_secret()
+    if secret is None or not isinstance(token, str) or not token:
+        return None
+    parts = token.split(".")
+    if len(parts) != 4 or parts[0] != SESSION_TOKEN_VERSION:
+        return None
+    try:
+        username = _b64d(parts[1]).decode("utf-8")
+        expiry = int(parts[2])
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not hmac.compare_digest(_sign(secret, username, expiry), parts[3]):
+        logging.warning("⚠️ Rejected a session cookie with an invalid signature.")
+        return None
+    if expiry < time.time():
+        return None
+    return username
+
+
+def _request_is_https() -> bool:
+    """True when the browser reached us over HTTPS (directly or via Caddy)."""
+    try:
+        proto = (st.context.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+        if proto:
+            return proto == "https"
+        return str(st.context.url or "").lower().startswith("https://")
+    except Exception:
+        return False
+
+
+def _write_session_cookie(cookie_manager, username: str) -> bool:
+    """Writes a signed session cookie. Returns False if no secret is configured."""
+    token = make_session_token(username)
+    if token is None:
+        return False
+    expires_at = datetime.now() + timedelta(hours=COOKIE_TTL_HOURS)
+    cookie_manager.set(
+        session_cookie_name(), token,
+        expires_at=expires_at,
+        secure=_request_is_https() or None,
+    )
+    return True
 
 class BaseAuthProvider:
     """
@@ -423,16 +533,14 @@ def check_password():
 
     # Instantiate CookieManager only when needed for state transitions (restoring or logging out)
     cookie_manager = stx.CookieManager(key="vle_auth_cookies")
-    COOKIE_NAME = "vle_auth_user"
-    COOKIE_TTL_HOURS = 8
+    COOKIE_NAME = session_cookie_name()
 
     # Handle queued cookie write from successful Google login
     if st.session_state.logged_in and st.session_state.get("needs_cookie_write"):
         queued_user = st.session_state.needs_cookie_write
-        expires_at = datetime.now() + timedelta(hours=COOKIE_TTL_HOURS)
-        cookie_manager.set(COOKIE_NAME, queued_user, expires_at=expires_at)
         st.session_state.needs_cookie_write = None
-        logging.info(f"🍪 Session cookie written for OAuth user '{queued_user}' (expires in {COOKIE_TTL_HOURS}h).")
+        if _write_session_cookie(cookie_manager, queued_user):
+            logging.info(f"🍪 Session cookie written for OAuth user '{queued_user}' (expires in {COOKIE_TTL_HOURS}h).")
 
     # Handle pending logout safely
     if st.session_state.get("logout_pending"):
@@ -447,8 +555,10 @@ def check_password():
 
     # Restore session from browser cookie on page reload
     if not st.session_state.logged_in:
-        stored_user = cookie_manager.get(COOKIE_NAME)
-        
+        # Only a token we signed ourselves identifies a user. A bare username
+        # (the pre-v1.26.3 format, or a hand-edited cookie) verifies as None.
+        stored_user = verify_session_token(cookie_manager.get(COOKIE_NAME))
+
         if stored_user and provider.is_valid_user(stored_user):
             if not st.session_state.get("logged_out_this_session"):
                 st.session_state.logged_in = True
@@ -478,8 +588,7 @@ def check_password():
             st.session_state.logged_out_this_session = False
             
             # Persist in browser cookie
-            expires_at = datetime.now() + timedelta(hours=COOKIE_TTL_HOURS)
-            cookie_manager.set(COOKIE_NAME, entered_user.upper(), expires_at=expires_at)
+            _write_session_cookie(cookie_manager, entered_user.upper())
             logging.info(f"🔑 User '{entered_user.upper()}' authenticated successfully via login form.")
         else:
             st.session_state.logged_in = False

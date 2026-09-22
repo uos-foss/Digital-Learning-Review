@@ -945,6 +945,14 @@ once logged in, so any cookie write must happen on a run that falls through that
 fast path. A queued write sitting below the early return will never execute -
 that bug is why OAuth sessions did not survive a refresh.
 
+The session cookie holds a **signed token, never a bare username** (see
+`make_session_token()` / `verify_session_token()` in `auth.py`). Until 22-09-2026
+it held the plain username, and since CookieManager writes from JavaScript
+(no HttpOnly) anyone could set it to an admin's name in devtools and skip the
+password. Every cookie write goes through `_write_session_cookie()`; do not add
+a `cookie_manager.set()` with a raw username again. `SESSION_COOKIE_SECRET`
+unset means no cookie is written or restored, by design.
+
 ## Docs and releases
 
 User-facing documentation is markdown in `docs/`, rendered by `views/docs.py`.

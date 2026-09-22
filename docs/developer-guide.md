@@ -78,6 +78,8 @@ All configuration comes from `.env`, injected into the container by
 | `AM_I_DOCKER` | Set to `true` to force container path resolution. |
 | `AUTH_PROVIDER` | Selects the sign-in provider, see below. |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` | Google sign-in. `REDIRECT_URI` is accepted as a fallback. |
+| `SESSION_COOKIE_SECRET` | Signs the session cookie, see Authentication below. Unset means sessions do not survive a refresh. |
+| `SESSION_COOKIE_NAME` | Optional session cookie name, defaults to `vle_auth_user`. Set a distinct one per instance when several share a hostname. |
 | `GOOGLE_SA_CLIENT_ID` | The service account's own client id, a different credential from the OAuth one. |
 | `GOOGLE_TYPE`, `GOOGLE_PROJECT_ID`, `GOOGLE_PRIVATE_KEY_ID`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_AUTH_URI`, `GOOGLE_TOKEN_URI`, `GOOGLE_AUTH_PROVIDER_X509_CERT_URL`, `GOOGLE_CLIENT_X509_CERT_URL`, `GOOGLE_UNIVERSE_DOMAIN` | Service-account fields reassembled into credentials by `get_gspread_client()`. `GOOGLE_PRIVATE_KEY` keeps its `\n` escapes; they are expanded at load. |
 | `CHECKLIST_SPREADSHEET_ID`, `USERS_SPREADSHEET_ID`, `DATA_SHEET_ID` | Upstream sheets for `sync_data.py`, now run only as a script - the Admin Panel's Trigger Full Sync button was removed. `ASSESSMENT_SPREADSHEET_ID` is no longer read: SITS arrives through the Admin Panel's SITS importer. Two were retired in v1.15.0: `MAIN_SPREADSHEET_ID` (the 25/26 baseline it fed is now a frozen SQLite-only snapshot) and `AI_RESPONSES_SPREADSHEET_ID` (owned by the satellite AI-Audit app, which writes `ai_audit_responses` into the shared database itself). |
@@ -198,6 +200,33 @@ least once.
 > Those rows are not broken and must not be deleted as cleanup. Deleting one
 > revokes that person's access. They are not a bypass either: an empty stored
 > hash never matches any input.
+
+#### Session cookie
+
+A signed-in user is remembered across refreshes by a browser cookie written by
+`extra_streamlit_components.CookieManager`. That cookie is set from
+JavaScript, so it cannot be HttpOnly and a user can edit it freely. It
+therefore never holds a bare username. It holds a token:
+
+```text
+v1.<base64url username>.<unix expiry>.<base64url HMAC-SHA256>
+```
+
+signed with `SESSION_COOKIE_SECRET` over the version, username and expiry.
+`verify_session_token()` in `auth.py` checks the signature with
+`hmac.compare_digest` and the expiry server-side before any session is
+restored, and the user must still pass `is_valid_user()`, so a disabled
+account stops restoring immediately. The cookie is marked `Secure` when the
+request arrived over HTTPS (Caddy's `X-Forwarded-Proto`).
+
+* **If `SESSION_COOKIE_SECRET` is unset**, no cookie is written or restored
+  and a warning is logged once. Sign-in still works for the life of the
+  browser tab.
+* **Rotating the secret** invalidates every outstanding cookie, which signs
+  everyone out once. Do this if the secret may have leaked.
+* **Before v1.26.3** the cookie held the plain username, which let anyone set
+  it to an admin's name and skip the password. Those old cookies no longer
+  verify, so affected users sign in once more.
 
 ### 📝 Logging
 

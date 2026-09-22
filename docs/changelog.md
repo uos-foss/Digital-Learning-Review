@@ -1,6 +1,21 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.26.2 (Current): *Google Sign-In First*
+### 🚀 Version 1.26.3 (Current): *Signed Sessions*
+*22 September 2026*
+
+* **Security fix: the "stay signed in" cookie can no longer be forged.** It
+  used to hold just the username, so anyone could edit it in their browser to
+  another account's name, an administrator's included, and be let in without
+  a password. It now holds a signed, time-limited token that the server checks
+  before restoring a session.
+* **Everyone will be asked to sign in once more** after this update. Old
+  cookies are no longer accepted.
+* **Deployment:** set `SESSION_COOKIE_SECRET` in `.env` (see `.env.example`).
+  Without it, signing in still works but a page refresh asks you to sign in
+  again. `SESSION_COOKIE_NAME` optionally gives each instance on a shared
+  hostname its own cookie.
+
+### 🚀 Version 1.26.2: *Google Sign-In First*
 *22 September 2026*
 
 * **The sign-in page now leads with Sign In with Google.** Staff were
