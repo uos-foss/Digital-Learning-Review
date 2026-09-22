@@ -699,7 +699,12 @@ actual school alignment(s) today.
 `database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_schools()`,
 `get_school_spot_checks()`, `get_pending_spot_check()`,
 `mark_spot_check_checked()`, `get_spot_check_agreement_summary()`,
-`purge_spot_checks()`. The flagging action and the school's history table
+`purge_spot_checks()`. Agreement is still computed and stored on every
+checked row, but since 22-09-2026 it is not shown anywhere in the UI (the
+Spot-Checks table's Agreement column and the "Agreement to date" caption were
+removed): it means little to schools or module leads.
+`get_spot_check_agreement_summary()` is kept but currently has no caller.
+The flagging action and the school's history table
 live in `views/school_dashboard.py`'s new "🎯 Spot-Checks" view; the
 snapshot/diff logic is I/O-free in `processing.py`
 (`build_spot_check_snapshot()`, `compute_spot_check_agreement()`).
