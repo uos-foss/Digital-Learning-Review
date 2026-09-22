@@ -198,6 +198,18 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             # Define school codes for filtering data
             school_codes = set(school_df['New module code'].dropna().astype(str).str.strip().str.upper())
 
+            # Spot-checks span the whole academic year, but school_df is only
+            # the selected semester, so a module flagged from Autumn has no row
+            # in it when viewing Spring (and "All year" keeps only year-long
+            # modules). Module names for the spot-check views come from both
+            # semesters instead.
+            year_df = pd.concat([df for df in (df_aut, df_spr) if not df.empty])
+            year_df = year_df[year_df['New module code'].str.startswith(school, na=False)]
+            year_names = (year_df.assign(_code=year_df['New module code'].astype(str).str.strip().str.upper())
+                          .dropna(subset=['Module name'])
+                          .drop_duplicates('_code')
+                          .set_index('_code')['Module name'].to_dict())
+
             # Prepare SITS assessment data for the school
             matching_assess = pd.DataFrame()
             type_counts = pd.DataFrame()
@@ -1001,10 +1013,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             f"checklist answers compared ({row['agreement_pct']:.1f}%) across "
                             f"{int(row['checked'])} checked module(s).")
 
-                    names = school_df.set_index(
-                        school_df['New module code'].astype(str).str.strip().str.upper()
-                    )['Module name'].to_dict()
-
                     def _agreement_display(r):
                         if r['status'] != 'checked':
                             return "—"
@@ -1026,7 +1034,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     } if not sc_comment_rows.empty else {}
 
                     shown = sc_df.copy()
-                    shown['Module Name'] = shown['module_code'].map(names)
+                    shown['Module Name'] = shown['module_code'].map(
+                        lambda c: year_names.get(str(c).strip().upper(), ""))
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown['Agreement'] = shown.apply(_agreement_display, axis=1)
                     shown[comments_label] = shown['module_code'].map(
@@ -1183,10 +1192,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     filtered_comments = filtered_comments.sort_values(
                         'comment_on', ascending=False, na_position='last')
 
-                    names = school_df.set_index(
-                        school_df['New module code'].astype(str).str.strip().str.upper()
-                    )['Module name'].to_dict()
-
                     if filtered_comments.empty:
                         st.info("No spot-check comments match those filters.")
                     else:
@@ -1194,10 +1199,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                    f"{len(sc_comments)} flagged module(s).")
                         for _, comment_row in filtered_comments.iterrows():
                             code = str(comment_row['module_code']).strip().upper()
-                            # A module flagged in the other semester is not in
-                            # school_df, and a SITS row can carry a blank name,
-                            # so this can come back missing or NaN.
-                            module_name = names.get(code, "")
+                            # A SITS row can carry a blank name, so this can
+                            # come back missing or NaN.
+                            module_name = year_names.get(code, "")
                             module_name = ("" if pd.isna(module_name)
                                            else str(module_name).strip())
                             status_badge = ("✅ Checked" if comment_row['status'] == 'checked'
