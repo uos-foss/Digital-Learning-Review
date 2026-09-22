@@ -1551,6 +1551,42 @@ def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: st
         conn.commit()
         return cursor.rowcount
 
+def record_unflagged_spot_check(module_code: str, academic_year: str, auditor: str,
+                                timestamp: str, data_verdict_snapshot: str,
+                                agreement_agreed: int, agreement_total: int) -> int:
+    """Records a submitted audit of a module nobody flagged as an already-
+    checked spot-check, so the School Dashboard shows it as audited rather
+    than blank. The auditor is both flagged_by and checked_by: choosing to
+    audit it was their own call.
+
+    Only inserts when the module has no spot_checks row at all this year, in
+    the same statement, so re-submitting ("Update Audit") never stacks up
+    duplicate rows. A pending flag is closed by mark_spot_check_checked()
+    instead, and the caller checks for one first. Returns the number of rows
+    inserted (0 or 1).
+    """
+    code = module_code.strip().upper()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO spot_checks (
+                module_code, academic_year, flagged_by, flagged_on, status,
+                data_verdict_snapshot, checked_on, checked_by,
+                agreement_agreed, agreement_total, notes)
+            SELECT ?, ?, ?, ?, 'checked', ?, ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM spot_checks WHERE module_code = ? AND academic_year = ?)
+        """, (code, academic_year, auditor, timestamp[:10], data_verdict_snapshot,
+              timestamp, auditor, agreement_agreed, agreement_total,
+              f"Audit submitted without a flag on {timestamp}.",
+              code, academic_year))
+        conn.commit()
+        inserted = cursor.rowcount
+    if inserted:
+        logging.info("🎯 Unflagged audit of '%s' by '%s' recorded as a checked spot-check (%s).",
+                     code, auditor, academic_year)
+    return inserted
+
 def get_spot_check_agreement_summary(academic_year: str = None):
     """Agreement rate per school, for checked spot-checks only - a pending
     row has no agreement yet and must not be counted as a disagreement by
