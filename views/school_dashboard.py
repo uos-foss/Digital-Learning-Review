@@ -9,7 +9,7 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         parse_custom_observations, fmt_report_date)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
-                      get_school_spot_checks, get_spot_check_agreement_summary,
+                      get_school_spot_checks,
                       get_spot_check_comments)
 from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_issue_profile,
@@ -986,8 +986,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     "across levels, some randomness), not an algorithm. A flagged module "
                     "closes itself out the moment a DLA saves a real audit for it in the "
                     "Audit Portal. A module nobody flagged is added here as checked when "
-                    "a DLA submits an audit for it. The agreement column shows whether "
-                    "their answers matched what the Blackboard Template data was suggesting."
+                    "a DLA submits an audit for it."
                 )
 
                 sc_df = get_school_spot_checks(school, CURRENT_ACADEMIC_YEAR)
@@ -1003,23 +1002,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     m2.metric("Pending", pending_n)
                     m3.metric("Checked", checked_n)
 
-                    agreement_summary = get_spot_check_agreement_summary(CURRENT_ACADEMIC_YEAR)
-                    school_agreement = (agreement_summary[agreement_summary['school'] == school]
-                                        if not agreement_summary.empty else pd.DataFrame())
-                    if not school_agreement.empty:
-                        row = school_agreement.iloc[0]
-                        st.caption(
-                            f"Agreement to date: {int(row['agreed'])} of {int(row['total'])} "
-                            f"checklist answers compared ({row['agreement_pct']:.1f}%) across "
-                            f"{int(row['checked'])} checked module(s).")
-
-                    def _agreement_display(r):
-                        if r['status'] != 'checked':
-                            return "—"
-                        total = r.get('agreement_total')
-                        if total in (None, 0) or pd.isna(total):
-                            return "n/a"
-                        return f"{int(r['agreement_agreed'])}/{int(total)}"
+                    # Agreement with the template data is still recorded on each
+                    # checked row (see get_spot_check_agreement_summary()), but is
+                    # not shown here: it means little to schools or module leads.
 
                     # The comment column here and the "Spot-Check Comments"
                     # view below read the same query, so neither can show a
@@ -1037,7 +1022,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     shown['Module Name'] = shown['module_code'].map(
                         lambda c: year_names.get(str(c).strip().upper(), ""))
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
-                    shown['Agreement'] = shown.apply(_agreement_display, axis=1)
                     shown[comments_label] = shown['module_code'].map(
                         lambda c: comments_by_module.get(str(c).strip().upper(), ""))
                     shown = shown.reset_index(drop=True)
@@ -1047,7 +1031,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     sc_display_df = shown.rename(columns={
                         'module_code': 'Module', 'checked_on': 'Checked On'})[
                         ['Module', 'Module Name', 'Status', 'Checked On',
-                         'Agreement', comments_label]]
+                         comments_label]]
 
                     st.caption("Select a row to jump to that module, or remove its flag.")
                     sc_selection = st.dataframe(
