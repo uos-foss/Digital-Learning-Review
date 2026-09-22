@@ -1,6 +1,16 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.26.3 (Current): *Signed Sessions*
+### 🚀 Version 1.26.4 (Current): *UK Time*
+*22 September 2026*
+
+* **Times now show in UK time.** The portal's server was running on UTC, so
+  during British Summer Time every time it recorded, such as when an audit or
+  spot-check was saved, read an hour early. New entries are now recorded in
+  UK time, including the change to and from summer time.
+* **Entries saved before this update are unchanged**, so ones from the summer
+  still read an hour early.
+
+### 🚀 Version 1.26.3: *Signed Sessions*
 *22 September 2026*
 
 * **Security fix: the "stay signed in" cookie can no longer be forged.** It

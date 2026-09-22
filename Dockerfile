@@ -5,12 +5,17 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Run on UK local time, so app.log and every timestamp the app stores or shows
+# match the clock staff see. The slim image ships without zone data, and
+# without tzdata a TZ setting is silently ignored and the container stays on UTC.
+ENV TZ=Europe/London
+
 # Set the working directory inside the container
 WORKDIR /app
 
 # Install system dependencies needed for potential compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    build-essential     tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only the requirements file first to leverage Docker layer caching
