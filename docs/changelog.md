@@ -1,6 +1,19 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.26.1 (Current): *Dated Spot-Checks*
+### 🚀 Version 1.26.2 (Current): *Google Sign-In First*
+*22 September 2026*
+
+* **The sign-in page now leads with Sign In with Google.** Staff were
+  reaching for the username and password boxes first and getting turned
+  away. The Google button now sits at the top, and the password form is
+  folded into a "Sign in with a shared account" section underneath, for the
+  shared school-code accounts that still use it.
+* **A clearer message when a Google account tries a password.** Entering a
+  Google account's email address in the password form now says to use the
+  Sign In with Google button, rather than suggesting the password was
+  mistyped.
+
+### 🚀 Version 1.26.1: *Dated Spot-Checks*
 *18 September 2026*
 
 * **The module report's Audit Status now says when a spot-check happened**,

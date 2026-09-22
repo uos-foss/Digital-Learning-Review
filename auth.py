@@ -483,24 +483,47 @@ def check_password():
             logging.info(f"🔑 User '{entered_user.upper()}' authenticated successfully via login form.")
         else:
             st.session_state.logged_in = False
+            # A Google-only account (empty PasswordHash) can never pass this form, so
+            # say so rather than implying a typo. Under the Google provider an email
+            # address is almost always a Google account too - staff with a password
+            # are the shared school-code accounts.
+            if isinstance(provider, GoogleOAuthProvider):
+                google_only = users_hash_is_empty(entered_user)
+                if google_only or "@" in entered_user:
+                    st.error("😕 This account signs in with Google. Use the **Sign In with Google** button instead.")
+                    logging.warning(f"⚠️ Password login attempted for Google account '{entered_user}'.")
+                    return
             st.error("😕 Invalid username or password. Please try again.")
             logging.warning(f"⚠️ Failed login attempt for username '{entered_user}'.")
 
-    # Show login form (Username/Password is the default UI)
+    def users_hash_is_empty(entered_user: str) -> bool:
+        user = load_sqlite_users().get(entered_user.upper())
+        return bool(user) and not user["PasswordHash"]
+
+    def render_password_form():
+        # Under Google OAuth only the shared school-code accounts use this form,
+        # so don't invite an email address into it.
+        if isinstance(provider, GoogleOAuthProvider):
+            label, placeholder = "Username (School Code or FACULTY):", "e.g. ECN, EDC or FACULTY"
+        else:
+            label, placeholder = "Username (School Code, email, or FACULTY):", "e.g. ECN, EDC, or user@domain.com"
+        st.text_input(label, placeholder=placeholder, key="login_username")
+        st.text_input("Password", type="password", key="login_password", on_change=password_entered)
+        st.caption("Press Enter after typing your password to sign in.")
+
     st.title("🔒 Digital Learning Review Portal")
     st.write("Please sign in to access your school's dashboard and tools.")
-    
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.subheader("Sign In")
-        st.text_input("Username (School Code, email, or FACULTY):", placeholder="e.g. ECN, EDC, or user@domain.com", key="login_username")
-        st.text_input("Password", type="password", key="login_password", on_change=password_entered)
-        st.caption("Press Enter after typing your password to sign in.")
-        
-        # If Google OAuth is enabled, show the "Sign in with Google" button below the credentials form
+
+        # Under Google OAuth, Google is the main route in. The password form stays
+        # available for the shared school-code accounts, folded away so staff
+        # don't reach for it by default.
         if isinstance(provider, GoogleOAuthProvider):
-            st.markdown("<div style='text-align: center; margin: 20px 0;'><strong>OR</strong></div>", unsafe_allow_html=True)
-            
+            st.write("Staff: sign in with your university Google account.")
+
             # Prefer the OAuth-specific name. GOOGLE_CLIENT_ID is the legacy fallback,
             # shared with the service account in data_manager.py - see the note there.
             client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
@@ -527,6 +550,15 @@ def check_password():
                 f'</a>',
                 unsafe_allow_html=True
             )
-            
+
+            st.write("")
+            # Stay open once something has been typed, so a failed attempt doesn't
+            # fold the form away under the error.
+            with st.expander("Sign in with a shared account",
+                             expanded=bool(st.session_state.get("login_username"))):
+                render_password_form()
+        else:
+            render_password_form()
+
     st.divider()
     return False
