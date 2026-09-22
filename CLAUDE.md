@@ -736,6 +736,11 @@ snapshot/diff logic is I/O-free in `processing.py`
   "Update Audit" never adds duplicates. A pending flag still closes through
   `mark_spot_check_checked()` as before, on either button. These rows count
   toward the agreement rate like any other checked row.
+  `scripts/backfill_unflagged_spot_checks.py` (dry run unless `--apply`) adds
+  the same rows for audits submitted before this existed. Those get 0/0
+  agreement ("n/a") rather than a measured one: what the DLA was shown at the
+  time is gone, and comparing against today's data would count later edits by
+  a lead as the DLA disagreeing.
 - **There is still no `assigned_to` distinct from `flagged_by`.** Any DLA
   working the school can pick up a flag from the shared queue; nothing
   round-robins or auto-assigns a specific person to a specific flag.

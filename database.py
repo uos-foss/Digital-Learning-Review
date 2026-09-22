@@ -1553,7 +1553,8 @@ def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: st
 
 def record_unflagged_spot_check(module_code: str, academic_year: str, auditor: str,
                                 timestamp: str, data_verdict_snapshot: str,
-                                agreement_agreed: int, agreement_total: int) -> int:
+                                agreement_agreed: int, agreement_total: int,
+                                notes: str = None) -> int:
     """Records a submitted audit of a module nobody flagged as an already-
     checked spot-check, so the School Dashboard shows it as audited rather
     than blank. The auditor is both flagged_by and checked_by: choosing to
@@ -1578,7 +1579,7 @@ def record_unflagged_spot_check(module_code: str, academic_year: str, auditor: s
                 SELECT 1 FROM spot_checks WHERE module_code = ? AND academic_year = ?)
         """, (code, academic_year, auditor, timestamp[:10], data_verdict_snapshot,
               timestamp, auditor, agreement_agreed, agreement_total,
-              f"Audit submitted without a flag on {timestamp}.",
+              notes or f"Audit submitted without a flag on {timestamp}.",
               code, academic_year))
         conn.commit()
         inserted = cursor.rowcount
