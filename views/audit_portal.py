@@ -3,7 +3,8 @@ import datetime
 import logging
 from processing import (
     get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module,
-    resolve_active_row, compute_spot_check_agreement, CURRENT_ACADEMIC_YEAR,
+    resolve_active_row, compute_spot_check_agreement, build_spot_check_snapshot,
+    CURRENT_ACADEMIC_YEAR,
     compute_audit_verdict, parse_user_schools, format_user_schools,
     module_matches_user_schools,
 )
@@ -15,6 +16,7 @@ from database import (
     get_spot_checks_for_schools,
     get_pending_spot_check,
     mark_spot_check_checked,
+    record_unflagged_spot_check,
 )
 from masquerade import is_masquerading
 
@@ -397,6 +399,22 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                             logging.info(
                                 "🎯 Spot-check closed for '%s' by '%s': %d/%d fields agreed with the data.",
                                 selected_code, username_upper, agreement['agreed'], agreement['total'])
+                        elif save_submit:
+                            # Nobody flagged it, but a DLA chose to audit it,
+                            # which is a spot-check in all but name. Record it as
+                            # one, already checked, so School Dashboard shows it
+                            # as audited instead of blank. The snapshot is the
+                            # data as it stands now, i.e. what this form just
+                            # suggested. A no-op once the module has any
+                            # spot-check row this year. Submit only: a draft is
+                            # not a finished audit.
+                            snapshot = build_spot_check_snapshot(
+                                active_row,
+                                checklist_sums.get(selected_code, {}).get('Actionable Items', 0))
+                            agreement = compute_spot_check_agreement(snapshot, responses_input)
+                            record_unflagged_spot_check(
+                                selected_code, CURRENT_ACADEMIC_YEAR, username_upper, timestamp,
+                                snapshot, agreement['agreed'], agreement['total'])
 
                         st.cache_data.clear()
                         logging.info(f"✅ Audit {action} for '{selected_code}' by '{username_upper}'.")

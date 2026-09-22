@@ -725,6 +725,17 @@ snapshot/diff logic is I/O-free in `processing.py`
   underlying human-judgement principle this feature was built on (see
   [[feedback_prefer-human-judgment-over-automation]]) is unaffected: a person
   still chooses which modules get spot-checked, nothing auto-samples.
+- **Submitting an audit for a module nobody flagged records it as a checked
+  spot-check** (`database.record_unflagged_spot_check()`, added 22-09-2026).
+  Before this, an unprompted audit left the School Dashboard's Spot-Check
+  column blank, so the module read as never audited. The auditor is both
+  `flagged_by` and `checked_by`, the snapshot is built at submit time (the
+  same data the form just suggested), and agreement is computed the same
+  way. Submit only, not Save Draft, and only when the module has no
+  `spot_checks` row at all this year, checked in the INSERT itself, so
+  "Update Audit" never adds duplicates. A pending flag still closes through
+  `mark_spot_check_checked()` as before, on either button. These rows count
+  toward the agreement rate like any other checked row.
 - **There is still no `assigned_to` distinct from `flagged_by`.** Any DLA
   working the school can pick up a flag from the shared queue; nothing
   round-robins or auto-assigns a specific person to a specific flag.

@@ -363,7 +363,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 configs['Spot-Check'] = st.column_config.TextColumn(
                     "Spot-Check",
                     help="⏳ Pending - flagged and waiting to be audited. ✅ Checked - "
-                         "the flagger has since audited it. Blank - never flagged.")
+                         "audited this year, whether it was flagged first or a DLA "
+                         "submitted an audit for it unprompted. Blank - neither.")
 
                 clean_display_df = display_df[cols].reset_index(drop=True)
 
@@ -971,9 +972,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     "Modules a DLA has chosen to double-check by hand, from the module "
                     "list above - flagging is a judgement call (past experience, spread "
                     "across levels, some randomness), not an algorithm. A flagged module "
-                    "closes itself out the moment its flagger saves a real audit for it "
-                    "in the Audit Portal; the agreement column then shows whether their "
-                    "answers matched what the Blackboard Template data was suggesting."
+                    "closes itself out the moment a DLA saves a real audit for it in the "
+                    "Audit Portal. A module nobody flagged is added here as checked when "
+                    "a DLA submits an audit for it. The agreement column shows whether "
+                    "their answers matched what the Blackboard Template data was suggesting."
                 )
 
                 sc_df = get_school_spot_checks(school, CURRENT_ACADEMIC_YEAR)
