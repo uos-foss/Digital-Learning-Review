@@ -9,6 +9,9 @@ services:
       - "127.0.0.1:8500:8500"
     env_file:
       - .env
+    environment:
+      # UK local time for app.log and stored timestamps. Needs tzdata, installed in the Dockerfile.
+      - TZ=Europe/London
     volumes:
       # Persist local app.log logs on the host system
       - ./app.log:/app/app.log
