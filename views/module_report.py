@@ -647,9 +647,8 @@ def _render_ally_intro(url, snapshot_date):
         "This is simply a summary, not a replacement for your Ally course report - "
         "for a more detailed and up-to-date view of accessibility in your module, and "
         "to see which files are affected, always use the Ally Accessibility Report in "
-        "Blackboard (Books & Course Tools > Ally Accessibility Report).")
-    if url:
-        st.markdown(f"[Open this course in Blackboard]({url})")
+        "Blackboard (Books & Course Tools > Ally Accessibility Report)."
+        + (f" [Open this course in Blackboard]({url})." if url else ""))
 
 
 def _render_issue_cards(rows):
