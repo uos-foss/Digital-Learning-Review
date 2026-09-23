@@ -300,12 +300,15 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                 "different code — ask a Digital Learning Advisor to check if this looks wrong.")
             return
 
+        last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
+        url = str(active_row.get('URL', '') or '')
+        _render_ally_intro(url, last_scanned_date)
+
         # 1. Maturity banner - only for states that need explaining. "In
         # progress" is the common case and is already obvious from the
         # gauges being non-zero, so it doesn't get its own banner; "Not yet
         # built"/"Empty" do, since a high score there would otherwise read as
         # real accessibility compliance rather than an unbuilt template.
-        last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
         if maturity != "In progress":
             colour, icon, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
             display_maturity = "Not started" if maturity == "Not yet built" else maturity
@@ -347,7 +350,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
             "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
 
         st.markdown("---")
-        _render_ally_issues(ally_categories, ally_profile, active_row, is_template)
+        _render_ally_issues(ally_categories, ally_profile, is_template)
 
 
 def _ally_issue_profile(selected_code):
@@ -600,22 +603,27 @@ def _render_ally_category_card(row):
         </div>""", unsafe_allow_html=True)
 
 
-def _render_ally_how_to(url):
-    """Points a module lead at their own Ally Course Report in Blackboard,
-    where the specifics - which file, a preview of the problem, and often an
-    in-situ fix - actually live. Deliberately doesn't spell out an exact menu
-    path: that varies by Blackboard version/site config and this portal can't
-    verify it, so a wrong click-by-click instruction would actively mislead
-    someone following it. The Ally indicator icon and course-level
-    Accessibility Report are the two stable, version-independent things to
-    point at."""
-    st.markdown("##### See exactly what to fix")
+def _render_ally_intro(url, last_scanned_date):
+    """Sets expectations for the whole Accessibility column before the reader
+    hits a single score: this is a snapshot, not a live view, and their own
+    Ally Accessibility Report in Blackboard is the up-to-date, file-level
+    source. Placed at the top rather than after the gauges/issue list -
+    the caveat matters most before someone has already drawn a conclusion
+    from the numbers below it, not after."""
+    st.markdown("##### How to use this Accessibility Report")
     st.markdown(
-        "The categories above say what kind of thing Ally found and why it matters. "
-        "For the specifics — which file, a preview of the problem, and often a fix "
-        "you can apply right there — open your course in Blackboard and look for the "
-        "small coloured Ally indicator next to each item, or your course's full "
-        "**Accessibility Report**, linked from the same place.")
+        f"This report is based on an institutional data snapshot from "
+        f"**{last_scanned_date}**. It shows the Ally accessibility report for this "
+        "module at the time of the snapshot; it is not live.\n\n"
+        "The scores below are the familiar RAG-rated scores for Files (material "
+        "you've uploaded), Page Content (Blackboard Ultra documents) and the "
+        "Overall score, along with a summary of the kinds of accessibility "
+        "issues found.\n\n"
+        "This is simply a summary, not a replacement for your Ally course "
+        "report. For a more detailed and up-to-date view of accessibility in "
+        "your module, and to see which files are affected, always use the "
+        "Ally Accessibility Report in Blackboard (Books & Course Tools > "
+        "Ally Accessibility Report).")
     if url:
         st.markdown(f"[Open this course in Blackboard]({url})")
 
@@ -631,7 +639,7 @@ def _render_issue_cards(rows):
         _render_ally_issue_card(row)
 
 
-def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=False):
+def _render_ally_issues(ally_categories, ally_profile, is_template=False):
     """
     What kinds of accessibility problems Ally found on this module, and why
     they matter - written for the module lead reading their own report, not
@@ -648,9 +656,10 @@ def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=F
     to bury the handful of things actually worth a lead's attention under an
     auditor's level of detail. What this page can do that Blackboard can't
     is explain once, in plain terms, why each *kind* of problem matters, and
-    point at where the specifics live - see _render_ally_how_to. The full
-    per-check technical list (what a DLA audits against) is one click away
-    in the expander at the bottom, not the thing leading the page.
+    point at where the specifics live - see _render_ally_intro, now shown at
+    the top of the column rather than here. The full per-check technical
+    list (what a DLA audits against) is one click away in the expander at
+    the bottom, not the thing leading the page.
 
     is_template distinguishes "genuinely clean" from "nothing scanned yet" -
     a zero-issue template hasn't been checked for anything, so a green
@@ -667,14 +676,11 @@ def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=F
         return
 
     n_categories = len(ally_categories)
-    st.markdown(f"#### Accessibility Issues ({total_items} items across "
+    st.markdown(f"#### Summary of accessibility issues ({total_items} items across "
                 f"{n_categories} area{'' if n_categories == 1 else 's'})")
 
     for _, row in ally_categories.iterrows():
         _render_ally_category_card(row)
-
-    url = str(active_row.get('URL', '') or '') if active_row is not None else ''
-    _render_ally_how_to(url)
 
     if not ally_profile.empty:
         st.markdown("")
