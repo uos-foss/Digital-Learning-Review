@@ -1175,7 +1175,10 @@ TEMPLATE_SECTIONS = {
     'ASSESSMENT_OVERVIEW':         ('Assessment Overview',               'institution', 'assessment_overview'),
     'ASSESSMENT_DETAIL':           ('Assessment Detail',                 'lead',        'assessment_brief'),
     'ASSESSMENT_SUPPORT_GUIDANCE': ('Assessment Support and Guidance',   'institution', None),
-    'MODULE_READING_LIST':         ('Module Reading List',               'institution', None),
+    # Linked 23-09-2026. The tick only says the Blackboard section is
+    # visible; whether a real, published list sits behind it is Leganto's
+    # separate finding (see "Leganto reading-list data" in CLAUDE.md).
+    'MODULE_READING_LIST':         ('Module Reading List',               'institution', 'reading_list'),
     'ENCORE_LECTURE_CAPTURE':      ('Encore Lecture Capture',            'institution', 'encore_link'),
     'UNIVERSITY_HELP_SUPPORT':     ('University Help & Study Support',   'institution', None),
 }
@@ -1295,8 +1298,8 @@ def short_field_label(field_id, fallback_label):
     return fallback_label
 
 # audit_fields.id for the mapped sections nobody but the institution is
-# responsible for (sga, assessment_overview, encore_link - student_voice
-# moved to the lead-owned side 15-09-2026, see TEMPLATE_SECTIONS above).
+# responsible for (sga, assessment_overview, reading_list, encore_link -
+# student_voice moved to the lead-owned side 15-09-2026, see TEMPLATE_SECTIONS above).
 # These have no dedicated health-banner bullet the way the lead-owned
 # mapped fields do ("Lead Sections Outstanding") - views/module_report.py
 # uses this to keep counting a manually-recorded-incomplete answer for one

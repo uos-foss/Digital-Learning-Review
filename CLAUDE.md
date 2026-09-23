@@ -598,7 +598,8 @@ it so nothing importing it from there breaks.
 template-readiness section states into checklist suggestions for the Audit
 Portal: `{audit_field_id: {'suggested': bool, 'evidence_text': str,
 'section_key': str}}`, one entry per `TEMPLATE_SECTIONS` section that carries
-an `audit_fields.id` (7 of 14 sections; the other 7 have no checklist
+an `audit_fields.id` (8 of 14 sections since `reading_list` was linked to
+`MODULE_READING_LIST` on 23-09-2026; the other 6 have no checklist
 counterpart and are never suggested on).
 
 - **The suggestion comes from `processing.readiness_section_is_ready(section_key,
@@ -609,7 +610,7 @@ counterpart and are never suggested on).
   `suggested` requires Visible **and** edited (`state == 'visible_edited'`) -
   a Visible section with no edit evidence at all (`visible_unedited`) is
   not suggested. For the institution-owned-but-mapped fields (`sga`,
-  `assessment_overview`, `encore_link`), Visible is enough on its own,
+  `assessment_overview`, `reading_list`, `encore_link`), Visible is enough on its own,
   `visible_unedited` included - those sections were never the lead's to
   edit, so sitting untouched since course creation is their normal, correct
   state. `evidence_text` (from `readiness_evidence_words()`) still gives the
