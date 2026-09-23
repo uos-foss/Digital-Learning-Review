@@ -32,7 +32,13 @@ from database import (
     get_audit_responses,
     save_audit_response,
     get_pending_spot_check,
+    get_last_import_dates,
 )
+
+
+@st.cache_data(ttl=300)
+def _load_last_import_dates():
+    return get_last_import_dates()
 
 # How each Ally score band reads to an auditor. Ally's own wording, so the
 # portal and the course report agree.
@@ -301,8 +307,15 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
             return
 
         last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
+        # The whole-table import date (get_last_import_dates()['ally'], the
+        # same figure the sidebar's "Latest data from" caption shows) - not
+        # this module's own last_checked/snapshot row, which Ally's
+        # unchanged-course skip (database.save_ally_snapshot) can leave
+        # sitting on an earlier date than the import that just ran, if this
+        # particular course had nothing new to report.
+        snapshot_date = fmt_report_date(_load_last_import_dates().get('ally')) or last_scanned_date
         url = str(active_row.get('URL', '') or '')
-        _render_ally_intro(url, last_scanned_date)
+        _render_ally_intro(url, snapshot_date)
 
         # 1. Maturity banner - only for states that need explaining. "In
         # progress" is the common case and is already obvious from the
@@ -603,17 +616,23 @@ def _render_ally_category_card(row):
         </div>""", unsafe_allow_html=True)
 
 
-def _render_ally_intro(url, last_scanned_date):
+def _render_ally_intro(url, snapshot_date):
     """Sets expectations for the whole Accessibility column before the reader
     hits a single score: this is a snapshot, not a live view, and their own
     Ally Accessibility Report in Blackboard is the up-to-date, file-level
     source. Placed at the top rather than after the gauges/issue list -
     the caveat matters most before someone has already drawn a conclusion
-    from the numbers below it, not after."""
+    from the numbers below it, not after.
+
+    snapshot_date is the whole-table Ally import date, not this course's own
+    last_checked/snapshot row - a course whose Ally data hasn't moved since
+    the previous import is skipped by database.save_ally_snapshot()'s
+    change detection, so its own dates can lag behind an import that just
+    ran and would otherwise make a freshly-imported report read as stale."""
     st.markdown("##### How to use this Accessibility Report")
     st.markdown(
         f"This report is based on an institutional data snapshot from "
-        f"**{last_scanned_date}**. It shows the Ally accessibility report for this "
+        f"**{snapshot_date}**. It shows the Ally accessibility report for this "
         "module at the time of the snapshot; it is not live.\n\n"
         "The scores below are the familiar RAG-rated scores for Files (material "
         "you've uploaded), Page Content (Blackboard Ultra documents) and the "
