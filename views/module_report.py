@@ -31,9 +31,14 @@ from database import (
     get_active_audit_fields,
     get_audit_responses,
     save_audit_response,
-    get_ally_history,
     get_pending_spot_check,
+    get_last_import_dates,
 )
+
+
+@st.cache_data(ttl=300)
+def _load_last_import_dates():
+    return get_last_import_dates()
 
 # How each Ally score band reads to an auditor. Ally's own wording, so the
 # portal and the course report agree.
@@ -301,12 +306,23 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                 "different code — ask a Digital Learning Advisor to check if this looks wrong.")
             return
 
+        last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
+        # The whole-table import date (get_last_import_dates()['ally'], the
+        # same figure the sidebar's "Latest data from" caption shows) - not
+        # this module's own last_checked/snapshot row, which Ally's
+        # unchanged-course skip (database.save_ally_snapshot) can leave
+        # sitting on an earlier date than the import that just ran, if this
+        # particular course had nothing new to report.
+        snapshot_date = fmt_report_date(_load_last_import_dates().get('ally')) or last_scanned_date
+        url = str(active_row.get('URL', '') or '')
+        _render_ally_intro(url, snapshot_date)
+        st.markdown("---")
+
         # 1. Maturity banner - only for states that need explaining. "In
         # progress" is the common case and is already obvious from the
         # gauges being non-zero, so it doesn't get its own banner; "Not yet
         # built"/"Empty" do, since a high score there would otherwise read as
         # real accessibility compliance rather than an unbuilt template.
-        last_scanned_date = pd.to_datetime(last_checked, errors='coerce').strftime('%d-%m-%Y') if last_checked else "—"
         if maturity != "In progress":
             colour, icon, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
             display_maturity = "Not started" if maturity == "Not yet built" else maturity
@@ -323,6 +339,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
         # own, unmodified) but isn't an accessibility result worth reading in
         # colour yet.
         is_template = maturity in ("Not yet built", "Empty")
+        st.markdown("#### Course accessibility score")
         c1, c2, c3 = st.columns(3)
         for col, tile_label, tile_score, tile_sub, tile_key in (
             (c1, "Overall", overall, f"{n_files + n_wysiwyg} items", "overall"),
@@ -342,15 +359,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
             st.warning("⚠️ Ally is switched off for this course, so students get no "
                        "alternative formats and the module lead sees no feedback.")
 
-        _render_ally_trend(selected_code)
-
-        st.caption(
-            "Need help? "
-            "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
-            "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
-
-        st.markdown("---")
-        _render_ally_issues(ally_categories, ally_profile, active_row, is_template)
+        _render_ally_issues(ally_categories, ally_profile, is_template)
 
 
 def _ally_issue_profile(selected_code):
@@ -373,29 +382,6 @@ def _ally_issue_categories(selected_code):
     mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
                      == str(selected_code).strip().upper()]
     return summarise_ally_issue_categories(mine)
-
-
-def _render_ally_trend(selected_code):
-    """Score over the stored snapshots, when there is more than one."""
-    try:
-        history = get_ally_history(str(selected_code).strip().upper(), CURRENT_ACADEMIC_YEAR)
-    except Exception as exc:
-        logging.warning(f"Could not load Ally history for {selected_code}: {exc}")
-        return
-
-    if history.empty or history['snapshot_date'].nunique() < 2:
-        return
-
-    # Snapshots are only stored when a course changes, so every point here is a
-    # real movement rather than a repeated reading.
-    series = (history.groupby('snapshot_date')
-                     .apply(lambda g: (g['overall_score'] * (g['total_files'] + g['total_wysiwyg'])).sum()
-                                      / max((g['total_files'] + g['total_wysiwyg']).sum(), 1),
-                            include_groups=False)
-                     .rename("Overall score"))
-    st.markdown("**Accessibility over time**")
-    st.line_chart(series, height=140)
-    st.caption("Each point is a snapshot in which this course's content actually changed.")
 
 
 def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit,
@@ -626,24 +612,48 @@ def _render_ally_category_card(row):
         </div>""", unsafe_allow_html=True)
 
 
-def _render_ally_how_to(url):
-    """Points a module lead at their own Ally Course Report in Blackboard,
-    where the specifics - which file, a preview of the problem, and often an
-    in-situ fix - actually live. Deliberately doesn't spell out an exact menu
-    path: that varies by Blackboard version/site config and this portal can't
-    verify it, so a wrong click-by-click instruction would actively mislead
-    someone following it. The Ally indicator icon and course-level
-    Accessibility Report are the two stable, version-independent things to
-    point at."""
-    st.markdown("##### See exactly what to fix")
-    st.markdown(
-        "The categories above say what kind of thing Ally found and why it matters. "
-        "For the specifics — which file, a preview of the problem, and often a fix "
-        "you can apply right there — open your course in Blackboard and look for the "
-        "small coloured Ally indicator next to each item, or your course's full "
-        "**Accessibility Report**, linked from the same place.")
+def _render_ally_intro(url, snapshot_date):
+    """Sets expectations for the whole Accessibility column before the reader
+    hits a single score: this is a snapshot, not a live view, and their own
+    Ally Accessibility Report in Blackboard is the up-to-date, file-level
+    source. Placed at the top rather than after the gauges/issue list -
+    the caveat matters most before someone has already drawn a conclusion
+    from the numbers below it, not after.
+
+    snapshot_date is the whole-table Ally import date, not this course's own
+    last_checked/snapshot row - a course whose Ally data hasn't moved since
+    the previous import is skipped by database.save_ally_snapshot()'s
+    change detection, so its own dates can lag behind an import that just
+    ran and would otherwise make a freshly-imported report read as stale.
+
+    Styled as a "#### heading" + st.caption() subtitle, the same pairing
+    the Blackboard Template block uses for its own intro (see
+    _render_template_sections) - not a bordered card, just the plain
+    heading/caption pattern the rest of this page's section intros use.
+    Also carries the Blackboard link and the "Need help?" guidance links,
+    which used to sit below the gauges/issues further down the column -
+    moved up here so every "where do I go for more" pointer for this
+    column lives in one place, in the same caption styling."""
+    st.markdown("#### How to use this Accessibility Report")
+    st.caption(
+        f"This report is based on an institutional data snapshot from {snapshot_date}. "
+        "It shows the Ally accessibility report for this module at the time of the "
+        "snapshot; it is not live.")
+    st.caption(
+        "The scores below are the familiar RAG-rated scores for Files (material "
+        "you've uploaded), Page Content (Blackboard Ultra documents) and the Overall "
+        "score, along with a summary of the kinds of accessibility issues found.")
+    st.caption(
+        "This is simply a summary, not a replacement for your Ally course report - "
+        "for a more detailed and up-to-date view of accessibility in your module, and "
+        "to see which files are affected, always use the Ally Accessibility Report in "
+        "Blackboard (Books & Course Tools > Ally Accessibility Report).")
     if url:
-        st.markdown(f"[Open this course in Blackboard]({url})")
+        st.caption(f"[Open this course in Blackboard]({url})")
+    st.caption(
+        "Need help? "
+        "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
+        "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
 
 
 def _render_issue_cards(rows):
@@ -657,7 +667,7 @@ def _render_issue_cards(rows):
         _render_ally_issue_card(row)
 
 
-def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=False):
+def _render_ally_issues(ally_categories, ally_profile, is_template=False):
     """
     What kinds of accessibility problems Ally found on this module, and why
     they matter - written for the module lead reading their own report, not
@@ -674,9 +684,10 @@ def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=F
     to bury the handful of things actually worth a lead's attention under an
     auditor's level of detail. What this page can do that Blackboard can't
     is explain once, in plain terms, why each *kind* of problem matters, and
-    point at where the specifics live - see _render_ally_how_to. The full
-    per-check technical list (what a DLA audits against) is one click away
-    in the expander at the bottom, not the thing leading the page.
+    point at where the specifics live - see _render_ally_intro, now shown at
+    the top of the column rather than here. The full per-check technical
+    list (what a DLA audits against) is one click away in the expander at
+    the bottom, not the thing leading the page.
 
     is_template distinguishes "genuinely clean" from "nothing scanned yet" -
     a zero-issue template hasn't been checked for anything, so a green
@@ -693,14 +704,11 @@ def _render_ally_issues(ally_categories, ally_profile, active_row, is_template=F
         return
 
     n_categories = len(ally_categories)
-    st.markdown(f"#### Accessibility Issues ({total_items} items across "
+    st.markdown(f"#### Summary of accessibility issues ({total_items} items across "
                 f"{n_categories} area{'' if n_categories == 1 else 's'})")
 
     for _, row in ally_categories.iterrows():
         _render_ally_category_card(row)
-
-    url = str(active_row.get('URL', '') or '') if active_row is not None else ''
-    _render_ally_how_to(url)
 
     if not ally_profile.empty:
         st.markdown("")
