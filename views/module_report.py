@@ -316,6 +316,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
         snapshot_date = fmt_report_date(_load_last_import_dates().get('ally')) or last_scanned_date
         url = str(active_row.get('URL', '') or '')
         _render_ally_intro(url, snapshot_date)
+        st.markdown("---")
 
         # 1. Maturity banner - only for states that need explaining. "In
         # progress" is the common case and is already obvious from the
@@ -358,7 +359,6 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
             st.warning("⚠️ Ally is switched off for this course, so students get no "
                        "alternative formats and the module lead sees no feedback.")
 
-        st.markdown("---")
         _render_ally_issues(ally_categories, ally_profile, is_template)
 
 
