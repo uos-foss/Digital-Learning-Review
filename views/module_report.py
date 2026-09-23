@@ -338,6 +338,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
         # own, unmodified) but isn't an accessibility result worth reading in
         # colour yet.
         is_template = maturity in ("Not yet built", "Empty")
+        st.markdown("#### Course accessibility score")
         c1, c2, c3 = st.columns(3)
         for col, tile_label, tile_score, tile_sub, tile_key in (
             (c1, "Overall", overall, f"{n_files + n_wysiwyg} items", "overall"),
@@ -356,11 +357,6 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
         if not active_row.get('Ally Enabled', True):
             st.warning("⚠️ Ally is switched off for this course, so students get no "
                        "alternative formats and the module lead sees no feedback.")
-
-        st.caption(
-            "Need help? "
-            "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
-            "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
 
         st.markdown("---")
         _render_ally_issues(ally_categories, ally_profile, is_template)
@@ -633,7 +629,11 @@ def _render_ally_intro(url, snapshot_date):
     Styled as a "#### heading" + st.caption() subtitle, the same pairing
     the Blackboard Template block uses for its own intro (see
     _render_template_sections) - not a bordered card, just the plain
-    heading/caption pattern the rest of this page's section intros use."""
+    heading/caption pattern the rest of this page's section intros use.
+    Also carries the Blackboard link and the "Need help?" guidance links,
+    which used to sit below the gauges/issues further down the column -
+    moved up here so every "where do I go for more" pointer for this
+    column lives in one place, in the same caption styling."""
     st.markdown("#### How to use this Accessibility Report")
     st.caption(
         f"This report is based on an institutional data snapshot from {snapshot_date}. "
@@ -647,8 +647,13 @@ def _render_ally_intro(url, snapshot_date):
         "This is simply a summary, not a replacement for your Ally course report - "
         "for a more detailed and up-to-date view of accessibility in your module, and "
         "to see which files are affected, always use the Ally Accessibility Report in "
-        "Blackboard (Books & Course Tools > Ally Accessibility Report)."
-        + (f" [Open this course in Blackboard]({url})." if url else ""))
+        "Blackboard (Books & Course Tools > Ally Accessibility Report).")
+    if url:
+        st.caption(f"[Open this course in Blackboard]({url})")
+    st.caption(
+        "Need help? "
+        "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
+        "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
 
 
 def _render_issue_cards(rows):
