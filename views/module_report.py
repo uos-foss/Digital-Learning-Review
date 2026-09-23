@@ -638,13 +638,16 @@ def _render_ally_intro(url, snapshot_date):
     st.caption(
         f"This report is based on an institutional data snapshot from {snapshot_date}. "
         "It shows the Ally accessibility report for this module at the time of the "
-        "snapshot; it is not live. The scores below are the familiar RAG-rated scores "
-        "for Files (material you've uploaded), Page Content (Blackboard Ultra documents) "
-        "and the Overall score, along with a summary of the kinds of accessibility "
-        "issues found. This is simply a summary, not a replacement for your Ally course "
-        "report - for a more detailed and up-to-date view of accessibility in your "
-        "module, and to see which files are affected, always use the Ally Accessibility "
-        "Report in Blackboard (Books & Course Tools > Ally Accessibility Report).")
+        "snapshot; it is not live.")
+    st.caption(
+        "The scores below are the familiar RAG-rated scores for Files (material "
+        "you've uploaded), Page Content (Blackboard Ultra documents) and the Overall "
+        "score, along with a summary of the kinds of accessibility issues found.")
+    st.caption(
+        "This is simply a summary, not a replacement for your Ally course report - "
+        "for a more detailed and up-to-date view of accessibility in your module, and "
+        "to see which files are affected, always use the Ally Accessibility Report in "
+        "Blackboard (Books & Course Tools > Ally Accessibility Report).")
     if url:
         st.markdown(f"[Open this course in Blackboard]({url})")
 
