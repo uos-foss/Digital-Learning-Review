@@ -630,41 +630,23 @@ def _render_ally_intro(url, snapshot_date):
     change detection, so its own dates can lag behind an import that just
     ran and would otherwise make a freshly-imported report read as stale.
 
-    Styled as the same bordered card as the Blackboard Template section
-    cards (_render_section_card) rather than plain markdown, so the two
-    tabs read as one visual system - grey/ℹ️, matching the neutral (not
-    ok/action/fault) tier ALLY_MATURITY_NOTE already uses for "this isn't a
-    problem, just context" notes."""
-    colour = "#6B7280"
-    body = (
-        f"This report is based on an institutional data snapshot from "
-        f"<strong>{snapshot_date}</strong>. It shows the Ally accessibility report for this "
-        "module at the time of the snapshot; it is not live."
-        "<br><br>"
-        "The scores below are the familiar RAG-rated scores for Files (material "
-        "you've uploaded), Page Content (Blackboard Ultra documents) and the "
-        "Overall score, along with a summary of the kinds of accessibility "
-        "issues found."
-        "<br><br>"
-        "This is simply a summary, not a replacement for your Ally course "
-        "report. For a more detailed and up-to-date view of accessibility in "
-        "your module, and to see which files are affected, always use the "
-        "Ally Accessibility Report in Blackboard (Books & Course Tools > "
-        "Ally Accessibility Report)."
-    )
+    Styled as a "#### heading" + st.caption() subtitle, the same pairing
+    the Blackboard Template block uses for its own intro (see
+    _render_template_sections) - not a bordered card, just the plain
+    heading/caption pattern the rest of this page's section intros use."""
+    st.markdown("#### How to use this Accessibility Report")
+    st.caption(
+        f"This report is based on an institutional data snapshot from {snapshot_date}. "
+        "It shows the Ally accessibility report for this module at the time of the "
+        "snapshot; it is not live. The scores below are the familiar RAG-rated scores "
+        "for Files (material you've uploaded), Page Content (Blackboard Ultra documents) "
+        "and the Overall score, along with a summary of the kinds of accessibility "
+        "issues found. This is simply a summary, not a replacement for your Ally course "
+        "report - for a more detailed and up-to-date view of accessibility in your "
+        "module, and to see which files are affected, always use the Ally Accessibility "
+        "Report in Blackboard (Books & Course Tools > Ally Accessibility Report).")
     if url:
-        body += f' <a href="{url}" target="_blank">Open this course in Blackboard</a>.'
-
-    st.markdown(
-        f'<div style="border-left: 4px solid {colour}; background-color: {colour}05; '
-        f'padding: 8px 12px; margin-bottom: 12px; border-radius: 4px;">'
-        f'<h4 style="margin:0;color:#1F2937;font-size:14px;font-weight:600;'
-        f'display:flex;align-items:center;">'
-        f'<span style="display:inline-block;vertical-align:middle;margin-right:10px;">ℹ️</span>'
-        f'<span style="flex:1;">How to use this Accessibility Report</span>'
-        f'</h4>'
-        f'<p style="margin:4px 0 0 0;color:#374151;font-size:12px;line-height:1.6;">{body}</p>'
-        f'</div>', unsafe_allow_html=True)
+        st.markdown(f"[Open this course in Blackboard]({url})")
 
 
 def _render_issue_cards(rows):
