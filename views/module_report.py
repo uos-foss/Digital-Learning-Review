@@ -31,7 +31,6 @@ from database import (
     get_active_audit_fields,
     get_audit_responses,
     save_audit_response,
-    get_ally_history,
     get_pending_spot_check,
 )
 
@@ -342,8 +341,6 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
             st.warning("⚠️ Ally is switched off for this course, so students get no "
                        "alternative formats and the module lead sees no feedback.")
 
-        _render_ally_trend(selected_code)
-
         st.caption(
             "Need help? "
             "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
@@ -373,29 +370,6 @@ def _ally_issue_categories(selected_code):
     mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
                      == str(selected_code).strip().upper()]
     return summarise_ally_issue_categories(mine)
-
-
-def _render_ally_trend(selected_code):
-    """Score over the stored snapshots, when there is more than one."""
-    try:
-        history = get_ally_history(str(selected_code).strip().upper(), CURRENT_ACADEMIC_YEAR)
-    except Exception as exc:
-        logging.warning(f"Could not load Ally history for {selected_code}: {exc}")
-        return
-
-    if history.empty or history['snapshot_date'].nunique() < 2:
-        return
-
-    # Snapshots are only stored when a course changes, so every point here is a
-    # real movement rather than a repeated reading.
-    series = (history.groupby('snapshot_date')
-                     .apply(lambda g: (g['overall_score'] * (g['total_files'] + g['total_wysiwyg'])).sum()
-                                      / max((g['total_files'] + g['total_wysiwyg']).sum(), 1),
-                            include_groups=False)
-                     .rename("Overall score"))
-    st.markdown("**Accessibility over time**")
-    st.line_chart(series, height=140)
-    st.caption("Each point is a snapshot in which this course's content actually changed.")
 
 
 def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit,
