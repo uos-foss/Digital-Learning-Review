@@ -1739,6 +1739,22 @@ def readiness_section_is_ready(section_key, state_key):
     info = TEMPLATE_SECTIONS.get(section_key)
     return info is not None and info[1] != 'lead'
 
+
+# The one section whose tick also answers a second data source. A DLA's
+# reading_list tick means "the list is published (or not needed) AND the
+# section is visible", so it overrides Leganto as well as the template data -
+# Leganto is exported rarely and often lags what's actually in Blackboard.
+READING_LIST_SECTION = 'MODULE_READING_LIST'
+READING_LIST_FIELD_ID = TEMPLATE_SECTIONS[READING_LIST_SECTION][2]
+
+
+def leganto_blocks_reading_list(leganto_missing, leganto_status):
+    """Whether Leganto data alone says the reading list isn't done: no list
+    at all, or one not (fully) published. A blank status (module absent from
+    the lists export) is not a block - there's no evidence either way, the
+    same reading derive_module_findings()'s own Leganto finding gives it."""
+    return bool(leganto_missing) or str(leganto_status or '').strip() in ('Draft', 'Mixed')
+
 def fmt_report_date(value):
     """ISO storage to the DD-MM-YYYY the portal shows users. Blank if unusable."""
     parsed = pd.to_datetime(str(value or ""), errors='coerce')
@@ -2077,7 +2093,8 @@ def calculate_dynamic_compliance_gap(school_code=None):
     can never disagree with what an advisor has actually verified.
     """
     from database import (get_db_connection, get_active_audit_fields,
-                          get_readiness_courses_latest, get_readiness_sections_latest)
+                          get_readiness_courses_latest, get_readiness_sections_latest,
+                          get_leganto_lists_latest, table_exists)
     import pandas as pd
 
     active_fields = get_active_audit_fields()
@@ -2112,6 +2129,11 @@ def calculate_dynamic_compliance_gap(school_code=None):
             conn,
             params=field_ids,
         )
+        leganto_missing_set = set()
+        if table_exists(conn, "leganto_nolist"):
+            leganto_missing_set = {
+                str(c).strip().upper() for c in
+                pd.read_sql_query("SELECT module_code FROM leganto_nolist", conn)['module_code']}
 
     if df_sits.empty:
         return {}
@@ -2151,6 +2173,16 @@ def calculate_dynamic_compliance_gap(school_code=None):
     except Exception:
         section_states_by_module = {}
 
+    # Reading list's data-driven read also needs Leganto - see
+    # readiness_prefill_for_module(), which applies the same gate.
+    leganto_status_by_module = {}
+    try:
+        llm = aggregate_leganto_to_modules(get_leganto_lists_latest(CURRENT_ACADEMIC_YEAR))
+        if not llm.empty:
+            leganto_status_by_module = llm.set_index('module_code')['status'].to_dict()
+    except Exception:
+        leganto_status_by_module = {}
+
     # Calculate compliance gap for each field
     gaps = {}
     for field in boolean_fields:
@@ -2169,6 +2201,9 @@ def calculate_dynamic_compliance_gap(school_code=None):
             elif section_key:
                 state = section_states_by_module.get(code, {}).get(section_key, {}).get('state')
                 is_compliant = readiness_section_is_ready(section_key, state)
+                if is_compliant and section_key == READING_LIST_SECTION:
+                    is_compliant = not leganto_blocks_reading_list(
+                        code in leganto_missing_set, leganto_status_by_module.get(code, ''))
             else:
                 is_compliant = False
             if is_compliant:
@@ -2480,8 +2515,14 @@ def derive_module_findings(active_row, responses, active_fields):
     leganto_status = str(row.get('Leganto List Status', '') or '').strip()
     leganto_items = int(row.get('Leganto List Items', 0) or 0)
     leganto_draft = leganto_status in ('Draft', 'Mixed')
+    # A recorded reading_list answer overrides Leganto outright - the
+    # readiness finding below carries that verdict, so emitting a Leganto
+    # finding as well would either contradict it or count one gap twice.
+    reading_list_manual = readiness_manual_override(READING_LIST_FIELD_ID, responses)
 
-    if leganto_missing:
+    if reading_list_manual is not None:
+        pass
+    elif leganto_missing:
         findings.append({
             'source': 'leganto', 'state': 'pending', 'type': 'boolean',
             'label': 'Leganto Reading List Missing',
@@ -2665,8 +2706,12 @@ def readiness_prefill_for_module(active_row):
 
     Returns {audit_field_id: {'suggested': bool, 'evidence_text': str,
     'section_key': str}} - one entry per TEMPLATE_SECTIONS section that maps
-    to an audit field (7 of 14 sections today; the rest have no audit_fields
+    to an audit field (8 of 14 sections today; the rest have no audit_fields
     counterpart and are not suggested on at all).
+
+    Module Reading List is the one field gated on a second source: it is
+    only suggested ticked when Leganto doesn't show the list as missing or
+    (partly) in Draft - see leganto_blocks_reading_list().
 
     'suggested' comes from readiness_section_is_ready(section_key, state) -
     see that function. For the 4 lead-owned fields it's True only when the
@@ -2705,9 +2750,25 @@ def readiness_prefill_for_module(active_row):
         _label, _owner, audit_field_id = info
         if not audit_field_id:
             continue
+        suggested = readiness_section_is_ready(key, sec.get('state', 'unknown'))
+        evidence_text = readiness_evidence_words(sec, created)
+        if key == READING_LIST_SECTION:
+            # The tick needs a published list too, not just a visible section.
+            missing = row.get('Leganto Missing')
+            status = str(row.get('Leganto List Status', '') or '').strip()
+            if leganto_blocks_reading_list(missing, status):
+                suggested = False
+            if missing:
+                evidence_text += " Leganto: no reading list connected."
+            elif status:
+                words = {'Published': 'list published', 'Draft': 'list still in Draft',
+                         'Mixed': 'list partly published'}.get(status, status)
+                evidence_text += f" Leganto: {words}."
+            else:
+                evidence_text += " Leganto: no list status on record."
         prefill[audit_field_id] = {
-            'suggested': readiness_section_is_ready(key, sec.get('state', 'unknown')),
-            'evidence_text': readiness_evidence_words(sec, created),
+            'suggested': suggested,
+            'evidence_text': evidence_text,
             'section_key': key,
         }
     return prefill

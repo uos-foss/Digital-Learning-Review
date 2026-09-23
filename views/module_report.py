@@ -17,6 +17,7 @@ from processing import (
     INSTITUTION_MAPPED_FIELD_IDS,
     derive_module_findings,
     readiness_manual_override,
+    READING_LIST_FIELD_ID,
     compute_audit_verdict,
     fmt_report_date,
     fmt_report_datetime,
@@ -1276,9 +1277,17 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor - and, if it has, when that check was last saved."><b>Audit Status:</b> {audit_status_label}</span>
                 </div>""", unsafe_allow_html=True)
 
-        _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
-                              leganto_draft, leganto_items, active_row,
-                              leganto_status, leganto_draft_items)
+        # A recorded reading_list answer overrides Leganto (see
+        # processing.READING_LIST_FIELD_ID), so the banner drops its Leganto
+        # bullet then - an unticked answer is counted with the checklist
+        # items instead, like the other institution-mapped fields.
+        if has_audit and readiness_manual_override(READING_LIST_FIELD_ID, responses) is not None:
+            _render_health_banner(ally_profile, checklist_pending_count, False, has_audit,
+                                  False, leganto_items, active_row, '', leganto_draft_items)
+        else:
+            _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
+                                  leganto_draft, leganto_items, active_row,
+                                  leganto_status, leganto_draft_items)
 
         _render_data_reliability_block(active_row, has_audit)
 

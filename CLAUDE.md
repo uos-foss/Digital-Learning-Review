@@ -490,6 +490,26 @@ owner is now `'lead'`. This changes, all via the existing owner-driven logic
   again, keep these two constants intentionally distinct rather than
   re-merging them.
 
+**A recorded `reading_list` answer overrides Leganto as well as the
+template data.** Added 23-09-2026 when `reading_list` was linked to
+`MODULE_READING_LIST`. The tick means "the reading list is published (or
+not needed) and the section is visible to students". Leganto is exported
+rarely and often lags Blackboard, so once a DLA has answered,
+`derive_module_findings()` emits no `'leganto'` finding for that module at
+all: the `'readiness'` finding carries the verdict, and emitting both would
+either contradict it (ticked) or count one gap twice (unticked).
+`view_module_report()` likewise drops the health banner's Leganto bullet
+when there is an answer. Without an answer, the two data checks stay
+separate: the readiness finding reads section visibility only, and the
+Leganto finding reads Leganto only. The Audit Portal suggestion
+(`readiness_prefill_for_module()`) and the Template Alignment tab
+(`calculate_dynamic_compliance_gap()`) gate on both, via
+`leganto_blocks_reading_list()`: Missing, Draft or Mixed blocks the tick. A
+blank status (module in neither Leganto export) does not block, matching the
+Leganto finding's own "OK / Connected" reading. "Not needed" has no Leganto
+signal; it is the DLA's call, recorded by ticking. Leganto columns shown
+elsewhere (dashboards, the Leganto importer) still report the raw data.
+
 **`INERT_TEXT_FIELD_IDS` opts specific `'text'`-type audit fields out of
 finding generation entirely** - their value is saved and shown in the Audit
 Portal like any other field, but never becomes a checklist finding, so it
