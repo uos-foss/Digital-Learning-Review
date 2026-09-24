@@ -6,7 +6,7 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
                         derive_module_findings, short_field_label,
-                        parse_custom_observations, fmt_report_date,
+                        format_comment_markdown, fmt_report_date,
                         reading_list_verdict, READING_LIST_FIELD_ID)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
@@ -39,38 +39,6 @@ def comment_field_label():
         if field['id'] == SPOT_CHECK_COMMENT_FIELD:
             return field['label']
     return "Additional Comments"
-
-def format_comment_markdown(value):
-    """One stored comment, ready for st.markdown.
-
-    Two shapes reach this. Almost everything is what an advisor typed into the
-    Audit Portal's text area, where single newlines are meant as line breaks
-    and markdown would otherwise run them together. A handful of modules still
-    hold the structured observation/action JSON the field carried before the
-    tag-picker UI was dropped (see INERT_TEXT_FIELD_IDS in processing.py);
-    those are unpacked into labelled lines rather than shown as raw JSON.
-    """
-    raw = str(value or '').strip()
-    if not raw:
-        return ""
-    if raw.startswith(("[", "{")) or "**Observation:**" in raw:
-        parsed = parse_custom_observations(raw)
-        # parse_custom_observations() falls back to handing plain text back as
-        # a lone observation, so something that merely starts with a bracket
-        # would otherwise pick up a spurious "Observation:" heading. Only the
-        # genuinely structured values are reformatted.
-        echoed = (len(parsed) == 1 and parsed[0].get('observation') == raw
-                  and not parsed[0].get('action'))
-        if parsed and not echoed:
-            lines = []
-            for item in parsed:
-                if item.get('observation'):
-                    lines.append(f"**Observation:** {item['observation']}")
-                if item.get('action'):
-                    lines.append(f"**Action:** {item['action']}")
-            if lines:
-                return "\n\n".join(lines)
-    return raw.replace("\n", "  \n")
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_freshness=None):
     schools = list(FACULTY_SCHOOLS)

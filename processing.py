@@ -493,6 +493,43 @@ def parse_custom_observations(custom):
 
     return []
 
+def format_comment_markdown(value):
+    """One stored comment, ready for st.markdown.
+
+    Shared by School Dashboard's Spot-Check Comments view and the module
+    report's advisor comment panel, so the same comment reads the same way
+    on both.
+
+    Two shapes reach this. Almost everything is what an advisor typed into the
+    Audit Portal's text area, where single newlines are meant as line breaks
+    and markdown would otherwise run them together. A handful of modules still
+    hold the structured observation/action JSON the field carried before the
+    tag-picker UI was dropped (see INERT_TEXT_FIELD_IDS);
+    those are unpacked into labelled lines rather than shown as raw JSON.
+    """
+    raw = str(value or '').strip()
+    if not raw:
+        return ""
+    if raw.startswith(("[", "{")) or "**Observation:**" in raw:
+        parsed = parse_custom_observations(raw)
+        # parse_custom_observations() falls back to handing plain text back as
+        # a lone observation, so something that merely starts with a bracket
+        # would otherwise pick up a spurious "Observation:" heading. Only the
+        # genuinely structured values are reformatted.
+        echoed = (len(parsed) == 1 and parsed[0].get('observation') == raw
+                  and not parsed[0].get('action'))
+        if parsed and not echoed:
+            lines = []
+            for item in parsed:
+                if item.get('observation'):
+                    lines.append(f"**Observation:** {item['observation']}")
+                if item.get('action'):
+                    lines.append(f"**Action:** {item['action']}")
+            if lines:
+                return "\n\n".join(lines)
+    return raw.replace("\n", "  \n")
+
+
 def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=None):
     """
     Rolls per-assessment AI declarations up to per-module.
@@ -2570,8 +2607,9 @@ def derive_module_findings(active_row, responses, active_fields):
     # disagreement the readiness merge (see "Unified module findings" in
     # CLAUDE.md) fixed for template sections.
     #
-    # Threshold is severe OR major, matching the health banner's own two
-    # bullets (_render_health_banner in module_report.py) - a module with
+    # Threshold is severe OR major, matching the Report Summary's
+    # accessibility point (_summary_points in module_report.py, the health
+    # banner's two bullets before 24-09-2026) - a module with
     # major-only issues (no severe) used to show a banner line naming them
     # but never actually surfaced as an action, which was the same
     # contradiction all over again, just one severity tier down. Minor

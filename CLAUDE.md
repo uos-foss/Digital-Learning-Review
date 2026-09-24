@@ -571,7 +571,8 @@ instead of) the Accessibility tab's own richer display.
 
 Caught the same day, before this had been used on a real module for long:
 the severe-issue finding only ever fired on `Ally Severe > 0`, but the
-health banner above it (`_render_health_banner()`) has always shown a
+health banner above it (`_render_health_banner()`, now `_summary_points()`
+inside the Report Summary - see "Spot-check flagging") has always shown a
 "N major accessibility issue types" bullet too, from the same `ally_profile`
 data, independent of `derive_module_findings()`. A module with major-only
 issues and zero severe ones (real example: 7 major issue types, 40 items)
@@ -794,13 +795,38 @@ snapshot/diff logic is I/O-free in `processing.py`
   `audit_response_history` is the trail if an earlier wording is needed.
   `views/school_dashboard.py`'s `comment_field_label()` takes the heading from
   `audit_fields` rather than hardcoding "Additional Comments", and
-  `format_comment_markdown()` turns a stored value into display markdown:
-  single newlines become line breaks, and the legacy observation/action JSON
-  a handful of modules still carry (see `INERT_TEXT_FIELD_IDS` under "Unified
-  module findings") is unpacked into labelled lines instead of being shown
-  raw. A module re-flagged later in the same year has one row per flag; the
-  comments view collapses those to one card per module, keeping the most
-  recent flag, since there is only ever one comment to read.
+  `processing.format_comment_markdown()` turns a stored value into display
+  markdown: single newlines become line breaks, and the legacy
+  observation/action JSON a handful of modules still carry (see
+  `INERT_TEXT_FIELD_IDS` under "Unified module findings") is unpacked into
+  labelled lines instead of being shown raw. A module re-flagged later in the
+  same year has one row per flag; the comments view collapses those to one
+  card per module, keeping the most recent flag, since there is only ever one
+  comment to read.
+- **The module report shows the same comment under the Report Summary,
+  above both tabs** (`views/module_report.py::_render_advisor_comment()`),
+  headed "Comments from your Digital Learning Advisor". Moved there
+  24-09-2026 from the foot of the Module Checks tab, where it sat below the
+  template tree and never showed on the Accessibility tab. The heading is
+  fixed wording for module leads, deliberately not `comment_field_label()`.
+  It is styled as a thin left rule with no fill or byline, to keep the stack
+  above the tabs light (the "Spot checked on" line already gives the date),
+  and never amber, because `comments` is inert and must not read as an action
+  item. It goes through `format_comment_markdown()` so it reads the same as
+  on School Dashboard.
+- **The module report's amber health banner, "Data last refreshed" caption
+  and "About this report" expander are one collapsed "📋 Report Summary"
+  expander since 24-09-2026** (`_render_report_summary()`, fed by
+  `_summary_points()`). The user found the banner hard to read and very
+  negative, and with the header and comment it made five stacked blocks
+  before the tabs. The summary opens with whether a DLA has checked the
+  module, lists what is still to do as one plain next step per source
+  (same triggers as the old banner bullets, so it still agrees with
+  `derive_module_findings()`), then the data refresh dates. The old "not yet
+  audited" bullet was dropped because the opening sentence says it. It is
+  collapsed because the Actions panel and Accessibility tab carry every item
+  in full. Earlier notes in this file that say "health banner" now mean this
+  summary's points.
 - **`database.delete_spot_check(id)`** removes one row outright - reachable
   from the "🎯 Spot-Checks" view's Remove Flag action, behind a confirm
   checkbox since deleting a `checked` row also deletes its agreement result.

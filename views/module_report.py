@@ -17,6 +17,7 @@ from processing import (
     INSTITUTION_MAPPED_FIELD_IDS,
     derive_module_findings,
     readiness_manual_override,
+    format_comment_markdown,
     READING_LIST_FIELD_ID,
     compute_audit_verdict,
     fmt_report_date,
@@ -64,8 +65,7 @@ ALLY_MATURITY_NOTE = {
     "No data": ("#6B7280", "—", "This module has no Ally record for the current year."),
 }
 
-# Colour used for each worklist tier - shared between the health banner (via
-# the presence of severe items) and the unified worklist below it.
+# Colour used for each Ally severity tier on the accessibility issue cards.
 TIER_COLOUR = {"Severe": "#EF4444", "Major": "#F59E0B", "Minor": "#6B7280"}
 
 SURFACE_WORDS = {
@@ -385,141 +385,159 @@ def _ally_issue_categories(selected_code):
     return summarise_ally_issue_categories(mine)
 
 
-def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audit,
-                           leganto_draft=False, leganto_items=0, active_row=None,
-                           leganto_status='', leganto_draft_items=0):
+def _summary_points(ally_profile, pending_count, leganto_missing,
+                    leganto_draft=False, leganto_items=0, active_row=None,
+                    leganto_status='', leganto_draft_items=0):
     """
-    A short, neutral summary of what's outstanding across Ally, the checklist,
-    Leganto and the Blackboard template - the one place these add up to a single
-    picture.
+    What's still to do across Ally, the checklist, Leganto and the Blackboard
+    template, as short plain-English points for the Report Summary.
 
-    Deliberately factual rather than evaluative: this reports what's open, not
-    a score or grade for the module or its lead. Individual items can say
-    "severe" (that's actionable information), but the banner never reads as an
-    alarm - amber at most, never red, and a plain reassuring line when there's
-    nothing outstanding.
+    Until 24-09-2026 this was an always-visible amber banner of
+    semicolon-joined fragments ("12 major accessibility issue types (168
+    items).") that read as a charge sheet against the module. Each point is
+    now one next step, naming where to look, and they sit inside the
+    collapsed Report Summary rather than above everything else. The
+    triggers are unchanged, so this still agrees with
+    derive_module_findings() (see the severe-or-major Ally threshold note
+    there). The old "not yet audited" point is gone: the summary's opening
+    sentence already says whether a Digital Learning Advisor has checked
+    the module.
     """
     severe = ally_profile[ally_profile['severity_label'] == 'Severe'] if not ally_profile.empty else ally_profile
     major = ally_profile[ally_profile['severity_label'] == 'Major'] if not ally_profile.empty else ally_profile
 
-    bullets = []
-    if len(severe):
-        items = int(severe['items'].sum())
-        bullets.append(f"{len(severe)} severe accessibility issue type{'s' if len(severe) != 1 else ''} "
-                       f"({items} item{'s' if items != 1 else ''})")
-    if len(major):
-        items = int(major['items'].sum())
-        bullets.append(f"{len(major)} major accessibility issue type{'s' if len(major) != 1 else ''} "
-                       f"({items} item{'s' if items != 1 else ''})")
-    if pending_count:
-        bullets.append(f"{pending_count} checklist item{'s' if pending_count != 1 else ''} outstanding")
+    def plural(n, word):
+        return f"{n} {word}{'s' if n != 1 else ''}"
 
-    # Template alignment. Stated as a count of sections not yet visible to
-    # students, which is a fact about the course, rather than as the vendor's
-    # "Non-Compliant" banding, which reads as a verdict on the lead.
+    points = []
+    if len(severe) or len(major):
+        types = len(severe) + len(major)
+        items = (int(severe['items'].sum()) if len(severe) else 0) + \
+                (int(major['items'].sum()) if len(major) else 0)
+        points.append(f"**Accessibility:** Ally has found {plural(types, 'type')} of issue worth "
+                      f"fixing ({plural(items, 'item')}). The Accessibility Report tab shows "
+                      f"what they are.")
+    if pending_count:
+        points.append(f"**Checklist:** {plural(pending_count, 'item')} still to complete.")
+
+    # Template alignment. Stated as sections not yet visible to students, a
+    # fact about the course, rather than the vendor's "Non-Compliant" banding,
+    # which reads as a verdict on the lead.
     if active_row is not None:
         outstanding = active_row.get('Lead Sections Outstanding') or []
         drafted = active_row.get('Drafted Sections') or []
         blocking = active_row.get('Template Blocking') or []
         if len(outstanding):
             total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
-            bullets.append(f"{len(outstanding)} of {total} module template section"
-                           f"{'s' if total != 1 else ''} not yet visible to students")
-        # Called out separately: the work exists, it just needs releasing, and
-        # that is a far smaller ask than the bullet above implies on its own.
-        if len(drafted):
-            n = len(drafted)
-            bullets.append(f"{n} of those {'has' if n == 1 else 'have'} been "
-                           f"worked on and only needs making visible "
-                           f"({', '.join(drafted)})")
+            point = (f"**Blackboard template:** {len(outstanding)} of {total} module "
+                     f"sections still to be made ready for students.")
+            # The work exists and only needs releasing - a far smaller ask
+            # than the count alone implies.
+            if len(drafted):
+                n = len(drafted)
+                who = "One has" if n == 1 else f"{n} have"
+                need = "needs" if n == 1 else "need"
+                point += (f" {who} already been worked on and just {need} making "
+                          f"visible ({', '.join(drafted)}).")
+            points.append(point)
         if len(blocking):
             n = len(blocking)
-            bullets.append(f"{n} template section{'s' if n != 1 else ''} "
-                           f"{'have' if n != 1 else 'has'} been deleted from or "
-                           f"{'are' if n != 1 else 'is'} missing in the Blackboard course")
+            verb = "is" if n == 1 else "are"
+            need = "needs" if n == 1 else "need"
+            points.append(f"**Blackboard template:** {plural(n, 'section')} {verb} missing "
+                          f"from the Blackboard course and {need} restoring.")
 
     if leganto_missing:
-        bullets.append("no Leganto reading list connected")
+        points.append("**Reading list:** no Leganto reading list is connected yet.")
     elif leganto_status == 'Mixed':
-        # Distinct from plain Draft below - a Mixed module already has most
-        # or all of its items published on at least one course shell, and
-        # "still in Draft" alone would misreport that as nothing published.
-        bullets.append(f"reading list partly published in Leganto "
-                       f"({leganto_draft_items} of {leganto_items} item{'s' if leganto_items != 1 else ''} "
-                       f"still in Draft)")
+        # Distinct from plain Draft - a Mixed module already has most or all
+        # of its items published on at least one course shell.
+        points.append(f"**Reading list:** partly published in Leganto, with "
+                      f"{leganto_draft_items} of {plural(leganto_items, 'item')} still in Draft.")
     elif leganto_draft:
-        bullets.append(f"reading list still in Draft in Leganto ({leganto_items} item{'s' if leganto_items != 1 else ''})")
-    if not has_audit:
-        bullets.append("not yet audited by a Digital Learning Advisor")
+        points.append(f"**Reading list:** still in Draft in Leganto "
+                      f"({plural(leganto_items, 'item')}), so students can't see it yet.")
+    return points
 
-    if not bullets:
-        colour, icon, text = "#047857", "✅", "Nothing outstanding right now."
-    else:
-        colour, icon = "#F59E0B", "📋"
-        text = "; ".join(bullets) + "."
+
+def _render_advisor_comment(responses):
+    """
+    The free-text comment a Digital Learning Advisor left on this module's
+    audit.
+
+    Sits directly under the Report Summary, above both tabs: it is the
+    advisor's view of the whole module, so it belongs beside "Spot checked
+    on ..." rather than at the foot of one tab, where it used to be (below a
+    template tree up to 14 sections long, and invisible from the
+    Accessibility tab). Styled as a neutral note, not amber - 'comments' is
+    in INERT_TEXT_FIELD_IDS precisely so it never reads as an action item.
+
+    The body goes through format_comment_markdown(), the same formatting
+    School Dashboard's Spot-Check Comments view uses, and is rendered as
+    plain markdown (no unsafe_allow_html), so typed text can't inject HTML.
+    Callers only call this when has_audit is true.
+
+    Kept deliberately light - a left rule, no fill, no byline - so it
+    doesn't add weight to the blocks above the tabs. The "Audit Status: Spot
+    checked on ..." line directly above already says when, and the
+    auditor's login username (the only name stored) added noise, not
+    information, for a module lead.
+    """
+    body = format_comment_markdown(responses.get('comments', ''))
+    if not body:
+        return
 
     st.markdown(
-        f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
-                    padding:8px 12px;border-radius:4px;margin-bottom:12px;">
-            <span style="color:{colour};font-weight:600;">{icon}</span>
-            <span style="color:#374151;font-size:13px;"> {text}</span>
-        </div>""", unsafe_allow_html=True)
+        """<style>
+        .st-key-mr_advisor_comment {
+            border-left: 3px solid #93C5FD;
+            padding: 2px 0 0 14px;
+            margin-bottom: 8px;
+            gap: 0.25rem;
+        }
+        </style>""", unsafe_allow_html=True)
+    with st.container(key="mr_advisor_comment"):
+        st.markdown("**Comments from your Digital Learning Advisor**")
+        st.markdown(body)
 
 
-def _render_data_reliability_block(active_row, has_audit=False):
+def _render_report_summary(points, active_row, has_audit=False):
     """
-    What this report is based on and what it does/doesn't show, condensed
-    from the "Data Reliability and Audit Rationale" section of the Help page.
+    One collapsed "Report Summary" above both tabs: whether a Digital
+    Learning Advisor has checked the module, what's still to do, and when
+    each data source was last refreshed.
 
-    Two versions, gated on has_audit: a data-driven module has only the
-    automated snapshots behind it, so the explanation carries the caveats
-    that come with that (snapshot staleness, quantitative-only measurement,
-    false negatives). Once a Digital Learning Advisor has actually recorded
-    an audit or spot-check for this module, their verdict is the evidence
-    the report is really resting on (see readiness_manual_override()) and
-    those data caveats no longer apply the same way, so the message is a
-    short, different one rather than the same caveats plus a footnote.
-
-    Placed once, near the top, above both tabs: it's context for everything
-    below, not something specific to Accessibility or Module Checks alone.
-    The ingestion date line is always visible - the fuller explanation is
-    collapsed, since most readers only need it once.
+    Replaced three separate blocks on 24-09-2026 - the amber health banner,
+    a "Data last refreshed" caption and an "About this report" expander -
+    which with the header and advisor comment made five stacked boxes before
+    the tabs. Collapsed because the Actions panel and the Accessibility tab
+    already carry every outstanding item in full; this is the overview.
     """
     ally_date = fmt_report_date(active_row.get('Ally Last Checked')) if active_row is not None else ""
     readiness_date = fmt_report_date(active_row.get('Readiness Snapshot')) if active_row is not None else ""
     leganto_date = fmt_report_date(active_row.get('Leganto Snapshot')) if active_row is not None else ""
 
-    st.caption(
-        f"📅 Data last refreshed — Ally: {ally_date or '—'} · "
-        f"Template Alignment: {readiness_date or '—'} · "
-        f"Reading list: {leganto_date or '—'}")
-
-    with st.expander("ℹ️ About this report"):
+    with st.expander("📋 Report Summary"):
         if has_audit:
             st.markdown(
                 "This report has been generated using data evidence and also "
                 "manually spot-checked by a Digital Learning Advisor.")
         else:
             st.markdown(
-                "This module report has been generated using data evidence. "
-                "The combination of data from different sources gives us a "
-                "reasonably good picture of the readiness of this module. "
-                "The data used is:\n\n"
-                f"* **Template alignment** data, last ingested at {readiness_date or '—'}. "
-                "This tells us about the visibility and whether or not "
-                "Blackboard template items have been edited.\n"
-                f"* **Ally Accessibility** data, last ingested at {ally_date or '—'}. "
-                "This is the Ally report for your module and shows the "
-                "accessibility of files and Blackboard content across your module.\n"
-                f"* **Leganto (reading lists)** data, last ingested at {leganto_date or '—'}. "
-                "This tells us whether the module has a reading list and if it "
-                "has been published or is in draft.\n\n"
-                "There are a few caveats for a data-driven report:\n\n"
-                "* Snapshot data is used, so the report may not be perfectly up-to-date.\n"
-                "* The data is purely quantitative, so while it can tell us if an "
-                "item has been edited, it cannot speak to the quality of the item.\n"
-                "* The data may flag false negatives - e.g. if a Blackboard item "
-                "has been deleted then legitimately replaced, it may still flag as deleted.")
+                "This module report has been generated using data evidence and "
+                "hasn't been verified yet by your Digital Learning Advisor. The "
+                "combination of data from different sources gives us a "
+                "reasonably good picture of the readiness of this module.")
+
+        if points:
+            st.markdown("**Still to do**\n\n" + "\n".join(f"- {p}" for p in points))
+        else:
+            st.markdown("✅ Nothing outstanding right now.")
+
+        st.caption(
+            f"Data last refreshed: Ally {ally_date or '—'} · "
+            f"Template Alignment {readiness_date or '—'} · "
+            f"Reading list {leganto_date or '—'}")
 
 
 def _render_ally_issue_card(row):
@@ -951,7 +969,7 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
     "other sections" table.
 
     leganto_missing/leganto_status/leganto_items are the same values the
-    health banner and worklist already use - passed through so the Module
+    Report Summary and worklist already use - passed through so the Module
     Reading List card (the one section where Blackboard visibility isn't the
     whole story) can say whether the connected list is actually published.
     """
@@ -1129,7 +1147,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         ug_pg = "UG"
         url = ""
 
-        # Leganto status feeds the checklist summary, the health banner, and
+        # Leganto status feeds the checklist summary, the Report Summary, and
         # the unified worklist.
         # `== True`, not `is True`: .iloc hands back numpy.bool_, which is
         # never identical to Python's True, so an `is` check silently read
@@ -1152,7 +1170,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         # Checklist, Leganto, Ally and readiness findings all come from one
         # place - processing.derive_module_findings() - so the worklist below,
-        # the health banner's counts, and the Actionable Items badge on School
+        # the Report Summary's counts, and the Actionable Items badge on School
         # Dashboard / Faculty Overview can no longer disagree about what a
         # module has outstanding.
         active_fields = get_active_audit_fields()
@@ -1217,7 +1235,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         ally_profile = _ally_issue_profile(selected_code)
         ally_categories = _ally_issue_categories(selected_code)
 
-        # 1. Overview metadata + module health banner
+        # 1. Overview metadata + Report Summary
         if active_row is not None:
             raw_mod_lead = str(active_row.get('Mod. lead', '')).strip()
             if not raw_mod_lead or raw_mod_lead.lower() == 'nan':
@@ -1281,25 +1299,28 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 </div>""", unsafe_allow_html=True)
 
         # A recorded reading_list answer overrides Leganto (see
-        # processing.READING_LIST_FIELD_ID), so the banner drops its Leganto
-        # bullet then - an unticked answer is counted with the checklist
+        # processing.READING_LIST_FIELD_ID), so the summary drops its Leganto
+        # point then - an unticked answer is counted with the checklist
         # items instead, like the other institution-mapped fields.
         if has_audit and readiness_manual_override(READING_LIST_FIELD_ID, responses) is not None:
-            _render_health_banner(ally_profile, checklist_pending_count, False, has_audit,
-                                  False, leganto_items, active_row, '', leganto_draft_items)
+            points = _summary_points(ally_profile, checklist_pending_count, False,
+                                     False, leganto_items, active_row, '', leganto_draft_items)
         else:
-            _render_health_banner(ally_profile, checklist_pending_count, leganto_missing, has_audit,
-                                  leganto_draft, leganto_items, active_row,
-                                  leganto_status, leganto_draft_items)
+            points = _summary_points(ally_profile, checklist_pending_count, leganto_missing,
+                                     leganto_draft, leganto_items, active_row,
+                                     leganto_status, leganto_draft_items)
 
-        _render_data_reliability_block(active_row, has_audit)
+        _render_report_summary(points, active_row, has_audit)
+
+        if has_audit:
+            _render_advisor_comment(responses)
 
         st.markdown(" ")
 
         # 2. Module Checks and Readiness first - it's the actionable tab for
         # a module lead - then Accessibility Report.
         # Streamlit's default tabs are small underlined text that's easy to
-        # miss below the health banner, so their labels are enlarged (the
+        # miss below the blocks above them, so their labels are enlarged (the
         # standard underline style is kept). The CSS is scoped to the keyed
         # container (Streamlit adds an `st-key-<key>` class) so no other
         # st.tabs in the app are affected.
@@ -1327,10 +1348,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             with tab_checks:
                 _render_module_checks(actions, has_audit, active_row, responses,
                                       leganto_missing, leganto_status, leganto_items, leganto_draft_items)
-
-                comments_val = str(responses.get('comments', '') or '').strip()
-                if has_audit and comments_val:
-                    st.info(f"**Additional Comments:**\n\n{comments_val}")
 
             with tab_accessibility:
                 _render_ally_card(selected_code, active_row, ally_profile, ally_categories)
