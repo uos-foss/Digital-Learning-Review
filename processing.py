@@ -2607,8 +2607,9 @@ def derive_module_findings(active_row, responses, active_fields):
     # disagreement the readiness merge (see "Unified module findings" in
     # CLAUDE.md) fixed for template sections.
     #
-    # Threshold is severe OR major, matching the health banner's own two
-    # bullets (_render_health_banner in module_report.py) - a module with
+    # Threshold is severe OR major, matching the Report Summary's
+    # accessibility point (_summary_points in module_report.py, the health
+    # banner's two bullets before 24-09-2026) - a module with
     # major-only issues (no severe) used to show a banner line naming them
     # but never actually surfaced as an action, which was the same
     # contradiction all over again, just one severity tier down. Minor
