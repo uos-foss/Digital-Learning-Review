@@ -17,6 +17,7 @@ from processing import (
     INSTITUTION_MAPPED_FIELD_IDS,
     derive_module_findings,
     readiness_manual_override,
+    format_comment_markdown,
     READING_LIST_FIELD_ID,
     compute_audit_verdict,
     fmt_report_date,
@@ -464,6 +465,50 @@ def _render_health_banner(ally_profile, pending_count, leganto_missing, has_audi
             <span style="color:{colour};font-weight:600;">{icon}</span>
             <span style="color:#374151;font-size:13px;"> {text}</span>
         </div>""", unsafe_allow_html=True)
+
+
+def _render_advisor_comment(responses, sum_entry):
+    """
+    The free-text comment a Digital Learning Advisor left on this module's
+    audit, with who wrote it and when.
+
+    Sits directly under the health banner, above both tabs: it is the
+    advisor's view of the whole module, so it belongs beside "Spot checked
+    on ..." rather than at the foot of one tab, where it used to be (below a
+    template tree up to 14 sections long, and invisible from the
+    Accessibility tab). Styled as a neutral note, not amber - 'comments' is
+    in INERT_TEXT_FIELD_IDS precisely so it never reads as an action item.
+
+    The body goes through format_comment_markdown(), the same formatting
+    School Dashboard's Spot-Check Comments view uses, and is rendered as
+    plain markdown (no unsafe_allow_html), so typed text can't inject HTML.
+    Callers only call this when has_audit is true.
+    """
+    body = format_comment_markdown(responses.get('comments', ''))
+    if not body:
+        return
+
+    auditor = str(sum_entry.get('Auditor') or '').strip()
+    commented_on = fmt_report_date(sum_entry.get('Timestamp'))
+    byline = ", ".join(p for p in (html.escape(auditor), commented_on) if p)
+
+    st.markdown(
+        """<style>
+        .st-key-mr_advisor_comment {
+            border-left: 4px solid #2563EB;
+            background-color: rgba(37, 99, 235, 0.05);
+            border-radius: 4px;
+            padding: 10px 16px 4px 16px;
+            margin-bottom: 12px;
+            gap: 0.25rem;
+        }
+        </style>""", unsafe_allow_html=True)
+    with st.container(key="mr_advisor_comment"):
+        heading = "💬 **Comments from your Digital Learning Advisor**"
+        if byline:
+            heading += f" <span style='color:#6B7280;font-size:13px;'>· {byline}</span>"
+        st.markdown(heading, unsafe_allow_html=True)
+        st.markdown(body)
 
 
 def _render_data_reliability_block(active_row, has_audit=False):
@@ -1292,6 +1337,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                   leganto_draft, leganto_items, active_row,
                                   leganto_status, leganto_draft_items)
 
+        if has_audit:
+            _render_advisor_comment(responses, sum_entry)
+
         _render_data_reliability_block(active_row, has_audit)
 
         st.markdown(" ")
@@ -1327,10 +1375,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             with tab_checks:
                 _render_module_checks(actions, has_audit, active_row, responses,
                                       leganto_missing, leganto_status, leganto_items, leganto_draft_items)
-
-                comments_val = str(responses.get('comments', '') or '').strip()
-                if has_audit and comments_val:
-                    st.info(f"**Additional Comments:**\n\n{comments_val}")
 
             with tab_accessibility:
                 _render_ally_card(selected_code, active_row, ally_profile, ally_categories)

@@ -794,13 +794,23 @@ snapshot/diff logic is I/O-free in `processing.py`
   `audit_response_history` is the trail if an earlier wording is needed.
   `views/school_dashboard.py`'s `comment_field_label()` takes the heading from
   `audit_fields` rather than hardcoding "Additional Comments", and
-  `format_comment_markdown()` turns a stored value into display markdown:
-  single newlines become line breaks, and the legacy observation/action JSON
-  a handful of modules still carry (see `INERT_TEXT_FIELD_IDS` under "Unified
-  module findings") is unpacked into labelled lines instead of being shown
-  raw. A module re-flagged later in the same year has one row per flag; the
-  comments view collapses those to one card per module, keeping the most
-  recent flag, since there is only ever one comment to read.
+  `processing.format_comment_markdown()` turns a stored value into display
+  markdown: single newlines become line breaks, and the legacy
+  observation/action JSON a handful of modules still carry (see
+  `INERT_TEXT_FIELD_IDS` under "Unified module findings") is unpacked into
+  labelled lines instead of being shown raw. A module re-flagged later in the
+  same year has one row per flag; the comments view collapses those to one
+  card per module, keeping the most recent flag, since there is only ever one
+  comment to read.
+- **The module report shows the same comment under the health banner,
+  above both tabs** (`views/module_report.py::_render_advisor_comment()`),
+  headed "Comments from your Digital Learning Advisor" with the auditor and
+  date. Moved there 24-09-2026 from the foot of the Module Checks tab, where it
+  sat below the template tree and never showed on the Accessibility tab. The
+  heading is fixed wording for module leads, deliberately not
+  `comment_field_label()`. It uses a blue note style, not amber, because
+  `comments` is inert and must not read as an action item. It goes through
+  `format_comment_markdown()` so it reads the same as on School Dashboard.
 - **`database.delete_spot_check(id)`** removes one row outright - reachable
   from the "🎯 Spot-Checks" view's Remove Flag action, behind a confirm
   checkbox since deleting a `checked` row also deletes its agreement result.
