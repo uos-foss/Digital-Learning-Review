@@ -490,6 +490,33 @@ owner is now `'lead'`. This changes, all via the existing owner-driven logic
   again, keep these two constants intentionally distinct rather than
   re-merging them.
 
+**A recorded `reading_list` answer overrides Leganto as well as the
+template data.** Added 23-09-2026 when `reading_list` was linked to
+`MODULE_READING_LIST`. The tick means "the reading list is published (or
+not needed) and the section is visible to students". Leganto is exported
+rarely and often lags Blackboard, so once a DLA has answered,
+`derive_module_findings()` emits no `'leganto'` finding for that module at
+all: the `'readiness'` finding carries the verdict, and emitting both would
+either contradict it (ticked) or count one gap twice (unticked).
+`view_module_report()` likewise drops the health banner's Leganto bullet
+when there is an answer. Without an answer, the two data checks stay
+separate: the readiness finding reads section visibility only, and the
+Leganto finding reads Leganto only. The Audit Portal suggestion
+(`readiness_prefill_for_module()`) and the Template Alignment tab
+(`calculate_dynamic_compliance_gap()`) gate on both, via
+`leganto_blocks_reading_list()`: Missing, Draft or Mixed blocks the tick. A
+blank status (module in neither Leganto export) does not block, matching the
+Leganto finding's own "OK / Connected" reading. "Not needed" has no Leganto
+signal; it is the DLA's call, recorded by ticking. The at-a-glance
+dashboard views follow the answer too, through
+`processing.reading_list_verdict()`: School Dashboard's All Modules
+"Reading List" column shows "DLA confirmed" / "DLA: not done" in place of
+the Leganto status, both "📚 Missing Reading Lists" lenses (School Dashboard
+and Faculty Overview) drop ticked modules, and the template status matrix
+folds Leganto into its Module Reading List column instead of a second
+Reading List column. The Leganto importer and the stored data are never
+changed; only what these views display.
+
 **`INERT_TEXT_FIELD_IDS` opts specific `'text'`-type audit fields out of
 finding generation entirely** - their value is saved and shown in the Audit
 Portal like any other field, but never becomes a checklist finding, so it
@@ -598,7 +625,8 @@ it so nothing importing it from there breaks.
 template-readiness section states into checklist suggestions for the Audit
 Portal: `{audit_field_id: {'suggested': bool, 'evidence_text': str,
 'section_key': str}}`, one entry per `TEMPLATE_SECTIONS` section that carries
-an `audit_fields.id` (7 of 14 sections; the other 7 have no checklist
+an `audit_fields.id` (8 of 14 sections since `reading_list` was linked to
+`MODULE_READING_LIST` on 23-09-2026; the other 6 have no checklist
 counterpart and are never suggested on).
 
 - **The suggestion comes from `processing.readiness_section_is_ready(section_key,
@@ -609,7 +637,7 @@ counterpart and are never suggested on).
   `suggested` requires Visible **and** edited (`state == 'visible_edited'`) -
   a Visible section with no edit evidence at all (`visible_unedited`) is
   not suggested. For the institution-owned-but-mapped fields (`sga`,
-  `assessment_overview`, `encore_link`), Visible is enough on its own,
+  `assessment_overview`, `reading_list`, `encore_link`), Visible is enough on its own,
   `visible_unedited` included - those sections were never the lead's to
   edit, so sitting untouched since course creation is their normal, correct
   state. `evidence_text` (from `readiness_evidence_words()`) still gives the

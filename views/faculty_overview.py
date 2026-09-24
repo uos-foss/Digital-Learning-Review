@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from processing import (aggregate_faculty_stats, calculate_module_compliance,
                         get_school_comparison, resolve_semester_df, summarise_ai_declarations,
-                        FACULTY_SCHOOLS)
+                        FACULTY_SCHOOLS, reading_list_verdict)
 from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
 from views.ally_widgets import (
     scoreable, render_maturity_banner, render_maturity_breakdown,
@@ -485,6 +485,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     render_status_type = "error"
                 else:
                     missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
+                    # A DLA's tick overrides Leganto - not an action any more.
+                    missing_leganto_df = missing_leganto_df[[
+                        reading_list_verdict(checklist_sums, c) is not True
+                        for c in missing_leganto_df['New module code']]]
                     
                     if not missing_leganto_df.empty:
                         render_status = f"🎯 Found {len(missing_leganto_df)} modules explicitly flagged as missing a Leganto list."
