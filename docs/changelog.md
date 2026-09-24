@@ -1,6 +1,58 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.26.4 (Current): *UK Time*
+### 🚀 Version 1.27.0 (Current): *Reading Lists and a Clearer Module Report*
+*24 September 2026*
+
+**Module report**
+
+* **A new Report Summary.** The amber summary banner, the "Data last
+  refreshed" line and "About this report" are now one collapsed Report
+  Summary above the tabs. It says whether a Digital Learning Advisor has
+  checked the module, lists anything still to do as one plain next step per
+  area, and gives the date each data source was last refreshed.
+* **The advisor's comment is now at the top.** It appears above both tabs
+  as "Comments from your Digital Learning Advisor", instead of at the very
+  bottom of the Module Checks tab, where it was easy to miss. Line breaks
+  are kept, and it reads the same as on the School Dashboard.
+* **A missing reading list now shows on the module report.** A module with
+  no Leganto reading list was never flagged as missing there. That is fixed.
+* **A tidier Accessibility Report tab.** "How to use this Accessibility
+  Report" now comes first, with all the links to Blackboard and further
+  help in one place, followed by a "Course accessibility score" heading.
+  The date it gives is when the Ally data was last imported. The
+  accessibility-over-time chart has been removed.
+
+**Reading lists**
+
+* **A new Reading List checklist question, linked to the Module Reading
+  List template section.** A Digital Learning Advisor's answer takes
+  priority over Leganto, which is exported rarely and often lags behind
+  Blackboard. Once answered, the module report, the School Dashboard's
+  Reading List column and both Missing Reading Lists views follow the
+  advisor's answer.
+* **The Audit Portal only suggests ticking it when Leganto agrees.** A list
+  that Leganto shows as missing or still in Draft is not suggested as done.
+
+**Spot-checks**
+
+* **Submitting an audit now counts as a spot-check**, even if nobody
+  flagged the module first. These modules used to show as never audited on
+  the School Dashboard.
+* **Module names show for spot-checks in every semester.** Autumn modules
+  used to lose their names when viewing Spring or "All year".
+* **The spot-check agreement figures are no longer shown** on the School
+  Dashboard. They are still recorded.
+
+**Deployment**
+
+* Create the Reading List question in the Admin Panel's Audit Field Manager
+  with the ID `reading_list`. Until it exists, the new reading list
+  behaviour has nothing to read.
+* If not already done, run `python scripts/backfill_unflagged_spot_checks.py`
+  to preview, then again with `--apply`, to count audits submitted before
+  this release as spot-checks. Running it twice adds nothing.
+
+### 🚀 Version 1.26.4: *UK Time*
 *22 September 2026*
 
 * **Times now show in UK time.** The portal's server was running on UTC, so
