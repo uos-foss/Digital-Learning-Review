@@ -1131,12 +1131,15 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         # Leganto status feeds the checklist summary, the health banner, and
         # the unified worklist.
+        # `== True`, not `is True`: .iloc hands back numpy.bool_, which is
+        # never identical to Python's True, so an `is` check silently read
+        # every module as having a list.
         leganto_missing = False
         if not aut_m.empty and 'Leganto Missing' in aut_m.columns:
-            if aut_m.iloc[0]['Leganto Missing'] is True:
+            if aut_m.iloc[0]['Leganto Missing'] == True:  # noqa: E712
                 leganto_missing = True
         if not spr_m.empty and 'Leganto Missing' in spr_m.columns:
-            if spr_m.iloc[0]['Leganto Missing'] is True:
+            if spr_m.iloc[0]['Leganto Missing'] == True:  # noqa: E712
                 leganto_missing = True
 
         # Draft/Published status and item count for modules that DO have a

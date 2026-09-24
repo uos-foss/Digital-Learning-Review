@@ -337,7 +337,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             return "✅ DLA confirmed"
                         if verdict is False:
                             return "❌ DLA: not done"
-                        if r.get('Leganto Missing') is True:
+                        # `== True`: a numpy.bool_ is never `is True`.
+                        if r.get('Leganto Missing') == True:  # noqa: E712
                             return "❌ Missing"
                         status = r.get('Leganto List Status', '')
                         if status == 'Published':
