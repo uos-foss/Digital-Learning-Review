@@ -6,7 +6,8 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
                         derive_module_findings, short_field_label,
-                        parse_custom_observations, fmt_report_date)
+                        parse_custom_observations, fmt_report_date,
+                        reading_list_verdict, READING_LIST_FIELD_ID)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       get_school_spot_checks,
@@ -329,6 +330,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 
                 if 'Leganto Missing' in display_df.columns:
                     def _leganto_display(r):
+                        # A DLA's recorded answer overrides Leganto, which
+                        # is exported rarely and often lags Blackboard.
+                        verdict = reading_list_verdict(checklist_sums, r.get('New module code'))
+                        if verdict is True:
+                            return "✅ DLA confirmed"
+                        if verdict is False:
+                            return "❌ DLA: not done"
                         if r.get('Leganto Missing') is True:
                             return "❌ Missing"
                         status = r.get('Leganto List Status', '')
@@ -347,10 +355,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     cols.append('Leganto')
                     configs['Leganto'] = st.column_config.TextColumn(
                         "Reading List",
-                        help="Published/Draft - list status in Leganto. Not needed - "
-                             "Leganto's own export confirms no list is expected for "
-                             "this course. Missing - no list found, or the module "
-                             "doesn't yet appear in either Leganto export.")
+                        help="DLA confirmed / DLA: not done - a Digital Learning "
+                             "Advisor's audit answer, which overrides Leganto. "
+                             "Otherwise the Leganto status: Published/Draft - list "
+                             "status in Leganto. Not needed - Leganto's own export "
+                             "confirms no list is expected for this course. Missing - "
+                             "no list found, or the module doesn't yet appear in "
+                             "either Leganto export.")
 
                 # Latest spot-check status per module, fetched once for the
                 # whole school rather than a query per row. A module can have
@@ -685,7 +696,20 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             # against, which always shows the full section name.
                             col = short_field_label(field['id'], field['label'])
                             row[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
-                        row['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
+                        # With reading_list active, its own column already
+                        # covers the reading list: fold Leganto into it rather
+                        # than showing a second Reading List column. With a
+                        # recorded answer there is no Leganto finding, so
+                        # leganto_state stays 'completed' and the answer alone
+                        # decides - it overrides Leganto.
+                        rl_field = next((f for f in boolean_fields
+                                         if f['id'] == READING_LIST_FIELD_ID), None)
+                        if rl_field is not None:
+                            rl_col = short_field_label(rl_field['id'], rl_field['label'])
+                            if leganto_state != 'completed':
+                                row[rl_col] = '❌'
+                        else:
+                            row['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
                         # Not a done/not-done item like the others - a flag for
                         # attention (severe/major Ally issue, or Ally disabled),
                         # not a completion state, so ❌ would misleadingly imply
@@ -821,6 +845,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         render_status_type = "error"
                     else:
                         missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
+                        # A DLA's tick overrides Leganto - not an action any more.
+                        missing_leganto_df = missing_leganto_df[[
+                            reading_list_verdict(checklist_sums, c) is not True
+                            for c in missing_leganto_df['New module code']]]
                         
                         if not missing_leganto_df.empty:
                             render_status = f"🎯 Found {len(missing_leganto_df)} modules explicitly flagged as missing a Leganto list."

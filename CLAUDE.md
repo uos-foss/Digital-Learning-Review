@@ -507,8 +507,15 @@ Leganto finding reads Leganto only. The Audit Portal suggestion
 `leganto_blocks_reading_list()`: Missing, Draft or Mixed blocks the tick. A
 blank status (module in neither Leganto export) does not block, matching the
 Leganto finding's own "OK / Connected" reading. "Not needed" has no Leganto
-signal; it is the DLA's call, recorded by ticking. Leganto columns shown
-elsewhere (dashboards, the Leganto importer) still report the raw data.
+signal; it is the DLA's call, recorded by ticking. The at-a-glance
+dashboard views follow the answer too, through
+`processing.reading_list_verdict()`: School Dashboard's All Modules
+"Reading List" column shows "DLA confirmed" / "DLA: not done" in place of
+the Leganto status, both "📚 Missing Reading Lists" lenses (School Dashboard
+and Faculty Overview) drop ticked modules, and the template status matrix
+folds Leganto into its Module Reading List column instead of a second
+Reading List column. The Leganto importer and the stored data are never
+changed; only what these views display.
 
 **`INERT_TEXT_FIELD_IDS` opts specific `'text'`-type audit fields out of
 finding generation entirely** - their value is saved and shown in the Audit

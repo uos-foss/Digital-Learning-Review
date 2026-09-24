@@ -2408,6 +2408,17 @@ def readiness_manual_override(audit_field_id, responses):
     return str(val).strip().upper() == 'TRUE'
 
 
+def reading_list_verdict(checklist_sums, module_code):
+    """A DLA's recorded reading_list answer for one module (True/False), or
+    None when there isn't one - for dashboard views that summarise reading
+    list state from load_checklist_data()'s checklist_sums rather than
+    calling derive_module_findings() per module. A recorded answer overrides
+    Leganto (see READING_LIST_FIELD_ID), so these views show it in place of
+    the raw Leganto status."""
+    entry = (checklist_sums or {}).get(module_code) or {}
+    return readiness_manual_override(READING_LIST_FIELD_ID, entry.get('Responses'))
+
+
 INERT_TEXT_FIELD_IDS = frozenset({'comments'})
 """'text'-type audit_fields whose value is pure metadata for the auditor -
 never turned into a checklist finding, so it never shows as an Outstanding
