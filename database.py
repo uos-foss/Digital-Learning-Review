@@ -1529,6 +1529,20 @@ def delete_spot_check(spot_check_id: int) -> bool:
         logging.info("🎯 Spot-check row id=%s deleted.", spot_check_id)
     return deleted
 
+def delete_spot_checks(spot_check_ids) -> int:
+    """delete_spot_check() for several rows in one transaction - the School
+    Dashboard's bulk Remove Flags action. Returns the number of rows deleted."""
+    ids = [int(i) for i in spot_check_ids]
+    if not ids:
+        return 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany("DELETE FROM spot_checks WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        deleted = cursor.rowcount
+    logging.info("🎯 %d spot-check row(s) deleted: ids=%s.", deleted, ids)
+    return deleted
+
 def mark_spot_check_checked(module_code: str, academic_year: str, checked_on: str,
                             agreement_agreed: int, agreement_total: int, checked_by: str,
                             notes: str = ""):

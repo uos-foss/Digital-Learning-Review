@@ -833,7 +833,12 @@ snapshot/diff logic is I/O-free in `processing.py`
   Deliberately a hard delete rather than a separate "reset to pending"
   mutation: resetting a checked module for a clean re-run is delete, then
   re-flag from "📋 All Modules" - one function covers both removing a
-  mis-flagged module and resetting a checked one.
+  mis-flagged module and resetting a checked one. The table is multi-select;
+  `delete_spot_checks(ids)` removes several at once. Since 25-09-2026 the
+  flag action skips checked modules as well as pending ones (a select-all
+  had re-queued every checked module as pending), and the Spot-Checks view
+  offers a one-click removal of any pending flag on a module already
+  checked this year, which only that mistake can produce.
 
 ## Conventions
 
