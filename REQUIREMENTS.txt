@@ -5,5 +5,5 @@ google-auth
 python-dotenv
 extra-streamlit-components
 tenacity
-plotly
-fpdf2
+plotly
+typst==0.15.0
