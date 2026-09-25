@@ -1,6 +1,30 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.27.0 (Current): *Reading Lists and a Clearer Module Report*
+### 🚀 Version 1.28.0 (Current): *Module Reports as Accessible PDFs*
+*25 September 2026*
+
+**Module report**
+
+* **Download a module report as a PDF.** A Download PDF button beside the
+  module's title saves the report as an A4 PDF: the Report Summary, the
+  advisor's comment, Actions, the Blackboard Template sections and the
+  accessibility scores. It says exactly what the page says.
+* **The PDF is accessible.** It is a tagged PDF and passes the PDF
+  Accessibility Checker (PAC). Screen reader users can move from section to
+  section and card to card by heading, hear each template section's status
+  with its name, and have the module details and scores read as tables.
+  Text colours meet WCAG AA contrast.
+* **The Report Summary now follows the audit.** After a Digital Learning
+  Advisor ticked a Blackboard template section as done, the summary could
+  still list it as still to be made ready, or as missing. It now follows the
+  advisor's answer, like the rest of the page.
+
+**Deployment**
+
+* Rebuild the Docker image, as this release adds the `typst` Python package.
+  Restarting the old image leaves the Module Report page unable to load.
+
+### 🚀 Version 1.27.0: *Reading Lists and a Clearer Module Report*
 *24 September 2026*
 
 **Module report**
