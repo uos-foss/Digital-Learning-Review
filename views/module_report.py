@@ -90,6 +90,14 @@ STATE_TIER_COLOUR = {
     'fault': "#EF4444",
 }
 
+# Neutral text in the hand-built HTML cards. These inherit the theme's own text
+# colour and step down with opacity, rather than hardcoding a grey: fixed
+# light-theme greys (#1F2937, #4B5563...) came out dark-on-dark and near
+# invisible in Streamlit's dark theme. Accent colours above work on both.
+TEXT_BODY = "color:inherit;opacity:0.85"
+TEXT_MUTED = "color:inherit;opacity:0.7"
+TEXT_FAINT = "color:inherit;opacity:0.6"
+
 # Card copy for sections nobody expects a module lead to edit - every section
 # except the ones in LEAD_OWNED_SECTIONS. For these, edited-or-not is noise (see
 # readiness_section_is_ready()): only whether it's Visible or Hidden is
@@ -334,7 +342,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                 f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
                             padding:8px 12px;border-radius:4px;margin-bottom:12px;">
                     <b style="color:{colour};">{icon} {display_maturity}</b>
-                    <span style="color:#6B7280;font-size:13px;"> — {note}</span>
+                    <span style="{TEXT_MUTED};font-size:13px;"> — {note}</span>
                 </div>""", unsafe_allow_html=True)
 
         # 2. The three scores, each with the volume of content behind it.
@@ -355,7 +363,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                 st.plotly_chart(fig, use_container_width=False,
                                 config={'displayModeBar': False}, key=f"gauge_{selected_code}_{tile_key}")
                 st.markdown(
-                    f"<div style='text-align:center;font-size:11px;color:#6B7280;margin-top:-16px;'>{sub_text}</div>",
+                    f"<div style='text-align:center;font-size:11px;{TEXT_MUTED};margin-top:-16px;'>{sub_text}</div>",
                     unsafe_allow_html=True)
 
         if not active_row.get('Ally Enabled', True):
@@ -584,8 +592,8 @@ def _render_ally_issue_card(row):
             <span style="background:{colour}1A;color:{colour};font-size:10px;
                          font-weight:700;padding:2px 6px;border-radius:4px;
                          text-transform:uppercase;">{row['severity_label']}</span>
-            <h4 style="margin: 6px 0 6px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{row['label']}</h4>
-            <div style="margin: 0; color: #4B5563; font-size: 14px; line-height: 1.5;">
+            <h4 style="margin: 6px 0 6px 0; color: inherit; font-size: 15px; font-weight: 600;">{row['label']}</h4>
+            <div style="margin: 0; {TEXT_BODY}; font-size: 14px; line-height: 1.5;">
                 {row['items']} item(s) · {icon} {where}. {row['advice']}
             </div>
         </div>""", unsafe_allow_html=True)
@@ -638,7 +646,7 @@ def _render_actions_panel(actions):
 
         li = f'<li style="margin-bottom:12px;"><strong>{label}</strong>'
         if description:
-            li += f'<br/><span style="color:#6B7280;font-size:13px;">{description}</span>'
+            li += f'<br/><span style="{TEXT_MUTED};font-size:13px;">{description}</span>'
         li += '</li>'
         items_html.append(li)
 
@@ -660,9 +668,9 @@ def _render_ally_category_card(row):
     checks_word = "issue type" if row['checks'] == 1 else "issue types"
     st.markdown(
         f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05; padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid {colour}0D; border-right: 1px solid {colour}0D; border-bottom: 1px solid {colour}0D;">
-            <h4 style="margin: 0 0 4px 0; color: #1F2937; font-size: 15px; font-weight: 600;">{row['icon']} {row['title']}</h4>
-            <div style="color: #6B7280; font-size: 12px; margin-bottom: 8px;">{row['items']} {items_word} across {row['checks']} {checks_word}</div>
-            <div style="color: #4B5563; font-size: 14px; line-height: 1.5;">{row['why']}</div>
+            <h4 style="margin: 0 0 4px 0; color: inherit; font-size: 15px; font-weight: 600;">{row['icon']} {row['title']}</h4>
+            <div style="{TEXT_MUTED}; font-size: 12px; margin-bottom: 8px;">{row['items']} {items_word} across {row['checks']} {checks_word}</div>
+            <div style="{TEXT_BODY}; font-size: 14px; line-height: 1.5;">{row['why']}</div>
         </div>""", unsafe_allow_html=True)
 
 
@@ -937,14 +945,14 @@ def _render_section_card(key, state, responses, has_audit, created, leganto=None
     # text instead of closing the div - exactly the stray "</div>" that
     # showed up on every collapsed card before this.
     detail_html = (
-        f'<p style="margin:4px 0 4px 0;color:#374151;font-size:12px;">{action}</p>'
-        f'<p style="margin:0;color:#9CA3AF;font-size:11px;">{footer}</p>'
+        f'<p style="margin:4px 0 4px 0;{TEXT_BODY};font-size:12px;">{action}</p>'
+        f'<p style="margin:0;{TEXT_FAINT};font-size:11px;">{footer}</p>'
         if show_detail else "")
 
     st.markdown(
         f'<div style="border-left: 4px solid {colour}; background-color: {colour}05; '
         f'padding: 8px 12px; margin-bottom: 6px; margin-left: {indent}px; border-radius: 4px;">'
-        f'<h4 style="margin:0;color:#1F2937;font-size:14px;font-weight:600;'
+        f'<h4 style="margin:0;color:inherit;font-size:14px;font-weight:600;'
         f'display:flex;align-items:center;">'
         f'<span style="display:inline-block;vertical-align:middle;margin-right:10px;">{icon}</span>'
         f'<span style="flex:1;">{label}</span>'
@@ -969,11 +977,11 @@ def _render_label_node(name, depth, has_children_data):
         f"""<div style="margin:14px 0 6px {indent}px;">
             <span style="display:inline-block;vertical-align:middle;
                          margin-right:12px;opacity:0.6;">{icon}</span>
-            <span style="font-weight:700;font-size:14px;color:#374151;">{name}</span>
+            <span style="font-weight:700;font-size:14px;color:inherit;">{name}</span>
         </div>""", unsafe_allow_html=True)
     if not has_children_data:
         st.markdown(
-            f"""<p style="margin:0 0 8px {indent}px;color:#9CA3AF;font-size:11px;">
+            f"""<p style="margin:0 0 8px {indent}px;{TEXT_FAINT};font-size:11px;">
                 Not part of the readiness data yet.</p>""", unsafe_allow_html=True)
 
 
@@ -1363,13 +1371,13 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         if active_row is not None:
             raw_mod_lead = str(active_row.get('Mod. lead', '')).strip()
             if not raw_mod_lead or raw_mod_lead.lower() == 'nan':
-                mod_lead = "<span style='color: #9CA3AF;'>--</span>"
+                mod_lead = f"<span style='{TEXT_FAINT};'>--</span>"
             else:
                 mod_lead = title_case_name(raw_mod_lead)
 
             ug_pg = str(active_row.get('UG/ PG/ Other', '')).strip()
             if not ug_pg or ug_pg == 'nan':
-                ug_pg = "<span style='color: #9CA3AF;'>--</span>"
+                ug_pg = f"<span style='{TEXT_FAINT};'>--</span>"
 
             url = str(active_row.get('URL', '')).strip()
             if url == 'nan':
@@ -1405,15 +1413,15 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             else:
                 audit_status_label = "Data-derived"
 
-            vle_value = (f"<a href='{url}' target='_blank' style='color:#2563EB;'>Open Module Site</a>"
-                         if url else "<span style='color:#9CA3AF;'>--</span>")
+            vle_value = (f"<a href='{url}' target='_blank'>Open Module Site</a>"
+                         if url else f"<span style='{TEXT_FAINT};'>--</span>")
 
             # Readiness Outcome (the data-driven gating verdict) is hidden for
             # now, per user request - compute_audit_verdict() above is left
             # in place rather than removed, since this is explicitly temporary.
 
             st.markdown(
-                f"""<div style="border:1px solid rgba(49,51,63,0.2);border-radius:8px;
+                f"""<div style="border:1px solid rgba(128,128,128,0.25);border-radius:8px;
                             padding:10px 16px;margin-bottom:8px;display:flex;flex-wrap:wrap;
                             gap:6px 28px;align-items:baseline;">
                     <span><b>Module Lead:</b> {mod_lead}</span>
