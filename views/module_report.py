@@ -387,7 +387,7 @@ def _ally_issue_categories(selected_code):
 
 def _summary_points(ally_profile, pending_count, leganto_missing,
                     leganto_draft=False, leganto_items=0, active_row=None,
-                    leganto_status='', leganto_draft_items=0):
+                    leganto_status='', leganto_draft_items=0, responses=None):
     """
     What's still to do across Ally, the checklist, Leganto and the Blackboard
     template, as short plain-English points for the Report Summary.
@@ -423,10 +423,38 @@ def _summary_points(ally_profile, pending_count, leganto_missing,
     # Template alignment. Stated as sections not yet visible to students, a
     # fact about the course, rather than the vendor's "Non-Compliant" banding,
     # which reads as a verdict on the lead.
+    #
+    # Worked out per section from 'Template Sections' rather than read from
+    # app.py's precomputed 'Lead Sections Outstanding' / 'Drafted Sections' /
+    # 'Template Blocking' lists, because those are raw data and know nothing
+    # of the audit. A recorded answer for a mapped section wins here exactly
+    # as it does in derive_module_findings() and _render_section_card():
+    # ticked drops it, unticked keeps it outstanding whatever the data says.
+    # Before 25-09-2026 a fully ticked audit still left this summary listing
+    # sections as outstanding and missing, contradicting the Actions panel.
     if active_row is not None:
-        outstanding = active_row.get('Lead Sections Outstanding') or []
-        drafted = active_row.get('Drafted Sections') or []
-        blocking = active_row.get('Template Blocking') or []
+        states = active_row.get('Template Sections') or {}
+
+        def label(key):
+            return TEMPLATE_SECTIONS.get(key, (key,))[0]
+
+        def manual(key):
+            field_id = TEMPLATE_SECTIONS.get(key, (None, None, None))[2]
+            return readiness_manual_override(field_id, responses)
+
+        outstanding, drafted = [], []
+        for key in LEAD_OWNED_SECTIONS:
+            state = states.get(key, {}).get('state')
+            verdict = manual(key)
+            if verdict is True:
+                continue
+            if verdict is False or state in ('drafted_hidden', 'not_started',
+                                             'deleted', 'missing', 'unknown'):
+                outstanding.append(label(key))
+                if state == 'drafted_hidden':
+                    drafted.append(label(key))
+        blocking = [label(key) for key, sec in states.items()
+                    if sec.get('status') in ('Deleted', 'Missing') and manual(key) is not True]
         if len(outstanding):
             total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
             point = (f"**Blackboard template:** {len(outstanding)} of {total} module "
@@ -1304,11 +1332,12 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # items instead, like the other institution-mapped fields.
         if has_audit and readiness_manual_override(READING_LIST_FIELD_ID, responses) is not None:
             points = _summary_points(ally_profile, checklist_pending_count, False,
-                                     False, leganto_items, active_row, '', leganto_draft_items)
+                                     False, leganto_items, active_row, '', leganto_draft_items,
+                                     responses)
         else:
             points = _summary_points(ally_profile, checklist_pending_count, leganto_missing,
                                      leganto_draft, leganto_items, active_row,
-                                     leganto_status, leganto_draft_items)
+                                     leganto_status, leganto_draft_items, responses)
 
         _render_report_summary(points, active_row, has_audit)
 
