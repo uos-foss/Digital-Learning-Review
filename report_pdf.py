@@ -11,15 +11,23 @@ Streamlit - build_module_report_pdf() returns bytes for a download button.
 fpdf2's built-in Helvetica only covers Latin-1, so every string goes through
 _t(), which maps the typographic punctuation the app uses to plain
 equivalents and drops anything else (mainly emoji) rather than failing.
+
+Accessibility: every coloured piece of text goes through _readable(), so it
+meets WCAG's 4.5:1 contrast against whatever it sits on - the page's
+palette (amber #F59E0B, green #10B981) is for fills and rules, and read as
+low as 1.9:1 when used as text on its own tint. The document declares its
+language, shows its title rather than the filename, and has a bookmark per
+section. What fpdf2 can't do is tag the content (headings, paragraphs,
+lists) or mark the page footer as decoration, so this is not a tagged
+PDF/UA document: the web page remains the accessible version.
 """
 import re
 import unicodedata
 
-from fpdf import FPDF
+from fpdf import FPDF, ViewerPreferences
 
 INK = (31, 41, 55)
 MUTED = (107, 114, 128)
-FAINT = (156, 163, 175)
 RULE = (229, 231, 235)
 ACCENT = (37, 99, 235)
 AMBER = "#F59E0B"
@@ -47,6 +55,8 @@ def _plain(text):
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = text.replace("**", "").replace("__", "")
+    # The page's wording points at a tab; the PDF has a section instead.
+    text = text.replace("Accessibility Report tab", "Accessibility Report section")
     return _t(text)
 
 
@@ -60,6 +70,26 @@ def _tint(rgb, amount=0.9):
     return tuple(int(c + (255 - c) * amount) for c in rgb)
 
 
+def _luminance(rgb):
+    def channel(c):
+        c /= 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(c) for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast(a, b):
+    la, lb = _luminance(a), _luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _readable(fg, bg=(255, 255, 255), target=4.5):
+    """fg, darkened just enough to reach WCAG AA contrast against bg."""
+    while _contrast(fg, bg) < target:
+        fg = tuple(int(c * 0.92) for c in fg)
+    return fg
+
+
 class _ReportPDF(FPDF):
     def __init__(self, footer_text):
         super().__init__(format="A4")
@@ -70,7 +100,7 @@ class _ReportPDF(FPDF):
     def footer(self):
         self.set_y(-12)
         self.set_font("Helvetica", "", 8)
-        self.set_text_color(*FAINT)
+        self.set_text_color(*MUTED)
         self.cell(0, 5, _t(self.footer_text), align="L")
         self.set_x(self.l_margin)
         self.cell(0, 5, f"Page {self.page_no()} of {{nb}}", align="R")
@@ -88,6 +118,8 @@ class _ReportPDF(FPDF):
         if self.get_y() > self.h - 45:
             self.add_page()
         self.ln(4)
+        # A bookmark per section, so the document can be navigated.
+        self.start_section(_t(text))
         self.set_font("Helvetica", "B", 13)
         self.set_text_color(*INK)
         self.cell(0, 7, _t(text), new_x="LMARGIN", new_y="NEXT")
@@ -129,9 +161,10 @@ class _ReportPDF(FPDF):
         rgb = _rgb(colour)
         x = self.l_margin + indent
         w = self.content_w - indent
+        card_bg = _tint(rgb, 0.94) if fill else (255, 255, 255)
         badge_w = 0
         if badge:
-            self.set_font("Helvetica", "B", 7)
+            self.set_font("Helvetica", "B", 8)
             badge_w = self.get_string_width(_t(badge).upper()) + 4
 
         title_w = w - 8 - badge_w - 2
@@ -154,10 +187,22 @@ class _ReportPDF(FPDF):
             self.add_page()
         top = self.get_y()
         if fill:
-            self.set_fill_color(*_tint(rgb, 0.94))
+            self.set_fill_color(*card_bg)
             self.rect(x, top, w, height, style="F")
         self.set_fill_color(*rgb)
         self.rect(x, top, 1.2, height, style="F")
+
+        # The badge is drawn before the text, although it sits top right, so
+        # that text extraction and screen readers meet the status first
+        # ("NOT STARTED, Assessment Detail, ...") rather than after the
+        # description and date.
+        if badge:
+            badge_bg = _tint(rgb, 0.82)
+            self.set_font("Helvetica", "B", 8)
+            self.set_fill_color(*badge_bg)
+            self.set_text_color(*_readable(rgb, badge_bg))
+            self.set_xy(x + w - badge_w - 3, top + 2.1)
+            self.cell(badge_w, 4.8, _t(badge).upper(), align="C", fill=True)
 
         y = top + 2
         if title:
@@ -169,16 +214,9 @@ class _ReportPDF(FPDF):
         for text, size, text_rgb in lines:
             self.set_xy(x + 4, y)
             self.set_font("Helvetica", "", size)
-            self.set_text_color(*text_rgb)
+            self.set_text_color(*_readable(text_rgb, card_bg))
             self.multi_cell(w - 8, size * 0.45, _t(text), new_x="LMARGIN", new_y="NEXT")
             y = self.get_y() + 0.5
-
-        if badge:
-            self.set_font("Helvetica", "B", 7)
-            self.set_fill_color(*_tint(rgb, 0.82))
-            self.set_text_color(*rgb)
-            self.set_xy(x + w - badge_w - 3, top + 2.3)
-            self.cell(badge_w, 4.4, _t(badge).upper(), align="C", fill=True)
 
         self.set_xy(self.l_margin, top + height + 1.5)
 
@@ -201,6 +239,9 @@ def build_module_report_pdf(data):
     pdf = _ReportPDF(f"Module Report - {code} - generated {data.get('generated', '')}")
     pdf.set_title(_t(f"Module Report - {code} {name}"))
     pdf.set_author("Faculty of Social Sciences Digital Learning")
+    pdf.set_lang("en-GB")
+    # Viewers show the title above rather than "Module Report - EDC313.pdf".
+    pdf.viewer_preferences = ViewerPreferences(display_doc_title=True)
     pdf.add_page()
 
     # Title block.
@@ -293,12 +334,12 @@ def build_module_report_pdf(data):
                 pdf.cell(0, 7, _t(row["label"]), new_x="LMARGIN", new_y="NEXT")
                 if row.get("note"):
                     pdf.set_x(pdf.l_margin + indent)
-                    pdf.para(row["note"], size=8, colour=FAINT, h=4)
+                    pdf.para(row["note"], size=8, colour=MUTED, h=4)
                 continue
             lines = []
             if row.get("show_detail"):
                 lines = [(_plain(row.get("action")), 8.5, (55, 65, 81)),
-                         (_plain(row.get("footer")), 7.5, FAINT)]
+                         (_plain(row.get("footer")), 8, MUTED)]
             pdf.card(row["label"], badge=row.get("badge"), colour=row.get("colour"),
                      lines=lines, indent=indent)
 
@@ -324,19 +365,20 @@ def build_module_report_pdf(data):
                 top = pdf.get_y()
                 for i, (label, pct, sub, colour) in enumerate(scores):
                     rgb = _rgb(colour)
+                    box_bg = _tint(rgb, 0.9)
                     x = pdf.l_margin + i * (box_w + 3)
-                    pdf.set_fill_color(*_tint(rgb, 0.9))
+                    pdf.set_fill_color(*box_bg)
                     pdf.rect(x, top, box_w, 22, style="F")
                     pdf.set_xy(x, top + 2)
                     pdf.set_font("Helvetica", "B", 8)
-                    pdf.set_text_color(*rgb)
+                    pdf.set_text_color(*_readable(rgb, box_bg))
                     pdf.cell(box_w, 4, _t(label).upper(), align="C")
                     pdf.set_xy(x, top + 6.5)
                     pdf.set_font("Helvetica", "B", 17)
                     pdf.cell(box_w, 8, "--" if pct is None else f"{pct:.1f}%", align="C")
                     pdf.set_xy(x, top + 15.5)
                     pdf.set_font("Helvetica", "", 8)
-                    pdf.set_text_color(*MUTED)
+                    pdf.set_text_color(*_readable(MUTED, box_bg))
                     pdf.cell(box_w, 4, _t(sub), align="C")
                 pdf.set_xy(pdf.l_margin, top + 26)
 
