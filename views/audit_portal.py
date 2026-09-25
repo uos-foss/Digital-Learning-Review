@@ -154,7 +154,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                         # lots of Streamlit's default block spacing.
                         st.markdown(
                             f"{marker}**{sc_code}**  \n"
-                            f"<span style='color:#6B7280;font-size:13px;'>{sc_name}</span>",
+                            f"<span style='color:inherit;opacity:0.7;font-size:13px;'>{sc_name}</span>",
                             unsafe_allow_html=True)
                     with row_action:
                         if is_current:
@@ -168,7 +168,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                         # default margin was most of the excess gap between
                         # rows.
                         st.markdown(
-                            "<hr style='margin:4px 0; border-top:1px solid #E5E7EB;'>",
+                            "<hr style='margin:4px 0; border-top:1px solid rgba(128,128,128,0.25);'>",
                             unsafe_allow_html=True)
 
     with col_main:
