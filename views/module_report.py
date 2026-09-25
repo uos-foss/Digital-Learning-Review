@@ -4,6 +4,8 @@ import plotly.graph_objects as go
 import logging
 import re
 import html
+from datetime import datetime
+from report_pdf import build_module_report_pdf
 from processing import (
     get_module_mapping,
     FACULTY_SCHOOLS,
@@ -541,29 +543,34 @@ def _render_report_summary(points, active_row, has_audit=False):
     the tabs. Collapsed because the Actions panel and the Accessibility tab
     already carry every outstanding item in full; this is the overview.
     """
-    ally_date = fmt_report_date(active_row.get('Ally Last Checked')) if active_row is not None else ""
-    readiness_date = fmt_report_date(active_row.get('Readiness Snapshot')) if active_row is not None else ""
-    leganto_date = fmt_report_date(active_row.get('Leganto Snapshot')) if active_row is not None else ""
-
     with st.expander("📋 Report Summary"):
-        if has_audit:
-            st.markdown(
-                "This report has been generated using data evidence and also "
-                "manually spot-checked by a Digital Learning Advisor.")
-        else:
-            st.markdown(
-                "This module report has been generated using data evidence and "
-                "hasn't been verified yet by your Digital Learning Advisor. The "
-                "combination of data from different sources gives us a "
-                "reasonably good picture of the readiness of this module.")
+        st.markdown(_summary_intro(has_audit))
 
         if points:
             st.markdown("**Still to do**\n\n" + "\n".join(f"- {p}" for p in points))
         else:
             st.markdown("✅ Nothing outstanding right now.")
 
-        st.caption(
-            f"Data last refreshed: Ally {ally_date or '—'} · "
+        st.caption(_refreshed_line(active_row))
+
+
+def _summary_intro(has_audit):
+    """The Report Summary's opening sentence - shared with the PDF export."""
+    if has_audit:
+        return ("This report has been generated using data evidence and also "
+                "manually spot-checked by a Digital Learning Advisor.")
+    return ("This module report has been generated using data evidence and "
+            "hasn't been verified yet by your Digital Learning Advisor. The "
+            "combination of data from different sources gives us a "
+            "reasonably good picture of the readiness of this module.")
+
+
+def _refreshed_line(active_row):
+    """When each data source was last refreshed - shared with the PDF export."""
+    ally_date = fmt_report_date(active_row.get('Ally Last Checked')) if active_row is not None else ""
+    readiness_date = fmt_report_date(active_row.get('Readiness Snapshot')) if active_row is not None else ""
+    leganto_date = fmt_report_date(active_row.get('Leganto Snapshot')) if active_row is not None else ""
+    return (f"Data last refreshed: Ally {ally_date or '—'} · "
             f"Template Alignment {readiness_date or '—'} · "
             f"Reading list {leganto_date or '—'}")
 
@@ -792,51 +799,12 @@ def _render_module_checks(actions, has_audit, active_row=None, responses=None,
         _render_actions_panel(actions)
 
 
-def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0):
+def _section_card_content(key, state, responses, has_audit, created, leganto=None):
     """
-    One template section, as a styled card: status badge, what it means, and
-    when it was last changed.
-
-    Most of the 14 sections are institutional content a module lead never
-    edits directly - an LTI link, a folder, a fixed-text page - so for them
-    only visibility is actionable: edited-or-not is noise, and both the
-    Visible states and both the Hidden states collapse to one message each
-    (INSTITUTION_SECTION_COPY). Only the lead-owned sections (LEAD_OWNED_
-    SECTIONS) keep the edited/unedited and drafted/not-started distinctions
-    SECTION_STATES draws, because for them it's the whole point - real
-    content a lead (or, for HOW_YOUR_FEEDBACK_SHAPES specifically, whoever
-    writes it on the module's behalf) has to actually produce, where "visible
-    but never edited" plausibly means untouched template placeholder text.
-
-    Applies processing.readiness_manual_override() whenever the section has a
-    mapped checklist field - not only the three lead-owned sections. That
-    function is already generic (it keys off audit_field_id and responses,
-    with no lead-only restriction); restricting it to lead-owned sections was
-    only ever a call-site choice here, and it left sga/student_voice/
-    assessment_overview/encore_link unable to show "Manually verified" even
-    when a Digital Learning Advisor had recorded a real answer for them.
-
-    Without either fix, the card could show a section as a problem ("Visible,
-    unedited" or "Not started") while the Completed cards next to it show the
-    same section ticked off from a real audit or read as fine everywhere else
-    on the page - the contradiction that confused advisors reading a
-    spot-checked module's report.
-
-    `leganto` (only ever passed for MODULE_READING_LIST) layers the reading
-    list's own Published/Draft status on top of Blackboard visibility: unlike
-    every other institutional section, being visible in Blackboard is not by
-    itself the finish line here - the connected list also has to be published
-    in Leganto.
-
-    The action/footer lines are dropped (`show_detail = False`) for the one
-    case where they add nothing: a plain institution "Visible to students"
-    with no further news. With every one of the 14 sections now a full card
-    (no lead-owned/other split any more - see TEMPLATE_SECTION_TREE), a
-    fully-compliant module was reading as a long scroll of cards each saying
-    the same generic sentence the badge already said. Every other path here
-    re-asserts `show_detail = True`, since it always has something the badge
-    alone doesn't: a caution, a fault, a DLA's manual verification, or
-    Reading List's Leganto status.
+    What one template section's card says - label, badge, colour, action
+    and footer text - without rendering it. Shared by _render_section_card()
+    and the PDF export, so the two can never describe a section differently.
+    See _render_section_card() for the reasoning behind each branch.
     """
     # Unrecognised keys default to lead-owned, the stricter read, rather than
     # silently getting the lenient institution treatment below.
@@ -905,6 +873,60 @@ def _render_section_card(key, state, responses, has_audit, created, leganto=None
             action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
         footer = f"Automatically detected as of the last update: {data_label}. {footer}"
         show_detail = True
+
+    return {'label': label, 'badge': badge, 'colour': colour, 'action': action,
+            'footer': footer, 'show_detail': show_detail}
+
+
+def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0):
+    """
+    One template section, as a styled card: status badge, what it means, and
+    when it was last changed.
+
+    Most of the 14 sections are institutional content a module lead never
+    edits directly - an LTI link, a folder, a fixed-text page - so for them
+    only visibility is actionable: edited-or-not is noise, and both the
+    Visible states and both the Hidden states collapse to one message each
+    (INSTITUTION_SECTION_COPY). Only the lead-owned sections (LEAD_OWNED_
+    SECTIONS) keep the edited/unedited and drafted/not-started distinctions
+    SECTION_STATES draws, because for them it's the whole point - real
+    content a lead (or, for HOW_YOUR_FEEDBACK_SHAPES specifically, whoever
+    writes it on the module's behalf) has to actually produce, where "visible
+    but never edited" plausibly means untouched template placeholder text.
+
+    Applies processing.readiness_manual_override() whenever the section has a
+    mapped checklist field - not only the three lead-owned sections. That
+    function is already generic (it keys off audit_field_id and responses,
+    with no lead-only restriction); restricting it to lead-owned sections was
+    only ever a call-site choice here, and it left sga/student_voice/
+    assessment_overview/encore_link unable to show "Manually verified" even
+    when a Digital Learning Advisor had recorded a real answer for them.
+
+    Without either fix, the card could show a section as a problem ("Visible,
+    unedited" or "Not started") while the Completed cards next to it show the
+    same section ticked off from a real audit or read as fine everywhere else
+    on the page - the contradiction that confused advisors reading a
+    spot-checked module's report.
+
+    `leganto` (only ever passed for MODULE_READING_LIST) layers the reading
+    list's own Published/Draft status on top of Blackboard visibility: unlike
+    every other institutional section, being visible in Blackboard is not by
+    itself the finish line here - the connected list also has to be published
+    in Leganto.
+
+    The action/footer lines are dropped (`show_detail = False`) for the one
+    case where they add nothing: a plain institution "Visible to students"
+    with no further news. With every one of the 14 sections now a full card
+    (no lead-owned/other split any more - see TEMPLATE_SECTION_TREE), a
+    fully-compliant module was reading as a long scroll of cards each saying
+    the same generic sentence the badge already said. Every other path here
+    re-asserts `show_detail = True`, since it always has something the badge
+    alone doesn't: a caution, a fault, a DLA's manual verification, or
+    Reading List's Leganto status.
+    """
+    card = _section_card_content(key, state, responses, has_audit, created, leganto)
+    label, badge, colour = card['label'], card['badge'], card['colour']
+    action, footer, show_detail = card['action'], card['footer'], card['show_detail']
 
     icon = CONTENT_TYPE_ICONS.get(SECTION_CONTENT_TYPE.get(key), '')
     indent = depth * 24
@@ -1019,6 +1041,76 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
         "students, have been edited, etc.")
 
     _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto)
+
+
+def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, depth=0):
+    """TEMPLATE_SECTION_TREE flattened for the PDF, walked exactly as
+    _render_section_tree() walks it, with each card's wording from
+    _section_card_content()."""
+    rows = []
+    for node_type, value, children in nodes:
+        if node_type == 'section':
+            state = states.get(value)
+            if state:
+                card = _section_card_content(
+                    value, state, responses, has_audit, created,
+                    leganto if value == 'MODULE_READING_LIST' else None)
+                rows.append({'kind': 'section', 'depth': depth, **card})
+        else:
+            rows.append({'kind': 'heading', 'depth': depth, 'label': value,
+                         'note': '' if children else "Not part of the readiness data yet."})
+        if children:
+            rows += _pdf_template_rows(children, states, responses, has_audit, created,
+                                       leganto, depth + 1)
+    return rows
+
+
+def _pdf_ally(active_row, ally_categories):
+    """The Accessibility tab's content for the PDF, following
+    _render_ally_card()'s own branches."""
+    if active_row is None:
+        return {'message': "No Ally accessibility data is available for this module."}
+    maturity = str(active_row.get('Content Maturity', 'No data') or 'No data')
+    n_files = int(active_row.get('Total Files', 0) or 0)
+    n_wysiwyg = int(active_row.get('Ally WYSIWYG Items', 0) or 0)
+    shells = int(active_row.get('Ally Shells', 0) or 0)
+    if maturity == "No data" or (n_files == 0 and n_wysiwyg == 0 and shells == 0):
+        return {'message': f"No Ally record for this module in {CURRENT_ACADEMIC_YEAR}. That "
+                           "usually means it has no Blackboard course, or its course is filed "
+                           "under a different code."}
+
+    last_checked = str(active_row.get('Ally Last Checked', '') or '')
+    snapshot_date = (fmt_report_date(_load_last_import_dates().get('ally'))
+                     or fmt_report_date(last_checked))
+    is_template = maturity in ("Not yet built", "Empty")
+    maturity_line = ""
+    if maturity != "In progress":
+        _, _, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
+        shown = "Not started" if maturity == "Not yet built" else maturity
+        maturity_line = f"{shown}: {note}"
+
+    scores = []
+    for label, key, sub in (
+        ("Overall", 'Ally Overall', f"{n_files + n_wysiwyg} items"),
+        ("Files", 'Ally Files', f"{n_files} file{'' if n_files == 1 else 's'}"),
+        ("Page Content", 'Ally WYSIWYG',
+         f"{n_wysiwyg} document{'' if n_wysiwyg == 1 else 's'}"),
+    ):
+        score = active_row.get(key)
+        has_score = score is not None and pd.notna(score)
+        colour = "#6B7280" if (is_template or not has_score) else _ally_band(float(score))[0]
+        scores.append((label, float(score) * 100 if has_score else None, sub, colour))
+
+    categories = []
+    if not ally_categories.empty:
+        for _, row in ally_categories.iterrows():
+            categories.append({'title': row['title'], 'items': row['items'],
+                               'checks': row['checks'], 'why': row['why'],
+                               'colour': TIER_COLOUR.get(row['severity_label'], "#6B7280")})
+
+    return {'snapshot_date': snapshot_date, 'maturity': maturity_line, 'scores': scores,
+            'disabled': not active_row.get('Ally Enabled', True),
+            'categories': categories, 'is_template': is_template}
 
 
 def title_case_name(name: str) -> str:
@@ -1162,7 +1254,11 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # ambiguous which module the report below belongs to - e.g. after
         # jumping here from School Dashboard, without having to first check
         # the dropdown above.
-        st.markdown(f"#### {selected_code} — {module_mapping.get(selected_code, selected_code)}")
+        col_title, col_pdf = st.columns([4, 1], vertical_alignment="bottom")
+        with col_title:
+            st.markdown(f"#### {selected_code} — {module_mapping.get(selected_code, selected_code)}")
+        # Filled at the end, once the report below has been worked out.
+        pdf_slot = col_pdf.empty()
 
         # Extract Autumn and Spring module audit rows
         aut_m = df_aut[df_aut['New module code'] == selected_code] if not df_aut.empty else pd.DataFrame()
@@ -1382,3 +1478,54 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 _render_ally_card(selected_code, active_row, ally_profile, ally_categories)
 
         st.caption(f"Last updated: {last_updated_str}")
+
+        # PDF export. Every piece of wording comes from the same helpers the
+        # page itself renders with, so the PDF can't disagree with the page.
+        states = (active_row.get('Template Sections') or {}) if active_row is not None else {}
+        template_rows = []
+        if isinstance(states, dict) and states:
+            leganto = {'missing': leganto_missing, 'status': leganto_status,
+                       'items': leganto_items, 'draft_items': leganto_draft_items}
+            template_rows = _pdf_template_rows(TEMPLATE_SECTION_TREE, states, responses, has_audit,
+                                               readiness_created_date(states), leganto)
+        pdf_lead, pdf_level = '', ''
+        if active_row is not None:
+            raw_lead = str(active_row.get('Mod. lead', '')).strip()
+            pdf_lead = '' if raw_lead.lower() in ('', 'nan') else title_case_name(raw_lead)
+            pdf_level = str(active_row.get('UG/ PG/ Other', '')).strip()
+        pdf_actions = []
+        for a in actions:
+            # Same label/description split as _render_actions_panel().
+            if a['type'] == 'custom':
+                pdf_actions.append({
+                    'label': a.get('category') or 'Custom Observation',
+                    'description': '\n'.join(p for p in (a.get('label', '').strip(),
+                                                         a.get('description', '').strip()) if p)})
+            elif a['type'] == 'boolean':
+                pdf_actions.append({'label': a.get('label', ''),
+                                    'description': a.get('description', '')})
+        pdf_data = {
+            'code': selected_code,
+            'name': module_mapping.get(selected_code, selected_code),
+            'lead': pdf_lead,
+            'level': '' if pdf_level == 'nan' else pdf_level,
+            'site_url': url,
+            'audit_status': audit_status_label if active_row is not None else '',
+            'generated': datetime.now().strftime('%d-%m-%Y %H:%M'),
+            'summary_intro': _summary_intro(has_audit),
+            'points': points,
+            'refreshed': _refreshed_line(active_row),
+            'comment': format_comment_markdown(responses.get('comments', '')) if has_audit else '',
+            'actions': pdf_actions,
+            'template': template_rows,
+            'ally': _pdf_ally(active_row, ally_categories),
+        }
+        # A callable, so the PDF is only built when someone actually clicks.
+        pdf_slot.download_button(
+            "📄 Download PDF",
+            data=lambda: build_module_report_pdf(pdf_data),
+            file_name=f"Module Report - {selected_code}.pdf",
+            mime="application/pdf",
+            on_click="ignore",
+            width="stretch",
+            key=f"mr_pdf_{selected_code}")
