@@ -1,17 +1,5 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### Unreleased
-
-**Template Alignment**
-
-* **Template Alignment now follows the selected semester.** The heading on
-  School Dashboard and Faculty Overview named the semester, but the figures
-  covered every module in the school or faculty. They now cover only the
-  modules running in the semester you have chosen, including the
-  per-school Template Alignment % column on Faculty Overview. Year-long
-  modules count in both Autumn and Spring, and "All year" shows just the
-  year-long ones.
-
 ### 🚀 Version 1.28.0 (Current): *Module Reports as Accessible PDFs*
 *25 September 2026*
 
