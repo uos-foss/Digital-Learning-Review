@@ -79,6 +79,9 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     semester = st.session_state.get('semester', 'Autumn')
     active_df = resolve_semester_df(df_aut, df_spr, semester)
     active_df_scoped = _with_school_column(active_df)
+    semester_codes = (
+        set(active_df['New module code'].dropna().astype(str).str.strip().str.upper())
+        if not active_df.empty else set())
 
     # Default school scope for the faculty-wide tables below: the viewer's
     # own school(s), same as School Dashboard's "Focus on my school(s)"
@@ -323,7 +326,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             # compliance_gap() does its own queries, and only runs when this
             # tab is open (segmented_control already lazy-loads the rest).
             def _template_alignment_pct(school):
-                gaps = calculate_dynamic_compliance_gap(school_code=school)
+                gaps = calculate_dynamic_compliance_gap(school_code=school, module_codes=semester_codes)
                 return (sum(gaps.values()) / len(gaps) * 100) if gaps else None
             comparison_df['Template Alignment %'] = comparison_df['School'].apply(_template_alignment_pct)
 
@@ -369,7 +372,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             def _fmt_pct(value):
                 return f"{value:.1f}%" if value is not None and pd.notna(value) else "—"
 
-            total_gaps = calculate_dynamic_compliance_gap(school_code='All')
+            total_gaps = calculate_dynamic_compliance_gap(school_code='All', module_codes=semester_codes)
             faculty_template_alignment = (
                 sum(total_gaps.values()) / len(total_gaps) * 100) if total_gaps else None
 
@@ -588,7 +591,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             "faculty's modules."
         )
 
-        gaps = calculate_dynamic_compliance_gap(school_code='All')
+        gaps = calculate_dynamic_compliance_gap(school_code='All', module_codes=semester_codes)
 
         if gaps:
             gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])

@@ -569,7 +569,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 )
 
                 from processing import calculate_dynamic_compliance_gap
-                gaps = calculate_dynamic_compliance_gap(school_code=school)
+                gaps = calculate_dynamic_compliance_gap(
+                    school_code=school, module_codes=school_codes)
                 
                 if gaps:
                     gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', '% Complete'])
