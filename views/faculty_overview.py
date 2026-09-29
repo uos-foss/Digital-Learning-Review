@@ -2,65 +2,13 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from processing import (aggregate_faculty_stats, calculate_module_compliance,
-                        calculate_dynamic_compliance_gap, get_school_comparison,
-                        resolve_semester_df, summarise_ai_declarations,
-                        FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR, reading_list_verdict,
-                        can_view_sga, parse_user_schools, derive_module_findings,
-                        short_field_label, format_comment_markdown, fmt_report_date,
-                        READING_LIST_FIELD_ID)
-from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
-                      get_ally_history, get_spot_checks_for_schools, get_spot_check_comments)
+                        get_school_comparison, resolve_semester_df, summarise_ai_declarations,
+                        FACULTY_SCHOOLS, reading_list_verdict)
+from database import get_all_audit_responses, get_active_audit_fields, get_ai_declarations
 from views.ally_widgets import (
-    scoreable, mean_score, render_maturity_banner, render_maturity_breakdown,
+    scoreable, render_maturity_banner, render_maturity_breakdown,
     render_issue_profile, build_accessibility_risk_list,
 )
-from views.school_dashboard import to_title_case, comment_field_label
-
-
-def _with_school_column(df):
-    """Tags each row with its School (from the module code prefix), scoped to
-    FACULTY_SCHOOLS - the same convention get_school_comparison() uses."""
-    if df is None or df.empty or 'New module code' not in df.columns:
-        return df if df is not None else pd.DataFrame()
-    out = df.copy()
-    out['School'] = out['New module code'].astype(str).str.strip().str.upper().str[:3]
-    return out[out['School'].isin(FACULTY_SCHOOLS)]
-
-
-def _school_filter(default_schools):
-    """Shared school-scoping widget for the faculty-wide tables below. Reused
-    across tabs under one key (only one tab's code runs per rerun, since
-    st.segmented_control lazy-loads the rest), so a school selection made on
-    one tab carries over to the next."""
-    return st.multiselect(
-        "Schools", FACULTY_SCHOOLS,
-        default=st.session_state.get("faculty_overview_school_filter", default_schools),
-        key="faculty_overview_school_filter",
-        help="Scopes this table to the chosen school(s). Defaults to your own "
-             "school(s) - widen it to see more of the faculty."
-    )
-
-
-def _quick_action_launch(code, school, can_audit, key_prefix):
-    st.divider()
-    st.info(f"🚀 Quick Action Launch: **{code}**")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("📊 Jump to Report Card", width="stretch", type="primary",
-                     key=f"{key_prefix}_rc"):
-            st.session_state.selected_module_code = code
-            st.session_state.context_focus_own = False
-            st.session_state.context_school = school
-            st.switch_page(st.session_state.pg_module)
-    with c2:
-        if can_audit and st.button("✅ Open Audit Portal", width="stretch",
-                                    key=f"{key_prefix}_audit"):
-            st.session_state.selected_module_code = code
-            st.session_state.context_focus_own = False
-            st.session_state.context_school = school
-            st.switch_page(st.session_state.pg_audit)
-    st.divider()
-
 
 def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     st.title("🏛️ Faculty Overview")
@@ -73,25 +21,13 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
     can_view_school_dashboard = any(c.lower() == "view_school_dashboard" for c in user_caps)
     is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
-    show_sga = can_view_sga(user_caps)
 
     # Determine active data based on chosen semester
     semester = st.session_state.get('semester', 'Autumn')
     active_df = resolve_semester_df(df_aut, df_spr, semester)
-    active_df_scoped = _with_school_column(active_df)
-    semester_codes = (
-        set(active_df['New module code'].dropna().astype(str).str.strip().str.upper())
-        if not active_df.empty else set())
-
-    # Default school scope for the faculty-wide tables below: the viewer's
-    # own school(s), same as School Dashboard's "Focus on my school(s)"
-    # default - widen from there to see more of the faculty.
-    user_schools = parse_user_schools(st.session_state.get('saved_school'))
-    default_schools = list(FACULTY_SCHOOLS) if user_schools == ["All"] \
-        else [s for s in user_schools if s in FACULTY_SCHOOLS] or list(FACULTY_SCHOOLS)
-
+    
     stats = aggregate_faculty_stats(df_aut, df_spr)
-
+    
     def _ally_metric(value, scored, total):
         """Ally averages cover modules with content beyond their template only,
         so the count is part of the number - '92% of 41' is honest where a
@@ -119,199 +55,32 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         st.metric("Audits Completed", len(checklist_sums))
 
     st.divider()
-
+    
     # ABSOLUTE LOCKDOWN ROUTER: Uses robust native widget for 100% reliable state linkage across reloads.
     # Also enables true lazy-loading, increasing app speed by not calculating inactive views!
     # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
     # disabled - add them back to this list to restore. Their view code below
     # is untouched.
-    view_options = ["📋 All Modules", "🏫 School Comparison", "✅ Template Alignment",
-                     "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List",
-                     "🎯 Spot-Checks", "💬 Spot-Check Comments"]
+    view_options = ["🏫 School Comparison", "✅ Template Alignment", "📊 Ally Analytics", "⚠️ Priority Action List"]
     if not is_admin:
         view_options = [v for v in view_options
-                         if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
+                         if v not in ("📊 Ally Analytics", "⚠️ Priority Action List")]
 
     selected_view = st.segmented_control(
-        "Navigate View:",
-        options=view_options,
-        default=view_options[0],
+        "Navigate View:", 
+        options=view_options, 
+        default=view_options[0], 
         key="faculty_nav_segmented_control",
         label_visibility="collapsed"
     )
     st.divider()
-
-    if selected_view == "📋 All Modules":
-        st.subheader(f"All Modules ({semester})")
-        chosen_schools = _school_filter(default_schools)
-        scope_df = active_df_scoped[active_df_scoped['School'].isin(chosen_schools)] \
-            if not active_df_scoped.empty and chosen_schools else pd.DataFrame()
-
-        if not chosen_schools:
-            st.info("Choose at least one school above to see its modules.")
-        elif scope_df.empty:
-            st.warning(f"No modules found for the selected school(s) in {semester}.")
-        else:
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                st.metric("Total Modules", len(scope_df),
-                          help=f"Total modules for the selected school(s) in the {semester} semester.")
-            with c2:
-                no_activity = len(scope_df) - len(scoreable(scope_df))
-                st.metric("Modules with no activity", f"{no_activity}",
-                          help="Modules that still only have the default template - no "
-                               "content added yet")
-            with c3:
-                avg_ally = mean_score(scope_df)
-                st.metric("Avg Ally Score", f"{avg_ally:.1%}" if avg_ally is not None else "—",
-                          help="Ally's overall score, averaged across modules with content "
-                               "beyond their template only.")
-            with c4:
-                total_actionable = int(scope_df['New module code'].apply(
-                    lambda c: checklist_sums.get(c, {}).get('Actionable Items', 0)).sum())
-                st.metric("Outstanding Actionable Items", f"{total_actionable}",
-                          help="Sum of outstanding items across the shown modules - "
-                               "checklist, Leganto reading lists, Ally accessibility, and "
-                               "template readiness findings combined.")
-
-            st.subheader("Module Audit Status")
-            display_df = scope_df.copy().sort_values(['School', 'New module code']).reset_index(drop=True)
-            display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_title_case)
-            cols = ['School', 'New module code', 'Module name', 'Mod. lead']
-            configs = {
-                "School": "School",
-                "New module code": "Module Code",
-                "Module name": "Module Name",
-                "Mod. lead": "Module Lead"
-            }
-            if 'UG/ PG/ Other' in display_df.columns:
-                _level_abbrev = {
-                    'Foundation': 'FY',
-                    'UG Level 1': 'UG1',
-                    'UG Level 2': 'UG2',
-                    'UG Level 3': 'UG3',
-                }
-                display_df['UG/ PG/ Other'] = display_df['UG/ PG/ Other'].apply(
-                    lambda v: _level_abbrev.get(v, v))
-                cols.append('UG/ PG/ Other')
-                configs['UG/ PG/ Other'] = "Level"
-
-            if 'Ally Overall' in display_df.columns or 'Content Maturity' in display_df.columns:
-                def _score_or_stage(r):
-                    maturity = r.get('Content Maturity')
-                    if maturity == 'In progress':
-                        v = r.get('Ally Overall')
-                        if pd.notna(v):
-                            return f"{v * 100:.1f}%"
-                    if not maturity:
-                        return "—"
-                    return "Not started" if maturity == "Not yet built" else maturity
-                display_df['Score / Stage'] = display_df.apply(_score_or_stage, axis=1)
-                cols.append('Score / Stage')
-                configs['Score / Stage'] = st.column_config.TextColumn(
-                    "Ally Score",
-                    help="Ally's accessibility score once a module has content "
-                         "beyond its template ('In progress'); otherwise the build "
-                         "stage itself, since an untouched template scores near "
-                         "100% and would misread as the best module in its school.")
-
-            display_df['Actionable Items'] = display_df['New module code'].apply(
-                lambda c: checklist_sums.get(c, {}).get('Actionable Items', 0))
-            cols.append('Actionable Items')
-            configs['Actionable Items'] = st.column_config.NumberColumn(
-                "Actionable Items",
-                help="Outstanding items for this module - checklist, Leganto "
-                     "reading lists, Ally accessibility, and template readiness "
-                     "findings combined.")
-
-            if 'Leganto Missing' in display_df.columns:
-                def _leganto_display(r):
-                    # A DLA's recorded answer overrides Leganto, which is
-                    # exported rarely and often lags Blackboard.
-                    verdict = reading_list_verdict(checklist_sums, r.get('New module code'))
-                    if verdict is True:
-                        return "✅ DLA confirmed"
-                    if verdict is False:
-                        return "❌ DLA: not done"
-                    if r.get('Leganto Missing') == True:  # noqa: E712
-                        return "❌ Missing"
-                    status = r.get('Leganto List Status', '')
-                    if status == 'Published':
-                        return "✅ Published"
-                    if status in ('Draft', 'Mixed'):
-                        return "📝 Draft"
-                    if status == 'No List Expected':
-                        return "➖ Not needed"
-                    return "❌ Missing"
-                display_df['Leganto'] = display_df.apply(_leganto_display, axis=1)
-                cols.append('Leganto')
-                configs['Leganto'] = st.column_config.TextColumn(
-                    "Reading List",
-                    help="DLA confirmed / DLA: not done - a Digital Learning "
-                         "Advisor's audit answer, which overrides Leganto. "
-                         "Otherwise the Leganto status: Published/Draft - list "
-                         "status in Leganto. Not needed - Leganto's own export "
-                         "confirms no list is expected for this course. Missing - "
-                         "no list found, or the module doesn't yet appear in "
-                         "either Leganto export.")
-
-            if show_sga and 'SGA Attributes' in display_df.columns \
-                    and display_df['SGA Attributes'].notna().any():
-                cols.append('SGA Attributes')
-                configs['SGA Attributes'] = st.column_config.NumberColumn(
-                    "SGAs",
-                    help="Sheffield Graduate Attributes mapped in the SGA tool, "
-                         "out of 12. 0 means none mapped.")
-
-            sc_scope_df = get_spot_checks_for_schools(chosen_schools, CURRENT_ACADEMIC_YEAR)
-            sc_status_by_code = {}
-            if not sc_scope_df.empty:
-                latest = sc_scope_df.sort_values('flagged_on', ascending=False) \
-                                     .drop_duplicates(subset='module_code', keep='first')
-                sc_status_by_code = dict(zip(latest['module_code'], latest['status']))
-
-            def _spot_check_display(r):
-                status = sc_status_by_code.get(r['New module code'])
-                if status == 'pending':
-                    return "⏳ Pending"
-                if status == 'checked':
-                    return "✅ Checked"
-                return ""
-            display_df['Spot-Check'] = display_df.apply(_spot_check_display, axis=1)
-            cols.append('Spot-Check')
-            configs['Spot-Check'] = st.column_config.TextColumn(
-                "Spot-Check",
-                help="⏳ Pending - flagged and waiting to be audited. ✅ Checked - "
-                     "audited this year, whether it was flagged first or a DLA "
-                     "submitted an audit for it unprompted. Blank - neither.")
-
-            clean_display_df = display_df[cols].reset_index(drop=True)
-            st.caption("Select a row to jump to that module's report or audit.")
-            selection = st.dataframe(
-                clean_display_df, hide_index=True, width="stretch",
-                on_select="rerun", selection_mode="single-row",
-                key="faculty_all_modules_dataframe")
-
-            selected_rows = [i for i in selection.selection.rows if i < len(clean_display_df)]
-            if selected_rows:
-                row = clean_display_df.iloc[selected_rows[0]]
-                _quick_action_launch(row['New module code'], row['School'], can_audit,
-                                      "fac_all_modules")
-
-            st.download_button(
-                "📥 Download All Modules (CSV)",
-                clean_display_df.to_csv(index=False).encode('utf-8'),
-                f"faculty_all_modules_{semester.lower()}.csv", "text/csv",
-                key="faculty_all_modules_downloader")
-
-    elif selected_view == "🏫 School Comparison":
+    
+    if selected_view == "🏫 School Comparison":
         st.subheader(f"School Comparison ({semester})")
         st.caption(
             "VLE Compliance is measured across **submitted audits only** - read it "
             "alongside the Audited column, since a high score on a small sample is "
-            "not the same as a school in good shape. Template Alignment % reads "
-            "every module's template/readiness data instead, audited or not - the "
-            "two can disagree, and that's worth a second look either way."
+            "not the same as a school in good shape."
         )
 
         comparison_df, faculty_totals = get_school_comparison(active_df, checklist_sums)
@@ -319,27 +88,15 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         if comparison_df.empty:
             st.warning(f"No school data available for {semester}.")
         else:
-            # A second, data-driven compliance reading, one DB-backed call per
-            # school. Deliberately not folded into get_school_comparison()
-            # itself, which stays pandas-only over in-memory data per
-            # processing.py's I/O-free convention - calculate_dynamic_
-            # compliance_gap() does its own queries, and only runs when this
-            # tab is open (segmented_control already lazy-loads the rest).
-            def _template_alignment_pct(school):
-                gaps = calculate_dynamic_compliance_gap(school_code=school, module_codes=semester_codes)
-                return (sum(gaps.values()) / len(gaps) * 100) if gaps else None
-            comparison_df['Template Alignment %'] = comparison_df['School'].apply(_template_alignment_pct)
-
             display_df = comparison_df.copy()
             display_df['Audited'] = display_df.apply(
                 lambda r: f"{int(r['Audited'])} ({r['Audited %']:.0f}%)", axis=1
             )
-            for col in ['Avg Ally', 'VLE Compliance', 'Template Alignment %']:
+            for col in ['Avg Ally', 'VLE Compliance']:
                 display_df[col] = display_df[col].apply(
                     lambda x: f"{x:.1f}%" if pd.notna(x) else "—"
                 )
-            display_df = display_df[['School', 'Modules', 'Audited', 'Avg Ally',
-                                      'VLE Compliance', 'Template Alignment %', 'Status']]
+            display_df = display_df.drop(columns=['Audited %'])
 
             # [STABILITY FIX]: Streamlit's selection engine requires monotonic indices.
             display_df = display_df.reset_index(drop=True)
@@ -351,12 +108,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     "Modules": st.column_config.NumberColumn("Modules"),
                     "Audited": "Audited",
                     "Avg Ally": "Avg Ally",
-                    "VLE Compliance": st.column_config.TextColumn(
-                        "VLE Compliance", help="Submitted audits only."),
-                    "Template Alignment %": st.column_config.TextColumn(
-                        "Template Alignment %",
-                        help="Every module in the school, from template/readiness "
-                             "data - not dependent on an audit having been submitted."),
+                    "VLE Compliance": "VLE Compliance",
                     "Status": "Status",
                 },
                 width="stretch",
@@ -372,12 +124,8 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             def _fmt_pct(value):
                 return f"{value:.1f}%" if value is not None and pd.notna(value) else "—"
 
-            total_gaps = calculate_dynamic_compliance_gap(school_code='All', module_codes=semester_codes)
-            faculty_template_alignment = (
-                sum(total_gaps.values()) / len(total_gaps) * 100) if total_gaps else None
-
             st.markdown("##### **Faculty Totals**")
-            t1, t2, t3, t4, t5 = st.columns(5)
+            t1, t2, t3, t4 = st.columns(4)
             with t1:
                 st.metric("Modules", faculty_totals['Modules'])
             with t2:
@@ -386,8 +134,6 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.metric("Avg Ally", _fmt_pct(faculty_totals['Avg Ally']))
             with t4:
                 st.metric("VLE Compliance", _fmt_pct(faculty_totals['VLE Compliance']))
-            with t5:
-                st.metric("Template Alignment %", _fmt_pct(faculty_template_alignment))
 
             # Drill-down: hand the chosen school to the School Dashboard for one render.
             if selection_schools.selection.rows:
@@ -591,30 +337,31 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             "faculty's modules."
         )
 
-        gaps = calculate_dynamic_compliance_gap(school_code='All', module_codes=semester_codes)
-
+        from processing import calculate_dynamic_compliance_gap
+        gaps = calculate_dynamic_compliance_gap(school_code='All')
+        
         if gaps:
             gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])
             gap_df['Compliance %'] = gap_df['Compliance %'] * 100
-
+            
             # Build high-fidelity interactive Altair chart
             chart_base = alt.Chart(gap_df).encode(
-                y=alt.Y('Category:N',
+                y=alt.Y('Category:N', 
                         sort='x', # Sort lowest compliance to top visually
                         title=None,
                         axis=alt.Axis(labelLimit=500, labelFontSize=12)),
-                x=alt.X('Compliance %:Q',
-                        scale=alt.Scale(domain=[0, 100]),
+                x=alt.X('Compliance %:Q', 
+                        scale=alt.Scale(domain=[0, 100]), 
                         title="Percentage Compliant"),
                 tooltip=['Category', alt.Tooltip('Compliance %', format='.1f')]
             )
-
+            
             bars = chart_base.mark_bar(cornerRadiusEnd=5, height=28).encode(
-                color=alt.Color('Compliance %:Q',
-                               scale=alt.Scale(scheme='redyellowgreen'),
+                color=alt.Color('Compliance %:Q', 
+                               scale=alt.Scale(scheme='redyellowgreen'), 
                                legend=None)
             )
-
+            
             text_overlay = chart_base.mark_text(
                 align='left',
                 baseline='middle',
@@ -623,157 +370,21 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             ).encode(
                 text=alt.Text('Compliance %:Q', format='.1f')
             )
-
+            
             final_chart = (bars + text_overlay).properties(
                 height=450
             ).configure_view(
                 strokeWidth=0
             )
-
+            
             st.altair_chart(final_chart, width="stretch")
         else:
             st.write("No compliance data available.")
 
-        st.divider()
-        st.markdown("#### Item-by-item status")
-        chosen_schools = _school_filter(default_schools)
-        matrix_scope_df = active_df_scoped[active_df_scoped['School'].isin(chosen_schools)] \
-            if not active_df_scoped.empty and chosen_schools else pd.DataFrame()
-
-        active_fields = get_active_audit_fields()
-        boolean_fields = [f for f in active_fields if f['field_type'] in ('boolean', 'yes/no')]
-
-        if not chosen_schools:
-            st.info("Choose at least one school above to see the item-by-item matrix.")
-        elif not boolean_fields or matrix_scope_df.empty:
-            st.info("No checklist item data available for the selected school(s).")
-        else:
-            st.caption(
-                "A detailed view of the status of Blackboard template items "
-                "across the selected schools' modules. ✅ done · ❌ outstanding · "
-                "🚩 accessibility needs a look."
-            )
-            matrix_rows = []
-            for _, r in matrix_scope_df.iterrows():
-                code = r['New module code']
-                active_row = r.to_dict()
-                responses = checklist_sums.get(code, {}).get('Responses', {})
-                findings = derive_module_findings(active_row, responses, active_fields)
-
-                by_field = {}
-                leganto_state = 'completed'
-                for f in findings:
-                    if f['source'] == 'checklist' and 'field_id' in f:
-                        by_field[f['field_id']] = f['state']
-                    elif f['source'] == 'readiness' and f.get('audit_field_id'):
-                        by_field[f['audit_field_id']] = f['state']
-                    elif f['source'] == 'leganto':
-                        leganto_state = f['state']
-
-                ally_severe = int(active_row.get('Ally Severe', 0) or 0)
-                ally_flag = ally_severe > 0 or active_row.get('Ally Enabled') is False
-
-                row = {
-                    'School': r.get('School', ''),
-                    'Module Code': code,
-                    'Module Name': r.get('Module name', ''),
-                    'Module Lead': to_title_case(r.get('Mod. lead', '')),
-                }
-                for field in boolean_fields:
-                    col = short_field_label(field['id'], field['label'])
-                    row[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
-                rl_field = next((f for f in boolean_fields
-                                 if f['id'] == READING_LIST_FIELD_ID), None)
-                if rl_field is not None:
-                    rl_col = short_field_label(rl_field['id'], rl_field['label'])
-                    if leganto_state != 'completed':
-                        row[rl_col] = '❌'
-                else:
-                    row['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
-                row['Accessibility'] = '🚩' if ally_flag else '✅'
-                matrix_rows.append(row)
-
-            matrix_df = pd.DataFrame(matrix_rows).sort_values(
-                ['School', 'Module Code']).reset_index(drop=True)
-            st.caption("Select a row (tick the checkbox) to jump to that module's report or audit.")
-            matrix_selection = st.dataframe(
-                matrix_df, hide_index=True, width="stretch",
-                on_select="rerun", selection_mode="single-row",
-                key="faculty_template_alignment_matrix")
-
-            selected_matrix_rows = [i for i in matrix_selection.selection.rows if i < len(matrix_df)]
-            if selected_matrix_rows:
-                row = matrix_df.iloc[selected_matrix_rows[0]]
-                _quick_action_launch(row['Module Code'], row['School'], can_audit,
-                                      "fac_template_matrix")
-
-    elif selected_view == "📈 Trends":
-        st.subheader("Faculty Accessibility Trends")
-        try:
-            history = get_ally_history(academic_year=CURRENT_ACADEMIC_YEAR)
-        except Exception:
-            history = pd.DataFrame()
-
-        if history.empty:
-            st.info("Historical Ally data is not yet available.")
-        elif history['snapshot_date'].nunique() < 2:
-            st.info(
-                "Only one Ally snapshot has been imported so far, so there is no "
-                "trend to plot yet. Import the report again after Ally next runs "
-                "and this fills in."
-            )
-        else:
-            faculty_codes = set(active_df_scoped['New module code'].dropna().astype(str)
-                                 .str.strip().str.upper()) if not active_df_scoped.empty else set()
-            faculty_history = history[history['module_code'].isin(faculty_codes)].copy()
-            if faculty_history.empty:
-                st.info("No historical Ally data for the faculty's modules.")
-            else:
-                faculty_history['School'] = faculty_history['module_code'].astype(str).str[:3]
-                faculty_history['items'] = (faculty_history['total_files']
-                                            + faculty_history['total_wysiwyg'])
-
-                grouped = faculty_history.groupby('snapshot_date')
-                trend = pd.DataFrame({
-                    'Overall score': grouped.apply(
-                        lambda g: (g['overall_score'] * g['items']).sum()
-                        / max(g['items'].sum(), 1), include_groups=False),
-                    'Files uploaded': grouped['total_files'].sum(),
-                })
-                trend.index = pd.to_datetime(trend.index)
-                st.markdown("**Average accessibility score over time (faculty-wide)**")
-                st.line_chart(trend['Overall score'], height=260)
-                st.markdown("**Content uploaded over time (faculty-wide)**")
-                st.line_chart(trend['Files uploaded'], height=220)
-                st.caption(
-                    "A course is only re-recorded when its content actually changes, "
-                    "so each point is a real movement. Early in the year the upload "
-                    "line matters more than the score line."
-                )
-
-                st.divider()
-                st.markdown("**By school**")
-                by_school = faculty_history.groupby(['snapshot_date', 'School']).apply(
-                    lambda g: pd.Series({
-                        'Overall score': (g['overall_score'] * g['items']).sum()
-                                          / max(g['items'].sum(), 1),
-                    }), include_groups=False).reset_index()
-                by_school['snapshot_date'] = pd.to_datetime(by_school['snapshot_date'])
-                school_chart = alt.Chart(by_school).mark_line(point=True).encode(
-                    x=alt.X('snapshot_date:T', title=None),
-                    y=alt.Y('Overall score:Q', title="Overall score",
-                            scale=alt.Scale(domain=[0, 1])),
-                    color=alt.Color('School:N', legend=alt.Legend(title="School")),
-                    tooltip=['School', 'snapshot_date:T',
-                             alt.Tooltip('Overall score:Q', format='.1%')]
-                ).properties(height=350)
-                st.altair_chart(school_chart, width="stretch")
-                st.caption("Compares each school's accessibility trajectory over time.")
-
     elif selected_view == "⚠️ Priority Action List":
         st.subheader("🎯 Focus Priority Lenses")
         st.caption("Pivoting on different risk vectors across the faculty.")
-
+        
         # Static selector anchors the UI interaction
         lens = st.radio(
             "Choose inspection criteria:",
@@ -788,13 +399,13 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         render_df = None
         render_configs = {}
         render_status = None
-        render_status_type = "info"
-
+        render_status_type = "info" 
+        
         if active_df.empty:
             st.warning("No data available to analyze.")
         else:
             source_data = active_df.copy()
-
+            
             if lens == "⚠️ Accessibility Risk":
                 render_df, render_configs, render_status, render_status_type = \
                     build_accessibility_risk_list(source_data)
@@ -847,16 +458,16 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 def get_actions(code):
                     c_str = str(code).strip()
                     return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
-
+                
                 source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
                 source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
-
+                
                 missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
-
+                
                 if not missing_df.empty:
                     render_status = f"🎯 Found {len(missing_df)} modules pending audit."
                     render_status_type = "warning"
-
+                    
                     display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue', 'Actionable Items']
                     render_df = missing_df[display_cols].copy()
                     render_configs = {
@@ -878,11 +489,11 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     missing_leganto_df = missing_leganto_df[[
                         reading_list_verdict(checklist_sums, c) is not True
                         for c in missing_leganto_df['New module code']]]
-
+                    
                     if not missing_leganto_df.empty:
                         render_status = f"🎯 Found {len(missing_leganto_df)} modules explicitly flagged as missing a Leganto list."
                         render_status_type = "warning"
-
+                        
                         missing_leganto_df['DisplayValue'] = "Missing"
                         display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
                         render_df = missing_leganto_df[display_cols].copy()
@@ -893,36 +504,36 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     else:
                         render_status = "Zero modules are flagged as missing Leganto reading lists in the current view! 🎉"
                         render_status_type = "success"
-
-            # 1. Output singular status indicator
+            
+            # 1. Output singular status indicator 
             if render_status:
                 if render_status_type == "success": st.success(render_status)
                 elif render_status_type == "error": st.error(render_status)
                 else: st.warning(render_status)
-
+            
             # 2. Output singular dataframe anchored to key
             if render_df is not None:
                 # [STABILITY FIX]: Enforce 100% unique linear indices required for modern selection engine trigger
                 clean_render_df = render_df.reset_index(drop=True)
-
+                
                 selection_priority = st.dataframe(
-                    clean_render_df,
-                    column_config=render_configs,
-                    width="stretch",
+                    clean_render_df, 
+                    column_config=render_configs, 
+                    width="stretch", 
                     hide_index=True,
                     key="master_priority_lens_dataframe",
                     on_select="rerun",
                     selection_mode="single-row"
                 )
-
+                
                 # Action Handler for Selection Jump-Link
                 if selection_priority.selection.rows:
                     row_idx = selection_priority.selection.rows[0]
                     clicked_code = clean_render_df.iloc[row_idx]['New module code']
-
+                    
                     st.divider()
                     st.info(f"🚀 Launch Control: **{clicked_code}**")
-
+                    
                     c1, c2 = st.columns(2)
                     with c1:
                         if st.button(f"📊 Jump to Module Report Card", width="stretch", type="primary"):
@@ -933,271 +544,21 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                             st.session_state.selected_module_code = clicked_code
                             st.switch_page(st.session_state.pg_audit)
                     st.divider()
-
+                
                 # 3. Output singular download statically anchored to key
                 csv = render_df.to_csv(index=False).encode('utf-8')
                 dl_filename = f"faculty_priority_export.csv"
                 st.download_button(
-                    "📥 Download List (CSV)",
-                    csv,
-                    dl_filename,
+                    "📥 Download List (CSV)", 
+                    csv, 
+                    dl_filename, 
                     "text/csv",
-                    key="master_priority_lens_downloader"
+                    key="master_priority_lens_downloader" 
                 )
-
-    elif selected_view == "🎯 Spot-Checks":
-        st.subheader("Spot-Checks — Faculty-wide")
-        st.caption(
-            "A read-only, faculty-wide view of what DLAs have flagged for spot-check "
-            "this year. Flagging and removing flags stays on each school's own "
-            "Spot-Checks tab in School Dashboard - a flag belongs to the school it "
-            "was raised in, not to whoever raised it."
-        )
-        chosen_schools = _school_filter(default_schools)
-
-        if not chosen_schools:
-            st.info("Choose at least one school above to see its spot-checks.")
-        else:
-            sc_df = get_spot_checks_for_schools(chosen_schools, CURRENT_ACADEMIC_YEAR)
-            if sc_df.empty:
-                st.info("No modules flagged yet this year for the selected school(s).")
-            else:
-                sc_df = sc_df.copy()
-                sc_df['School'] = sc_df['module_code'].astype(str).str[:3]
-
-                pending_n = int((sc_df['status'] == 'pending').sum())
-                checked_n = int((sc_df['status'] == 'checked').sum())
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Flagged this year", len(sc_df))
-                m2.metric("Pending", pending_n)
-                m3.metric("Checked", checked_n)
-
-                st.markdown("**By school**")
-                by_school = sc_df.groupby(['School', 'status']).size().unstack(fill_value=0)
-                for status_col in ('pending', 'checked'):
-                    if status_col not in by_school.columns:
-                        by_school[status_col] = 0
-                by_school = by_school.rename(
-                    columns={'pending': 'Pending', 'checked': 'Checked'})[['Pending', 'Checked']]
-                st.dataframe(by_school.reset_index(), hide_index=True, width="stretch")
-
-                # Module names, faculty-wide and both semesters - spot-checks
-                # span the whole academic year, same reasoning as School
-                # Dashboard's own year_names.
-                year_df = _with_school_column(pd.concat(
-                    [df for df in (df_aut, df_spr) if df is not None and not df.empty]))
-                year_df = year_df[year_df['School'].isin(chosen_schools)] if not year_df.empty else year_df
-                year_names = {}
-                if not year_df.empty:
-                    year_names = (year_df.assign(
-                            _code=year_df['New module code'].astype(str).str.strip().str.upper())
-                        .dropna(subset=['Module name'])
-                        .drop_duplicates('_code')
-                        .set_index('_code')['Module name'].to_dict())
-
-                comments_label = comment_field_label()
-                comment_frames = [get_spot_check_comments(s, CURRENT_ACADEMIC_YEAR)
-                                   for s in chosen_schools]
-                comment_frames = [f for f in comment_frames if not f.empty]
-                comments_by_module = {}
-                if comment_frames:
-                    all_comments = pd.concat(comment_frames)
-                    comments_by_module = {
-                        str(c).strip().upper(): str(v or '').strip()
-                        for c, v in zip(all_comments['module_code'], all_comments['comment'])}
-
-                shown = sc_df.copy()
-                shown['Module Name'] = shown['module_code'].map(
-                    lambda c: year_names.get(str(c).strip().upper(), ""))
-                shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
-                shown[comments_label] = shown['module_code'].map(
-                    lambda c: comments_by_module.get(str(c).strip().upper(), ""))
-
-                sc_filter = st.radio(
-                    "Show", ["All", "Pending", "Checked"], horizontal=True,
-                    key="faculty_sc_status_filter")
-                if sc_filter != "All":
-                    shown = shown[shown['status'] == sc_filter.lower()]
-                shown = shown.sort_values('flagged_on', ascending=False).reset_index(drop=True)
-
-                sc_display_df = shown.rename(columns={
-                    'module_code': 'Module', 'checked_on': 'Checked On'})[
-                    ['School', 'Module', 'Module Name', 'Status', 'Checked On', comments_label]]
-
-                st.caption("Select a row to jump to that module, or to manage its flag on "
-                           "that school's own Spot-Checks tab.")
-                selection = st.dataframe(
-                    sc_display_df, hide_index=True, width="stretch",
-                    on_select="rerun", selection_mode="single-row",
-                    column_config={
-                        comments_label: st.column_config.TextColumn(comments_label, width="medium"),
-                    },
-                    key="faculty_spot_checks_dataframe")
-
-                selected_rows = [i for i in selection.selection.rows if i < len(sc_display_df)]
-                if selected_rows:
-                    row = sc_display_df.iloc[selected_rows[0]]
-                    st.divider()
-                    st.info(f"🚀 Quick Action Launch: **{row['Module']}**")
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        if st.button("📊 Jump to Report Card", width="stretch", type="primary",
-                                     key="fac_sc_rc"):
-                            st.session_state.selected_module_code = row['Module']
-                            st.session_state.context_focus_own = False
-                            st.session_state.context_school = row['School']
-                            st.switch_page(st.session_state.pg_module)
-                    with c2:
-                        if can_audit and st.button("✅ Open Audit Portal", width="stretch",
-                                                    key="fac_sc_audit"):
-                            st.session_state.selected_module_code = row['Module']
-                            st.session_state.context_focus_own = False
-                            st.session_state.context_school = row['School']
-                            st.switch_page(st.session_state.pg_audit)
-                    with c3:
-                        if can_view_school_dashboard and st.button(
-                                f"🏫 Manage on {row['School']} Spot-Checks", width="stretch",
-                                key="fac_sc_manage"):
-                            st.session_state.drilldown_school = row['School']
-                            st.switch_page(st.session_state.pg_school)
-                    st.divider()
-
-                st.download_button(
-                    "📥 Download Spot-Checks (CSV)",
-                    sc_display_df.to_csv(index=False).encode('utf-8'),
-                    "faculty_spot_checks.csv", "text/csv",
-                    key="faculty_spot_checks_downloader")
-
-    elif selected_view == "💬 Spot-Check Comments":
-        comments_label = comment_field_label()
-        st.subheader("Spot-Check Comments — Faculty-wide")
-        st.caption(
-            f'What advisors wrote in "{comments_label}" when they audited spot-checked '
-            "modules across the selected school(s), most recent first. Each comment is "
-            "the module's current audit answer, so revising an audit changes what "
-            "appears here."
-        )
-        chosen_schools = _school_filter(default_schools)
-
-        if not chosen_schools:
-            st.info("Choose at least one school above to see its spot-check comments.")
-        else:
-            comment_frames = [get_spot_check_comments(s, CURRENT_ACADEMIC_YEAR)
-                               for s in chosen_schools]
-            comment_frames = [f for f in comment_frames if not f.empty]
-            sc_comments = pd.concat(comment_frames) if comment_frames else pd.DataFrame()
-
-            if sc_comments.empty:
-                st.info("No modules flagged yet this year for the selected school(s).")
-            else:
-                sc_comments = sc_comments.copy()
-                sc_comments['School'] = sc_comments['module_code'].astype(str).str[:3]
-                sc_comments['comment'] = (sc_comments['comment'].fillna('')
-                                          .astype(str).str.strip())
-                # One row per module - see School Dashboard's identical
-                # reasoning for this drop_duplicates (a module can be
-                # re-flagged within a year; only its latest flag's comment
-                # matters here since there's only one comment to read).
-                sc_comments = sc_comments.drop_duplicates(subset='module_code', keep='first')
-                has_comment = sc_comments['comment'] != ""
-
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Modules flagged this year", len(sc_comments))
-                m2.metric("With a comment", int(has_comment.sum()))
-                m3.metric("No comment yet", int((~has_comment).sum()),
-                          help="Usually a flag nobody has audited yet, since the "
-                               "comment is written in the Audit Portal.")
-
-                f1, f2, f3 = st.columns([2, 1, 1])
-                with f1:
-                    comment_search = st.text_input(
-                        "Search", key="fac_sc_comment_search",
-                        placeholder="Module code, school, or any word in a comment")
-                with f2:
-                    comment_status = st.selectbox(
-                        "Flag status", ["All", "Checked", "Pending"],
-                        key="fac_sc_comment_status")
-                with f3:
-                    show_uncommented = st.checkbox(
-                        "Include no-comment flags", value=False,
-                        key="fac_sc_comment_show_empty")
-
-                filtered_comments = sc_comments
-                if not show_uncommented:
-                    filtered_comments = filtered_comments[filtered_comments['comment'] != ""]
-                if comment_status != "All":
-                    filtered_comments = filtered_comments[
-                        filtered_comments['status'] == comment_status.lower()]
-                needle = comment_search.strip().lower()
-                if needle:
-                    filtered_comments = filtered_comments[
-                        filtered_comments['module_code'].astype(str).str.lower().str.contains(needle)
-                        | filtered_comments['School'].astype(str).str.lower().str.contains(needle)
-                        | filtered_comments['comment'].str.lower().str.contains(needle)]
-
-                filtered_comments = filtered_comments.sort_values(
-                    'comment_on', ascending=False, na_position='last')
-
-                if filtered_comments.empty:
-                    st.info("No spot-check comments match those filters.")
-                else:
-                    st.caption(f"Showing {len(filtered_comments)} of "
-                               f"{len(sc_comments)} flagged module(s).")
-
-                    year_df = _with_school_column(pd.concat(
-                        [df for df in (df_aut, df_spr) if df is not None and not df.empty]))
-                    year_names = {}
-                    if not year_df.empty:
-                        year_names = (year_df.assign(
-                                _code=year_df['New module code'].astype(str).str.strip().str.upper())
-                            .dropna(subset=['Module name'])
-                            .drop_duplicates('_code')
-                            .set_index('_code')['Module name'].to_dict())
-
-                    for _, comment_row in filtered_comments.iterrows():
-                        code = str(comment_row['module_code']).strip().upper()
-                        module_name = year_names.get(code, "")
-                        module_name = ("" if pd.isna(module_name) else str(module_name).strip())
-                        status_badge = ("✅ Checked" if comment_row['status'] == 'checked'
-                                        else "⏳ Pending")
-                        with st.container(border=True):
-                            heading = f"**{comment_row['School']} · {code}**"
-                            if module_name:
-                                heading += f" · {module_name}"
-                            st.markdown(f"{heading} · {status_badge}")
-
-                            body = format_comment_markdown(comment_row['comment'])
-                            if body:
-                                st.markdown(body)
-                            else:
-                                st.caption("Nothing written against this module yet.")
-
-                            trail = []
-                            author = str(comment_row.get('comment_by') or '').strip()
-                            written_on = fmt_report_date(comment_row.get('comment_on'))
-                            if body and author:
-                                trail.append(f"Audited by {author}"
-                                             + (f" on {written_on}" if written_on else ""))
-                            flagged_by = str(comment_row.get('flagged_by') or '').strip()
-                            flagged_on = fmt_report_date(comment_row.get('flagged_on'))
-                            if flagged_by:
-                                trail.append(f"Flagged by {flagged_by}"
-                                             + (f" on {flagged_on}" if flagged_on else ""))
-                            if trail:
-                                st.caption(" · ".join(trail))
-
-                    export_comments = filtered_comments[
-                        ['School', 'module_code', 'status', 'comment', 'comment_by', 'comment_on',
-                         'flagged_by', 'flagged_on', 'checked_by', 'checked_on']]
-                    st.download_button(
-                        "📥 Export Spot-Check Comments",
-                        export_comments.to_csv(index=False).encode('utf-8'),
-                        "faculty_spot_check_comments.csv", "text/csv",
-                        key="fac_sc_comments_export")
 
     elif selected_view == "📝 Assessment Types":
         st.subheader(f"Assessment Analysis ({semester})")
-
+        
         # Sub-navigation for SITS Assessment view
         sub_view = st.radio(
             "Analysis View:",
@@ -1207,24 +568,24 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             key="assessment_analysis_sub_nav"
         )
         st.write("---")
-
+        
         if df_assess is not None and not df_assess.empty:
             # Get active codes
             active_codes = set(active_df['New module code'].dropna().astype(str).str.strip().str.upper())
             matching_assess = df_assess[df_assess['CIS unit code'].isin(active_codes)].copy()
-
+            
             if not matching_assess.empty:
                 # Add School column based on CIS unit code prefix
                 schools_list = set(FACULTY_SCHOOLS)
                 matching_assess['School'] = matching_assess['CIS unit code'].astype(str).str[:3].str.upper()
                 matching_assess = matching_assess[matching_assess['School'].isin(schools_list)]
-
+                
                 if sub_view == "🌐 Overall Distribution":
                     st.markdown("##### **Overall Assessment Type Distribution**")
                     st.caption("Distribution of assessment types across all active modules in SITS for this semester.")
                     type_counts = matching_assess['Assessment type'].value_counts().reset_index()
                     type_counts.columns = ['Assessment Type', 'Count']
-
+                    
                     # Render using Altair donut chart
                     pie_chart = alt.Chart(type_counts).mark_arc(innerRadius=60).encode(
                         theta=alt.Theta(field="Count", type="quantitative"),
@@ -1234,15 +595,15 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         height=400
                     )
                     st.altair_chart(pie_chart, use_container_width=True)
-
+                    
                     # Also display a nice summary table
                     with st.expander("Detailed Breakdown", expanded=False):
                         st.dataframe(type_counts, width="stretch", hide_index=True)
-
+                        
                 elif sub_view == "🏫 Compare Schools":
                     st.markdown("##### **Compare Assessment Types Across Schools**")
                     st.caption("Compare how different schools design their assessment strategies (exams, coursework, etc.) for active modules.")
-
+                    
                     # Toggle for Absolute vs Normalized
                     compare_mode = st.segmented_control(
                         "Chart Type:",
@@ -1250,10 +611,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         default="Absolute Counts",
                         key="compare_schools_chart_type"
                     )
-
+                    
                     comparison_data = matching_assess.groupby(['School', 'Assessment type']).size().reset_index(name='Count')
                     comparison_data.columns = ['School', 'Assessment Type', 'Count']
-
+                    
                     if compare_mode == "Absolute Counts":
                         bar_chart = alt.Chart(comparison_data).mark_bar().encode(
                             x=alt.X('School:N', title='School', axis=alt.Axis(labelAngle=0)),
@@ -1272,9 +633,9 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         ).properties(
                             height=400
                         )
-
+                        
                     st.altair_chart(bar_chart, use_container_width=True)
-
+                    
                     with st.expander("School Comparison Data Table", expanded=False):
                         # Pivot table for a nice cross-tabulation display
                         crosstab = pd.crosstab(matching_assess['School'], matching_assess['Assessment type'])

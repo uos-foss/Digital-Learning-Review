@@ -2102,7 +2102,7 @@ def sanitize_row_data(row_data):
         
     return sanitized
 
-def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
+def calculate_dynamic_compliance_gap(school_code=None):
     """
     Compliance gap per active boolean/yes-no audit field, across every SITS
     module in the school - not just the handful that have been manually
@@ -2128,10 +2128,6 @@ def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
     and field - readiness_manual_override() is the same override rule
     derive_module_findings() and the Audit Portal already use, so this metric
     can never disagree with what an advisor has actually verified.
-
-    module_codes, when given, narrows the SITS module list to those codes (the
-    modules of the semester the view has selected, from resolve_semester_df()).
-    None means every module in the school, the pre-semester behaviour.
     """
     from database import (get_db_connection, get_active_audit_fields,
                           get_readiness_courses_latest, get_readiness_sections_latest,
@@ -2184,10 +2180,6 @@ def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
     # Filter modules by school if specified
     if school_code and school_code != 'All':
         df_sits = df_sits[df_sits['CIS unit code'].str.startswith(school_code, na=False)]
-
-    if module_codes is not None:
-        wanted = {str(c).strip().upper() for c in module_codes}
-        df_sits = df_sits[df_sits['CIS unit code'].isin(wanted)]
 
     total_modules = len(df_sits)
     if total_modules == 0:
