@@ -604,6 +604,17 @@ def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=No
     result['declared'] = len(per_module)
     return result
 
+def _drop_outside_faculty(df, result, code_col='module_code'):
+    """Filters df to rows whose code_col prefix is a faculty school, recording
+    how many were dropped into result['dropped_out_of_faculty'] - the shared
+    last scoping step every per-year import (Ally, Leganto, readiness, SGA)
+    applies once module_code has been derived, so a faculty-scoping change
+    (e.g. a new cross-faculty exception) is made in one place, not once per
+    importer."""
+    in_faculty = df[code_col].str[:3].isin(FACULTY_SCHOOLS)
+    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
+    return df[in_faculty]
+
 def parse_ally_export(df, academic_year, snapshot_date):
     """
     Turns one Anthology Ally institutional export into the three frames that
@@ -669,9 +680,7 @@ def parse_ally_export(df, academic_year, snapshot_date):
     #    unusable as a key - it carries pre-restructure names and multi-valued
     #    entries like "Sheffield University Management School; Ultra Courses" -
     #    so it is stored for reference and never joined on.
-    in_faculty = df['module_code'].str[:3].isin(FACULTY_SCHOOLS)
-    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
-    df = df[in_faculty]
+    df = _drop_outside_faculty(df, result)
     if df.empty:
         return result
 
@@ -813,9 +822,7 @@ def parse_leganto_lists_export(df, academic_year, snapshot_date):
                          .str.split('.').str[0].str.strip().str.upper())
     df = df[df['module_code'] != ""]
 
-    in_faculty = df['module_code'].str[:3].isin(FACULTY_SCHOOLS)
-    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
-    df = df[in_faculty]
+    df = _drop_outside_faculty(df, result)
     if df.empty:
         return result
 
@@ -1159,6 +1166,295 @@ def aggregate_leganto_to_modules(df_lists):
     agg['total_items'] = agg['draft_items'] + agg['published_items']
     return agg[columns]
 
+# --- Sheffield Graduate Attributes (SGAs) ----------------------------------
+
+# The fixed SGA framework, transcribed from the faculty's "Identifying SGAs by
+# Module" planning document: 3 themes, 12 numbered attributes, 3 sub-attributes
+# each. Only sub-attributes carry a definition in that document; attribute
+# 'description' is a slot for when attribute-level text is available.
+#
+# The SGA tool's export writes names in its own casing and spacing
+# ("Research and critical thinking", "Research impact ") - everything is
+# matched through _sga_key(), never by exact string.
+SGA_CATALOGUE = [
+    {'theme': 'My Learning', 'number': 1, 'attribute': 'Academic skills', 'description': '',
+     'sub_attributes': [
+         ('Academic writing', 'Using clear, concise language appropriate to the academic discipline and credible evidence to present written arguments or reports, using relevant referencing and citation'),
+         ('Numeracy and data', 'Appropriately calculating, analysing and presenting numerical data'),
+         ('Study skills', 'Selects, uses and seeks existing and new knowledge to develop intellect; using learning and study time effectively'),
+     ]},
+    {'theme': 'My Learning', 'number': 2, 'attribute': 'Applying knowledge', 'description': '',
+     'sub_attributes': [
+         ('Translating knowledge', 'Applying and translating knowledge and skills to contexts and challenges within and beyond your studies'),
+         ('Problem solving', 'Exploring innovative approaches to solving problems. Developing creativity, understanding, and challenging existing ideas'),
+         ('Exchanging knowledge', 'Demonstrating interest in and understanding of the positive application of knowledge in a working environment'),
+     ]},
+    {'theme': 'My Learning', 'number': 3, 'attribute': 'Research and critical thinking', 'description': '',
+     'sub_attributes': [
+         ('Research skills', 'Experienced in the processes and methods of research - discovering, understanding and creating information'),
+         ('Research impact', 'Considering impact and disseminating the benefits of research and knowledge to wider community and society'),
+         ('Critical thinking', 'Critically appraising, questioning, analysing and interpreting a variety of evidence, and applying research skills in different contexts'),
+     ]},
+    {'theme': 'My Learning', 'number': 4, 'attribute': 'Digital capability', 'description': '',
+     'sub_attributes': [
+         ('Digital fluency', 'Sourcing, using and creatively applying appropriate digital tools, information and skills'),
+         ('Digital communication', 'Assessing and presenting data, information and evidence using software and digital media'),
+         ('Digital citizenship', 'Developing and maintaining a professional and ethical online presence and identity'),
+     ]},
+    {'theme': 'My Impact', 'number': 5, 'attribute': 'Interpersonal skills', 'description': '',
+     'sub_attributes': [
+         ('Communication', 'Communicating confidently in writing, in person and online for different purposes and audiences'),
+         ('Networking', 'Using interpersonal skills to build and maintain positive relationships through networking'),
+         ('Emotional intelligence', 'Recognise own and others emotions to guide thinking and behaviour'),
+     ]},
+    {'theme': 'My Impact', 'number': 6, 'attribute': 'Working with others', 'description': '',
+     'sub_attributes': [
+         ('Collaboration', 'Working effectively with others and in teams, encouraging collaboration and contributing positively'),
+         ('Influencing', 'Positively contributing, influencing and inspiring others'),
+         ('Leadership', 'Developing leadership potential and capability'),
+     ]},
+    {'theme': 'My Impact', 'number': 7, 'attribute': 'Equality and inclusion', 'description': '',
+     'sub_attributes': [
+         ('Community engagement', 'Actively participate and positively affect others in personal, local, global or virtual communities'),
+         ('Global awareness', 'Global competence and cultural intelligence, engaging with global issues and contexts'),
+         ('Inclusivity', 'Recognising and valuing different abilities, backgrounds, beliefs and ways of living'),
+     ]},
+    {'theme': 'My Impact', 'number': 8, 'attribute': 'Ethics and sustainability', 'description': '',
+     'sub_attributes': [
+         ('Integrity', 'Acting ethically, honestly and fairly in personal, academic and workplace settings'),
+         ('Appropriate conduct', 'Demonstrating appropriate and socially responsible behaviour, including academic conduct'),
+         ('Sustainability', 'Acquiring the knowledge and skills to promote societal and environmental sustainability'),
+     ]},
+    {'theme': 'My Self', 'number': 9, 'attribute': 'Positive wellbeing', 'description': '',
+     'sub_attributes': [
+         ('Self care', 'Identifying and doing things to enhance mental and physical health, confidence and self esteem'),
+         ('Autonomy', 'Making own decisions about how to think and behave, pursuing freely chosen goals'),
+         ('Self-awareness', 'Reflective and understanding of personal strengths, values and areas for development'),
+     ]},
+    {'theme': 'My Self', 'number': 10, 'attribute': 'Purpose', 'description': '',
+     'sub_attributes': [
+         ('Healthy relationships', 'Developing positive, trusting, and supportive relationships'),
+         ('Defining purpose', 'Finding a sense of direction in life, defining personal values and goals and working to fulfil them'),
+         ('Positive mindset', 'Approaching challenges with a positive outlook, self-belief and a sense of perspective'),
+     ]},
+    {'theme': 'My Self', 'number': 11, 'attribute': 'Personal development', 'description': '',
+     'sub_attributes': [
+         ('Growth mindset', 'Recognising the value of continuing development and effective life and career management techniques'),
+         ('Determination', 'Effectively planning and managing tasks within deadlines - getting things done'),
+         ('Resilience', 'Effectively re-framing, learning and recovering quickly from difficulties and setbacks'),
+     ]},
+    {'theme': 'My Self', 'number': 12, 'attribute': 'Enterprising', 'description': '',
+     'sub_attributes': [
+         ('Innovation', 'Curious, creative and innovative - considering and developing new approaches and ideas'),
+         ('Commercial awareness', 'Demonstrating an understanding of commercial and organisational decisions and wider contexts'),
+         ('Adaptability', 'Open minded, willing to learn new things, take on new challenges and make adjustments'),
+     ]},
+]
+
+SGA_THEMES = list(dict.fromkeys(a['theme'] for a in SGA_CATALOGUE))
+
+# One row per sub-attribute, in catalogue order - the frame every SGA chart
+# and usage table starts from, so unused sub-attributes still show as gaps.
+SGA_SUB_ATTRIBUTE_ROWS = [
+    {'theme': a['theme'], 'attribute_number': a['number'], 'attribute': a['attribute'],
+     'sub_attribute': sub, 'definition': definition}
+    for a in SGA_CATALOGUE for sub, definition in a['sub_attributes']
+]
+
+# Thresholds for the School Dashboard / Faculty Overview SGA views. Set from
+# the first real export - re-run diagnostics/check_sga_export.py to re-tune.
+# A sub-attribute is "concentrated" when at least this share of the modules
+# that have any SGAs claim it...
+SGA_CONCENTRATION_SHARE = 0.5
+# ...and a module "claims many" when it maps more attributes than this (of 12).
+SGA_MODULE_MANY_ATTRIBUTES = 4
+
+# Capability that reveals the SGA views to non-admin roles. Admins always see
+# them; an admin ticks this for a role in the Admin Panel's Role Capabilities
+# tab to widen access.
+SGA_CAPABILITY = "view_sga_analytics"
+
+def can_view_sga(user_caps):
+    caps = {str(c).strip().lower() for c in (user_caps or [])}
+    return "access_admin_panel" in caps or SGA_CAPABILITY in caps
+
+def _sga_key(name):
+    """Match key for an SGA name: case, '&'/'and', hyphens and stray
+    whitespace are ignored ("Research & Critical Thinking" ==
+    "Research and critical thinking", "Self care" == "Self-care")."""
+    s = str(name or '').lower().replace('&', ' and ').replace('-', ' ')
+    return ' '.join(s.split())
+
+_SGA_ATTRIBUTE_BY_KEY = {_sga_key(a['attribute']): a for a in SGA_CATALOGUE}
+_SGA_SUB_BY_KEY = {_sga_key(r['sub_attribute']): r for r in SGA_SUB_ATTRIBUTE_ROWS}
+
+def sga_year_to_academic_year(value):
+    """The SGA export's '26/27' -> '2026-27' (CURRENT_ACADEMIC_YEAR's form).
+    Also accepts '2026/27' and '2026-27'. Returns '' if unparseable."""
+    m = re.fullmatch(r'\s*(\d{2}|\d{4})\s*[/-]\s*(\d{2}|\d{4})\s*', str(value or ''))
+    if not m:
+        return ""
+    start = m.group(1)
+    if len(start) == 2:
+        start = f"20{start}"
+    return f"{start}-{m.group(2)[-2:]}"
+
+def parse_sga_export(df):
+    """
+    Turns the SGA tool's faculty CSV export into the frame
+    database.replace_sga_mappings() writes.
+
+    One export row is one module x attribute, with the chosen sub-attributes
+    comma-separated in 'Sub Attribute'. Names are matched to SGA_CATALOGUE
+    through _sga_key(); anything that doesn't match is dropped and reported
+    in 'unknown' rather than guessed at. A sub-attribute listed under an
+    attribute it doesn't belong to is kept under its own catalogue attribute
+    and reported too.
+
+    Only CURRENT_ACADEMIC_YEAR and FACULTY_SCHOOLS module prefixes are kept,
+    the same scope rules as the SITS and Ally imports.
+
+    Kept I/O-free - the caller reads the CSV and writes the database.
+
+    Returns {'mappings', 'rows_in', 'dropped_wrong_year',
+    'dropped_out_of_faculty', 'unknown'} - 'unknown' is a list of
+    {'module_code', 'attribute', 'value', 'problem'} dicts.
+    """
+    columns = ['academic_year', 'module_code', 'calendar_code', 'attribute',
+               'sub_attributes', 'comments', 'organisation', 'module_title']
+    result = {'mappings': pd.DataFrame(columns=columns), 'rows_in': 0,
+              'dropped_wrong_year': 0, 'dropped_out_of_faculty': 0, 'unknown': []}
+    if df is None or df.empty:
+        return result
+
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    required = ['Year', 'Module Code', 'Attribute', 'Sub Attribute']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError("This does not look like an SGA export - missing " + ", ".join(missing))
+
+    df = df[df['Module Code'].astype(str).str.strip() != '']
+    result['rows_in'] = len(df)
+
+    df['academic_year'] = df['Year'].map(sga_year_to_academic_year)
+    right_year = df['academic_year'] == CURRENT_ACADEMIC_YEAR
+    result['dropped_wrong_year'] = int((~right_year).sum())
+    df = df[right_year]
+
+    df['module_code'] = df['Module Code'].astype(str).str.strip().str.upper()
+    df = _drop_outside_faculty(df, result)
+
+    def _text(row, col):
+        return str(row.get(col, '') or '').strip()
+
+    # Keyed on the table's primary key, so a repeated row replaces the earlier
+    # one and a sub-attribute filed under the wrong attribute merges into its
+    # own attribute's row.
+    rows = {}
+    unknown = result['unknown']
+    for _, row in df.iterrows():
+        code = row['module_code']
+        raw_attr = _text(row, 'Attribute')
+        attr = _SGA_ATTRIBUTE_BY_KEY.get(_sga_key(raw_attr))
+        if attr is None:
+            unknown.append({'module_code': code, 'attribute': raw_attr, 'value': raw_attr,
+                            'problem': 'Unknown attribute'})
+            continue
+        calendar = _text(row, 'Calendar Code')
+        for raw_sub in _text(row, 'Sub Attribute').split(','):
+            if not raw_sub.strip():
+                continue
+            sub = _SGA_SUB_BY_KEY.get(_sga_key(raw_sub))
+            if sub is None:
+                unknown.append({'module_code': code, 'attribute': raw_attr, 'value': raw_sub.strip(),
+                                'problem': 'Unknown sub-attribute'})
+                continue
+            # A sub-attribute's own catalogue attribute can differ from the
+            # attribute the row was filed under - reported once, and it also
+            # decides whether this row's Comments belong to this entry.
+            misfiled = sub['attribute'] != attr['attribute']
+            if misfiled:
+                unknown.append({'module_code': code, 'attribute': raw_attr, 'value': raw_sub.strip(),
+                                'problem': f"Belongs to {sub['attribute']} - filed there instead"})
+            key = (code, calendar, sub['attribute'])
+            entry = rows.setdefault(key, {
+                'academic_year': CURRENT_ACADEMIC_YEAR, 'module_code': code,
+                'calendar_code': calendar, 'attribute': sub['attribute'], 'subs': set(),
+                'comments': '', 'organisation': _text(row, 'Organisation Name'),
+                'module_title': _text(row, 'Module Title')})
+            # A set: insertion order doesn't matter, since the final
+            # 'sub_attributes' string is always re-sorted into catalogue
+            # order below regardless of the order sub-attributes arrived in.
+            entry['subs'].add(sub['sub_attribute'])
+            if not misfiled:
+                entry['comments'] = _text(row, 'Comments')
+
+    if rows:
+        order = {r['sub_attribute']: i for i, r in enumerate(SGA_SUB_ATTRIBUTE_ROWS)}
+        out = pd.DataFrame(list(rows.values()))
+        out['sub_attributes'] = out['subs'].map(lambda s: '|'.join(sorted(s, key=order.get)))
+        result['mappings'] = out[columns].sort_values(
+            ['module_code', 'calendar_code', 'attribute']).reset_index(drop=True)
+    return result
+
+def explode_sga_mappings(df_mappings):
+    """sga_mappings rows -> one row per module x sub-attribute (distinct
+    across calendar periods), with theme and attribute attached."""
+    columns = ['module_code', 'theme', 'attribute_number', 'attribute', 'sub_attribute']
+    if df_mappings is None or df_mappings.empty:
+        return pd.DataFrame(columns=columns)
+    records = []
+    for code, subs in zip(df_mappings['module_code'], df_mappings['sub_attributes']):
+        for sub in str(subs or '').split('|'):
+            info = _SGA_SUB_BY_KEY.get(_sga_key(sub))
+            if info:
+                records.append({'module_code': str(code).strip().upper(), 'theme': info['theme'],
+                                'attribute_number': info['attribute_number'],
+                                'attribute': info['attribute'], 'sub_attribute': info['sub_attribute']})
+    if not records:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(records).drop_duplicates().reset_index(drop=True)[columns]
+
+def aggregate_sga_to_modules(df_long):
+    """Module-grain SGA counts from explode_sga_mappings(). A module listed in
+    more than one calendar period is counted once per distinct attribute /
+    sub-attribute, never twice."""
+    columns = ['module_code', 'sga_attributes', 'sga_sub_attributes', 'sga_themes',
+               'sga_attribute_names']
+    if df_long is None or df_long.empty:
+        return pd.DataFrame(columns=columns)
+    agg = df_long.sort_values('attribute_number').groupby('module_code', sort=True).agg(
+        sga_attributes=('attribute', 'nunique'),
+        sga_sub_attributes=('sub_attribute', 'nunique'),
+        sga_themes=('theme', 'nunique'),
+        sga_attribute_names=('attribute', lambda s: ', '.join(dict.fromkeys(s))),
+    ).reset_index()
+    return agg[columns]
+
+def summarise_sga_usage(df_long, module_codes):
+    """
+    How often each of the 36 sub-attributes is claimed across a set of
+    modules - every sub-attribute in catalogue order, unused ones included.
+
+    'share' is of the modules in the set that have any SGAs, not of every
+    module, so it reads as spread among the mapped modules rather than
+    restating coverage. 'gap' is a sub-attribute nobody in the set claims;
+    'concentrated' is one at or above SGA_CONCENTRATION_SHARE.
+    """
+    usage = pd.DataFrame(SGA_SUB_ATTRIBUTE_ROWS)
+    codes = {str(c).strip().upper() for c in module_codes}
+    sub = (df_long[df_long['module_code'].isin(codes)]
+           if df_long is not None and not df_long.empty else pd.DataFrame(columns=['module_code', 'sub_attribute']))
+    mapped = sub['module_code'].nunique()
+    counts = sub.groupby('sub_attribute')['module_code'].nunique()
+    usage['modules'] = usage['sub_attribute'].map(counts).fillna(0).astype(int)
+    usage['share'] = usage['modules'] / mapped if mapped else 0.0
+    usage['gap'] = usage['modules'] == 0
+    usage['concentrated'] = (usage['share'] >= SGA_CONCENTRATION_SHARE) & (usage['modules'] > 0)
+    usage.attrs['mapped_modules'] = int(mapped)
+    return usage
+
 # --- Module readiness (template alignment) ---------------------------------
 
 # The faculty Template Alignment Report tells us the visible/hidden/deleted/
@@ -1480,9 +1776,7 @@ def parse_readiness_export(df, academic_year, snapshot_date):
         result['dropped_other_years'] = int((~wanted).sum())
         df = df[wanted]
 
-    in_faculty = df['module_code'].str[:3].isin(FACULTY_SCHOOLS)
-    result['dropped_out_of_faculty'] = int((~in_faculty).sum())
-    df = df[in_faculty]
+    df = _drop_outside_faculty(df, result)
     if df.empty:
         return result
 

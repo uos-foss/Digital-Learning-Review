@@ -26,6 +26,9 @@ from database import (
     save_readiness_snapshot,
     get_readiness_academic_years,
     purge_readiness,
+    replace_sga_mappings,
+    get_sga_academic_years,
+    purge_sga,
     init_db,
     get_all_sits_modules,
     update_module_lead_sqlite,
@@ -47,6 +50,10 @@ from processing import (
     reconcile_ally_modules,
     parse_leganto_lists_export,
     parse_readiness_export,
+    parse_sga_export,
+    explode_sga_mappings,
+    aggregate_sga_to_modules,
+    SGA_CAPABILITY,
     ally_term_to_academic_year,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
@@ -149,6 +156,32 @@ def _sits_module_codes():
     except Exception as exc:
         logging.warning(f"Could not read SITS codes for Ally reconciliation: {exc}")
         return set()
+
+
+def _render_purge_expander(expander_label, description, no_data_caption,
+                           get_years_fn, purge_fn, success_fn, key_prefix,
+                           confirm_label, button_label):
+    """Shared 'purge one academic year' block - year selector, confirm
+    checkbox, delete button, cache clear - for the per-source importers that
+    replace a year of data at a time (Leganto, readiness, SGA). Wording and
+    the underlying get_*_academic_years()/purge_*() pair are the only things
+    that differ between sources; success_fn(removed, year) builds the
+    source-specific success message.
+    """
+    with st.expander(expander_label):
+        st.write(description)
+        years_present = get_years_fn()
+        if not years_present:
+            st.caption(no_data_caption)
+        else:
+            purge_year = st.selectbox("Academic year to purge:", years_present,
+                                      key=f"{key_prefix}_purge_year")
+            purge_ok = st.checkbox(confirm_label, key=f"{key_prefix}_purge_confirm")
+            if st.button(button_label, disabled=not purge_ok,
+                         key=f"btn_purge_{key_prefix}"):
+                removed = purge_fn(purge_year)
+                st.success(success_fn(removed, purge_year))
+                st.cache_data.clear()
 
 
 def _render_ally_import():
@@ -488,23 +521,16 @@ def _render_leganto_import():
             st.error(f"❌ Leganto import failed: {exc}")
             logging.error(f"Leganto import error: {exc}")
 
-    with st.expander("🗑️ Purge Leganto reading-list data"):
-        st.write(
-            "Deletes every stored row for one academic year - the way to drop a "
-            "reference/test import (e.g. last year's data, imported early to build "
-            "against) once the real export for that year lands."
-        )
-        years_present = get_leganto_academic_years()
-        if not years_present:
-            st.caption("No Leganto reading-list data stored yet.")
-        else:
-            purge_year = st.selectbox("Academic year to purge:", years_present, key="leganto_purge_year")
-            purge_ok = st.checkbox("Confirm: delete all leganto_lists rows for this year.",
-                                   key="leganto_purge_confirm")
-            if st.button("🗑️ Purge Leganto year", disabled=not purge_ok, key="btn_purge_leganto"):
-                removed = purge_leganto_lists(purge_year)
-                st.success(f"Removed {removed} rows for {purge_year}.")
-                st.cache_data.clear()
+    _render_purge_expander(
+        "🗑️ Purge Leganto reading-list data",
+        "Deletes every stored row for one academic year - the way to drop a "
+        "reference/test import (e.g. last year's data, imported early to build "
+        "against) once the real export for that year lands.",
+        "No Leganto reading-list data stored yet.",
+        get_leganto_academic_years, purge_leganto_lists,
+        lambda removed, year: f"Removed {removed} rows for {year}.",
+        "leganto", "Confirm: delete all leganto_lists rows for this year.",
+        "🗑️ Purge Leganto year")
 
 
 def _render_readiness_import():
@@ -678,25 +704,16 @@ def _render_readiness_import():
             st.error(f"❌ Readiness import failed: {exc}")
             logging.error(f"Readiness import error: {exc}")
 
-    with st.expander("🗑️ Purge module readiness data"):
-        st.write(
-            "Deletes every stored course and section row for one academic year - "
-            "the way to drop a reference/test import once the real export for that "
-            "year lands."
-        )
-        years_present = get_readiness_academic_years()
-        if not years_present:
-            st.caption("No readiness data stored yet.")
-        else:
-            purge_year = st.selectbox("Academic year to purge:", years_present,
-                                      key="readiness_purge_year")
-            purge_ok = st.checkbox("Confirm: delete all readiness rows for this year.",
-                                   key="readiness_purge_confirm")
-            if st.button("🗑️ Purge readiness year", disabled=not purge_ok,
-                         key="btn_purge_readiness"):
-                removed = purge_readiness(purge_year)
-                st.success(f"Removed {removed} courses (and their sections) for {purge_year}.")
-                st.cache_data.clear()
+    _render_purge_expander(
+        "🗑️ Purge module readiness data",
+        "Deletes every stored course and section row for one academic year - "
+        "the way to drop a reference/test import once the real export for that "
+        "year lands.",
+        "No readiness data stored yet.",
+        get_readiness_academic_years, purge_readiness,
+        lambda removed, year: f"Removed {removed} courses (and their sections) for {year}.",
+        "readiness", "Confirm: delete all readiness rows for this year.",
+        "🗑️ Purge readiness year")
 
 
 def _render_sits_import():
@@ -844,6 +861,114 @@ def _render_sits_import():
         except Exception as exc:
             st.error(f"❌ SITS import failed: {exc}")
             logging.error(f"SITS import error: {exc}")
+
+
+def _render_sga_import():
+    """
+    Importer for the Sheffield Graduate Attributes export from the SGA tool -
+    one row per module x attribute, sub-attributes comma-separated. Dedicated
+    rather than generic because names have to be matched to the fixed SGA
+    catalogue (the tool's own casing and spacing drift) and each year is
+    replaced whole, so a mapping removed in the SGA tool disappears here too.
+    """
+    st.markdown("---")
+    st.subheader("🎓 Sheffield Graduate Attributes Import")
+    st.write(
+        "Upload the faculty SGA export from the SGA tool. Each year is replaced in "
+        f"full, so upload the complete export. Only {CURRENT_ACADEMIC_YEAR} rows and this "
+        "faculty's module codes are kept."
+    )
+
+    sga_file = st.file_uploader("Choose the SGA export (CSV)", type="csv", key="uploader_sga")
+    if sga_file is None:
+        with st.expander("What this import expects"):
+            st.markdown(
+                "- Columns `Year` (e.g. `26/27`), `Organisation Name`, `Module Code`, "
+                "`Module Title`, `Attribute`, `Sub Attribute` (comma-separated), "
+                "`Comments` and `Calendar Code`.\n"
+                "- Attribute and sub-attribute names are matched to the standard SGA "
+                "framework, ignoring case, spacing and `&`/`and`. Any name that doesn't "
+                "match is listed before you import, and left out."
+            )
+        return
+
+    try:
+        df_raw = pd.read_csv(sga_file, dtype=str, keep_default_na=False)
+        parsed = parse_sga_export(df_raw)
+    except Exception as exc:
+        st.error(f"❌ {exc}")
+        return
+
+    mappings = parsed['mappings']
+    st.markdown("**What this file contains**")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Rows read", f"{parsed['rows_in']:,}")
+    m2.metric("Other years dropped", f"{parsed['dropped_wrong_year']:,}")
+    m3.metric("Outside faculty dropped", f"{parsed['dropped_out_of_faculty']:,}")
+    m4.metric("Modules", f"{mappings['module_code'].nunique():,}")
+
+    if parsed['unknown']:
+        st.warning(
+            f"⚠️ {len(parsed['unknown'])} name(s) didn't match the SGA framework as filed. "
+            "Unknown names are left out; a sub-attribute under the wrong attribute is kept "
+            "under its own.")
+        st.dataframe(pd.DataFrame(parsed['unknown']).rename(columns={
+            'module_code': 'Module', 'attribute': 'Attribute in file',
+            'value': 'Name', 'problem': 'Problem'}), use_container_width=True, hide_index=True)
+
+    if mappings.empty:
+        st.warning("No in-scope rows found, so there is nothing to import.")
+        return
+
+    per_module = aggregate_sga_to_modules(explode_sga_mappings(mappings))
+    s1, s2, s3 = st.columns(3)
+    s1.metric("Attribute rows", f"{len(mappings):,}")
+    s2.metric("Mean attributes per module", f"{per_module['sga_attributes'].mean():.1f}")
+    s3.metric("Mean sub-attributes per module", f"{per_module['sga_sub_attributes'].mean():.1f}")
+
+    sits_codes = _sits_module_codes()
+    if sits_codes:
+        rec = reconcile_ally_modules(mappings['module_code'], sits_codes)
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Matched to SITS", f"{len(rec['matched']):,}")
+        r2.metric("In SGA export only", f"{len(rec['ally_only']):,}",
+                  help=", ".join(sorted(rec['ally_only'])[:30]) or None)
+        r3.metric("SITS modules with no SGAs", f"{len(rec['sits_only']):,}")
+
+    with st.expander("Preview parsed rows"):
+        st.dataframe(mappings.head(10), use_container_width=True, hide_index=True)
+
+    existing_years = get_sga_academic_years()
+    replace_note = (f" This replaces the SGA data already stored for {CURRENT_ACADEMIC_YEAR}."
+                    if CURRENT_ACADEMIC_YEAR in existing_years else "")
+    confirm = st.checkbox(
+        f"Confirm: import {len(mappings):,} attribute rows for "
+        f"{mappings['module_code'].nunique():,} modules.{replace_note}",
+        key="sga_import_confirm")
+    if st.button("🚀 Import SGAs", type="primary", disabled=not confirm, key="btn_import_sga"):
+        username = st.session_state.get("username", "Unknown")
+        try:
+            with st.spinner("Writing SGA data..."):
+                result = replace_sga_mappings(mappings, CURRENT_ACADEMIC_YEAR,
+                                              sga_file.name, username)
+            logging.info("🎓 SGA import by '%s' from %s: %s rows, %s modules",
+                         username, sga_file.name, result['rows'], result['modules'])
+            st.cache_data.clear()
+            st.success(f"✅ Imported {result['rows']:,} attribute rows across "
+                       f"{result['modules']:,} modules for {CURRENT_ACADEMIC_YEAR}.")
+        except Exception as exc:
+            st.error(f"❌ SGA import failed: {exc}")
+            logging.error(f"SGA import error: {exc}")
+
+    _render_purge_expander(
+        "🗑️ Purge SGA data",
+        "Deletes every stored attribute row for one academic year - the way to "
+        "drop a reference/test import once the real export for that year lands.",
+        "No SGA data stored yet.",
+        get_sga_academic_years, purge_sga,
+        lambda removed, year: f"Removed {removed} rows for {year}.",
+        "sga", "Confirm: delete all SGA rows for this year.",
+        "🗑️ Purge SGA year")
 
 
 def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
@@ -1124,7 +1249,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 roles_list = sorted(df_roles["Role"].unique().tolist())
                 schools_list = ["All"] + list(FACULTY_SCHOOLS)
-                available_caps = ["view_all", "view_school", "view_school_dashboard", "edit_checklist", "access_admin_panel", "access_admin_limited"]
+                available_caps = ["view_all", "view_school", "view_school_dashboard", "edit_checklist", "access_admin_panel", "access_admin_limited", SGA_CAPABILITY]
 
                 # Roles that carry either admin capability - excluded from the
                 # role-assignment dropdowns below when acting as a limited admin,
@@ -1856,6 +1981,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             "Leganto No-Lists": "leganto_nolist",
             "Module Readiness Courses": "readiness_courses",
             "Module Readiness Sections": "readiness_sections",
+            "SGA Mappings": "sga_mappings",
             "Legacy Audit Baseline (Autumn 25/26)": "main_vle_audit_aut",
             "Legacy Audit Baseline (Spring 25/26)": "main_vle_audit_spr"
         }
@@ -1864,6 +1990,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
         _render_ally_import()
         _render_leganto_import()
         _render_readiness_import()
+        _render_sga_import()
 
         # Separate handling for Blackboard Links (CSV upload)
         st.markdown("---")
@@ -1977,6 +2104,16 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             "Module readiness data is imported through the 🧱 Module "
                             "Readiness (Template Alignment) Import section at the top of "
                             "this tab, not here. Export from these tables still works."
+                        )
+
+                    elif target_table == "sga_mappings":
+                        # The export has to be split into canonical
+                        # sub-attributes, scoped to a year and the faculty,
+                        # and replaced a year at a time with the import logged.
+                        raise ValueError(
+                            "SGA data is imported through the 🎓 Sheffield Graduate Attributes "
+                            "Import section at the top of this tab, not here. Export from "
+                            "this table still works."
                         )
 
                     elif target_table == "sits_assessment_2026_27":

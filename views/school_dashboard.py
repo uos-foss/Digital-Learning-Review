@@ -7,15 +7,16 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
                         derive_module_findings, short_field_label,
                         format_comment_markdown, fmt_report_date,
-                        reading_list_verdict, READING_LIST_FIELD_ID)
+                        reading_list_verdict, READING_LIST_FIELD_ID, can_view_sga)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
-                      get_school_spot_checks,
+                      delete_spot_checks, get_school_spot_checks,
                       get_spot_check_comments)
 from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_issue_profile,
     build_accessibility_risk_list,
 )
+from views.sga_widgets import render_school_sga
 
 def to_title_case(name: str) -> str:
     """Convert name to title case (capitalize each word)."""
@@ -50,6 +51,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
     # from everyone else rather than letting it fail on click.
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
     is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
+    show_sga = can_view_sga(user_caps)
 
     # A school handed over from the Faculty School Comparison table. Consumed
     # once, then cleared, so the user's saved_school preference is untouched.
@@ -198,6 +200,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             if not is_admin:
                 view_options = [v for v in view_options
                                  if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
+            # Admins only until view_sga_analytics is granted to a role.
+            if show_sga:
+                view_options.insert(2, "🎓 Graduate Attributes")
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -350,6 +355,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     if status == 'checked':
                         return "✅ Checked"
                     return ""
+                if show_sga and 'SGA Attributes' in display_df.columns \
+                        and display_df['SGA Attributes'].notna().any():
+                    cols.append('SGA Attributes')
+                    configs['SGA Attributes'] = st.column_config.NumberColumn(
+                        "SGAs",
+                        help="Sheffield Graduate Attributes mapped in the SGA tool, "
+                             "out of 12. 0 means none mapped.")
+
                 display_df['Spot-Check'] = display_df.apply(_spot_check_display, axis=1)
                 cols.append('Spot-Check')
                 configs['Spot-Check'] = st.column_config.TextColumn(
@@ -400,17 +413,29 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         flag_col = st.container()
 
                     if can_audit:
-                        already_pending = [c for c in selected_codes if c in sc_status_by_code
-                                          and sc_status_by_code[c] == 'pending']
-                        flaggable = [c for c in selected_codes if c not in already_pending]
+                        # Only modules with no spot-check this year can be
+                        # flagged. A checked module is skipped as well as a
+                        # pending one: re-running a check is Remove Flag in
+                        # the Spot-Checks view, then flag again. Without this
+                        # a select-all re-queued every checked module.
+                        already_pending = [c for c in selected_codes
+                                          if sc_status_by_code.get(c) == 'pending']
+                        already_checked = [c for c in selected_codes
+                                          if sc_status_by_code.get(c) == 'checked']
+                        flaggable = [c for c in selected_codes if c not in sc_status_by_code]
                         with flag_col:
                             label = (f"🎯 Flag for Spot-Check" if len(selected_codes) == 1
                                     else f"🎯 Flag {len(flaggable)} for Spot-Check")
                             if not flaggable:
-                                st.button("🎯 Already flagged", width="stretch",
+                                st.button("🎯 Already flagged or checked", width="stretch",
                                          disabled=True, key="btn_school_sc_pending",
-                                         help="Every selected module already has a pending spot-check.")
-                            elif st.button(label, width="stretch", key="btn_school_sc"):
+                                         help="Every selected module is already pending or "
+                                              "checked this year. To re-run a check, remove "
+                                              "its flag in 🎯 Spot-Checks, then flag it again.")
+                            elif st.button(label, width="stretch", key="btn_school_sc",
+                                           help=(f"Skips {len(already_pending)} pending and "
+                                                 f"{len(already_checked)} checked module(s)."
+                                                 if already_pending or already_checked else None)):
                                 flagger = str(st.session_state.get("username", "")).strip().upper()
                                 flagged_on = datetime.date.today().strftime('%Y-%m-%d')
                                 for code in flaggable:
@@ -420,14 +445,18 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                     flag_module_for_spot_check(
                                         code, CURRENT_ACADEMIC_YEAR, flagger, flagged_on, snapshot)
                                 msg = f"Flagged {len(flaggable)} module(s) for spot-check."
-                                if already_pending:
-                                    msg += f" {len(already_pending)} already had a pending flag and were skipped."
+                                if already_pending or already_checked:
+                                    msg += (f" Skipped {len(already_pending)} already pending and "
+                                            f"{len(already_checked)} already checked.")
                                 st.success(msg)
                                 # spot_checks isn't part of the cached loaders above (Actionable
                                 # Items etc. are unaffected by flagging), so no st.cache_data.clear()
                                 # is needed here - only a rerun to refresh the status column.
                                 st.rerun()
                     st.divider()
+
+            elif selected_view == "🎓 Graduate Attributes":
+                render_school_sga(school_df, school)
 
             elif selected_view == "📊 Ally Analytics":
                 st.subheader(f"Accessibility Profile — {school} ({semester})")
@@ -1022,6 +1051,61 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     shown['Status'] = shown['status'].map({'pending': '⏳ Pending', 'checked': '✅ Checked'})
                     shown[comments_label] = shown['module_code'].map(
                         lambda c: comments_by_module.get(str(c).strip().upper(), ""))
+                    # A pending flag on a module that already has a checked row
+                    # this year only arises from flagging a checked module by
+                    # mistake (the proper re-run path deletes the checked row
+                    # first), so offer to clear all of those in one go.
+                    checked_codes = set(shown.loc[shown['status'] == 'checked', 'module_code']
+                                        .str.strip().str.upper())
+                    redundant = shown[(shown['status'] == 'pending')
+                                      & shown['module_code'].str.strip().str.upper().isin(checked_codes)]
+
+                    def _clear_sc_selection():
+                        # Every filter's own selection key, not just the one
+                        # currently shown - a delete can shift row positions
+                        # under a *different* filter tab too, so a selection
+                        # left there would otherwise silently point at
+                        # whatever row now sits at that stale index.
+                        for k in [k for k in st.session_state
+                                  if str(k).startswith("school_dashboard_spot_check_dataframe")]:
+                            del st.session_state[k]
+
+                    def _reset_confirm_if_selection_changed(state_key, selection_ids):
+                        # A fixed key per checkbox, reset here whenever the
+                        # set of ids it's confirming against has changed
+                        # since last render - not a key derived from the
+                        # selection itself, which would mint a new,
+                        # never-evicted session_state entry for every
+                        # distinct selection made over the life of the
+                        # session. Must run before the checkbox below is
+                        # instantiated this run.
+                        last_key = f"_{state_key}_last_ids"
+                        current = tuple(sorted(selection_ids))
+                        if st.session_state.get(last_key) != current:
+                            st.session_state.pop(state_key, None)
+                            st.session_state[last_key] = current
+
+                    if can_audit and not redundant.empty:
+                        with st.container(border=True):
+                            st.warning(
+                                f"{len(redundant)} module(s) have a pending flag but were "
+                                "already checked this year. Removing the pending flags "
+                                "leaves their checked results as they were.")
+                            _reset_confirm_if_selection_changed("sc_redundant_confirm", redundant['id'])
+                            redundant_confirm = st.checkbox(
+                                "Confirm removal", key="sc_redundant_confirm")
+                            if st.button(f"🗑️ Remove {len(redundant)} duplicate pending flag(s)",
+                                         disabled=not redundant_confirm, key="btn_school_sc_redundant"):
+                                n = delete_spot_checks(redundant['id'].tolist())
+                                st.toast(f"Removed {n} duplicate pending flag(s).")
+                                _clear_sc_selection()
+                                st.rerun()
+
+                    sc_filter = st.radio(
+                        "Show", ["All", "Pending", "Checked"], horizontal=True,
+                        key="sc_status_filter")
+                    if sc_filter != "All":
+                        shown = shown[shown['status'] == sc_filter.lower()]
                     shown = shown.reset_index(drop=True)
                     # 'id' stays out of the visible table but is kept aligned by
                     # position so a selected row can be deleted by primary key.
@@ -1031,22 +1115,49 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         ['Module', 'Module Name', 'Status', 'Checked On',
                          comments_label]]
 
-                    st.caption("Select a row to jump to that module, or remove its flag.")
+                    st.caption("Select a row to jump to that module, or select several "
+                               "(the header checkbox selects all shown) to remove their flags.")
+                    # Keyed per filter: the selection is stored by row position,
+                    # so a selection made under one filter must never carry over
+                    # to the differently-ordered rows of another.
+                    sc_table_key = f"school_dashboard_spot_check_dataframe_{sc_filter}"
                     sc_selection = st.dataframe(
                         sc_display_df, hide_index=True, width="stretch",
-                        on_select="rerun", selection_mode="single-row",
+                        on_select="rerun", selection_mode="multi-row",
                         column_config={
                             comments_label: st.column_config.TextColumn(comments_label, width="medium"),
                         },
-                        key="school_dashboard_spot_check_dataframe")
+                        key=sc_table_key)
 
                     # Streamlit keeps a dataframe's selection (by row position)
                     # in session_state across reruns even when the underlying
                     # data has since shrunk - e.g. right after this same panel
                     # deletes a row. Bounds-check before indexing rather than
                     # trusting a persisted index still fits the current table.
-                    if sc_selection.selection.rows and sc_selection.selection.rows[0] < len(sc_display_df):
-                        sc_row_idx = sc_selection.selection.rows[0]
+                    sc_rows = [i for i in sc_selection.selection.rows if i < len(sc_display_df)]
+                    if len(sc_rows) > 1:
+                        sel_ids = [int(sc_ids.iloc[i]) for i in sc_rows]
+                        sel_status = shown.iloc[sc_rows]['status']
+                        n_pending = int((sel_status == 'pending').sum())
+                        n_checked = int((sel_status == 'checked').sum())
+                        st.divider()
+                        st.info(f"🚀 {len(sc_rows)} flags selected: {n_pending} pending, "
+                                f"{n_checked} checked")
+                        if can_audit:
+                            _reset_confirm_if_selection_changed("sc_bulk_remove_confirm", sel_ids)
+                            bulk_confirm = st.checkbox(
+                                "Confirm removal", key="sc_bulk_remove_confirm",
+                                help="Deletes these flags outright. Checked ones lose their "
+                                     "agreement result and show as not spot-checked.")
+                            if st.button(f"🗑️ Remove {len(sc_rows)} Flags",
+                                         disabled=not bulk_confirm, key="btn_school_sc_bulk_remove"):
+                                n = delete_spot_checks(sel_ids)
+                                st.toast(f"Removed {n} spot-check flag(s).")
+                                _clear_sc_selection()
+                                st.rerun()
+                        st.divider()
+                    elif sc_rows:
+                        sc_row_idx = sc_rows[0]
                         sc_clicked_code = sc_display_df.iloc[sc_row_idx]['Module']
                         sc_clicked_status = shown.iloc[sc_row_idx]['status']
                         sc_clicked_id = int(sc_ids.iloc[sc_row_idx])
@@ -1096,8 +1207,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                     # plain del is fine here (unlike writing a
                                     # value to it) since it just drops the
                                     # widget's stored state for next run.
-                                    if "school_dashboard_spot_check_dataframe" in st.session_state:
-                                        del st.session_state["school_dashboard_spot_check_dataframe"]
+                                    _clear_sc_selection()
                                     st.rerun()
                         st.divider()
 

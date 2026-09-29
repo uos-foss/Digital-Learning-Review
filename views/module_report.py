@@ -30,6 +30,7 @@ from processing import (
     parse_user_schools,
     format_user_schools,
     module_matches_user_schools,
+    can_view_sga,
 )
 from database import (
     get_active_audit_fields,
@@ -985,7 +986,26 @@ def _render_label_node(name, depth, has_children_data):
                 Not part of the readiness data yet.</p>""", unsafe_allow_html=True)
 
 
-def _render_section_tree(nodes, states, responses, has_audit, created, leganto, depth=0):
+def _sga_note(active_row):
+    """One neutral line for the Skills Development (SGAs) card: whether the
+    SGA tool has any attributes mapped for this module, and how many. None
+    when there is nothing to say - no SGA import yet this year, or the viewer
+    lacks the SGA capability (admins only until it's granted to a role).
+    Informational only, so never amber and never in the PDF."""
+    if active_row is None or not can_view_sga(st.session_state.get("capabilities", [])):
+        return None
+    attrs = pd.to_numeric(active_row.get('SGA Attributes'), errors='coerce')
+    if pd.isna(attrs):
+        return None
+    if int(attrs) == 0:
+        return "SGA tool: no graduate attributes mapped for this module yet."
+    subs = int(pd.to_numeric(active_row.get('SGA Sub-Attributes'), errors='coerce') or 0)
+    return (f"SGA tool: {int(attrs)} graduate attribute{'s' if attrs != 1 else ''} mapped "
+            f"({subs} sub-attribute{'s' if subs != 1 else ''}).")
+
+
+def _render_section_tree(nodes, states, responses, has_audit, created, leganto, depth=0,
+                         sga_note=None):
     """
     Walks processing.TEMPLATE_SECTION_TREE, rendering each node at its
     nesting depth - a status card for a tracked section, a plain heading for
@@ -1003,10 +1023,21 @@ def _render_section_tree(nodes, states, responses, has_audit, created, leganto, 
                 _render_section_card(value, state, responses, has_audit, created,
                                      leganto=leganto if value == 'MODULE_READING_LIST' else None,
                                      depth=depth)
+            # Independent of `state`: the SGA tool export is a separate
+            # import from Template Alignment readiness, so a module can have
+            # real SGA data with no (or no yet-imported) readiness state for
+            # this section - the note must not disappear just because the
+            # card above it didn't render.
+            if value == 'SKILLS_DEVELOPMENT_SGAS' and sga_note:
+                top_margin = "-2px" if state else "8px"
+                st.markdown(
+                    f'<p style="margin:{top_margin} 0 8px {depth * 24 + 16}px;{TEXT_FAINT};'
+                    f'font-size:11px;">🎓 {sga_note}</p>', unsafe_allow_html=True)
         else:
             _render_label_node(value, depth, has_children_data=bool(children))
         if children:
-            _render_section_tree(children, states, responses, has_audit, created, leganto, depth + 1)
+            _render_section_tree(children, states, responses, has_audit, created, leganto,
+                                 depth + 1, sga_note)
 
 
 def _render_template_sections(active_row, responses=None, has_audit=False,
@@ -1048,7 +1079,8 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
         "its measured or observed state - e.g. whether items are visible to "
         "students, have been edited, etc.")
 
-    _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto)
+    _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto,
+                         sga_note=_sga_note(active_row))
 
 
 def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, depth=0):
