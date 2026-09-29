@@ -338,7 +338,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         )
 
         from processing import calculate_dynamic_compliance_gap
-        gaps = calculate_dynamic_compliance_gap(school_code='All')
+        semester_codes = set(
+            active_df['New module code'].dropna().astype(str).str.strip().str.upper()
+        ) if not active_df.empty else set()
+        gaps = calculate_dynamic_compliance_gap(school_code='All', module_codes=semester_codes)
         
         if gaps:
             gap_df = pd.DataFrame(list(gaps.items()), columns=['Category', 'Compliance %'])
