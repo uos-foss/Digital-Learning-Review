@@ -1317,13 +1317,15 @@ def parse_sga_export(df):
     Kept I/O-free - the caller reads the CSV and writes the database.
 
     Returns {'mappings', 'rows_in', 'dropped_wrong_year',
-    'dropped_out_of_faculty', 'unknown'} - 'unknown' is a list of
+    'dropped_out_of_faculty', 'blank_rows', 'unknown'} - 'blank_rows' counts
+    export rows with no attribute or sub-attribute, and 'unknown' is a list of
     {'module_code', 'attribute', 'value', 'problem'} dicts.
     """
     columns = ['academic_year', 'module_code', 'calendar_code', 'attribute',
                'sub_attributes', 'comments', 'organisation', 'module_title']
     result = {'mappings': pd.DataFrame(columns=columns), 'rows_in': 0,
-              'dropped_wrong_year': 0, 'dropped_out_of_faculty': 0, 'unknown': []}
+              'dropped_wrong_year': 0, 'dropped_out_of_faculty': 0, 'unknown': [],
+              'blank_rows': 0}
     if df is None or df.empty:
         return result
 
@@ -1356,6 +1358,11 @@ def parse_sga_export(df):
     for _, row in df.iterrows():
         code = row['module_code']
         raw_attr = _text(row, 'Attribute')
+        if not raw_attr and not _text(row, 'Sub Attribute'):
+            # The tool lists a module even when nothing has been mapped to
+            # it. That is "no SGAs", not a name that failed to match.
+            result['blank_rows'] += 1
+            continue
         attr = _SGA_ATTRIBUTE_BY_KEY.get(_sga_key(raw_attr))
         if attr is None:
             unknown.append({'module_code': code, 'attribute': raw_attr, 'value': raw_attr,

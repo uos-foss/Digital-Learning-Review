@@ -907,6 +907,11 @@ def _render_sga_import():
     m3.metric("Outside faculty dropped", f"{parsed['dropped_out_of_faculty']:,}")
     m4.metric("Modules", f"{mappings['module_code'].nunique():,}")
 
+    if parsed.get('blank_rows'):
+        st.caption(
+            f"{parsed['blank_rows']:,} row(s) list a module with no attribute chosen. "
+            "These are modules with no SGAs mapped yet, so they are skipped.")
+
     if parsed['unknown']:
         st.warning(
             f"⚠️ {len(parsed['unknown'])} name(s) didn't match the SGA framework as filed. "

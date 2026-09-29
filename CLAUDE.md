@@ -239,6 +239,7 @@ import date, same as `sits_imports`). Added 25-09-2026.
   Thinking`), so every match goes through `_sga_key()`. Unknown names are
   dropped and listed by the importer, never guessed; a sub-attribute filed
   under the wrong attribute is kept under its own.
+- **Rows with no attribute and no sub-attribute are skipped, not reported as unknown.** The SGA tool lists a module even when nothing is mapped to it (266 rows, 267 modules in the first real export), so they are counted in `parse_sga_export()`'s `blank_rows` and shown as a caption. Absence and "listed but empty" both mean no SGAs; the table never stores the empty rows.
 - **Counts are `None`, not 0, until a year has been imported**
   (`database.sga_imported()`), so "no data" never reads as "no SGAs".
   Module grain is a union across calendar periods
