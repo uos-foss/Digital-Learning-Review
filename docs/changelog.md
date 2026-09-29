@@ -1,6 +1,7 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### Unreleased
+### 🚀 Version 1.28.1 (Current): *Template Alignment by Semester*
+*29 September 2026*
 
 **Template Alignment**
 
@@ -10,7 +11,7 @@ Recent updates and releases for the Digital Learning Review portal.
   modules running in the semester you have chosen. Year-long modules count
   in both Autumn and Spring, and "All year" shows just the year-long ones.
 
-### 🚀 Version 1.28.0 (Current): *Module Reports as Accessible PDFs*
+### 🚀 Version 1.28.0: *Module Reports as Accessible PDFs*
 *25 September 2026*
 
 **Module report**
