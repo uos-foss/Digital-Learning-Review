@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import contextlib
 import pandas as pd
 import logging
 from processing import parse_custom_observations  # noqa: F401 - re-exported, see below
@@ -340,6 +341,40 @@ def init_db():
         )
     """)
 
+    # Sheffield Graduate Attributes, from the SGA tool's faculty CSV export, at
+    # the export's own grain: one row per module x attribute per calendar
+    # period. sub_attributes holds the canonical sub-attribute names from
+    # processing.SGA_CATALOGUE, '|'-joined. Replaced a year at a time by
+    # replace_sga_mappings() - the export is the complete current state, so
+    # a snapshot series (Leganto's shape) could never show a removed mapping.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sga_mappings (
+            academic_year TEXT,
+            module_code TEXT,
+            calendar_code TEXT,
+            attribute TEXT,
+            sub_attributes TEXT,
+            comments TEXT,
+            organisation TEXT,
+            module_title TEXT,
+            PRIMARY KEY (academic_year, module_code, calendar_code, attribute)
+        )
+    """)
+
+    # One row per SGA import, the only record of when it was last refreshed
+    # (same reason as sits_imports).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sga_imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            imported_at TEXT,
+            academic_year TEXT,
+            filename TEXT,
+            rows INTEGER,
+            modules INTEGER,
+            imported_by TEXT
+        )
+    """)
+
     # Spot-check flagging: a Digital Learning Advisor picks a module from
     # their School Dashboard to double-check by hand, based on their own
     # judgement rather than an algorithmic sample. One row per flag, from the
@@ -540,6 +575,32 @@ def get_db_connection():
     conn.execute("PRAGMA busy_timeout=5000;")
     return conn
 
+@contextlib.contextmanager
+def _immediate_transaction():
+    """Opens a connection, begins an explicit BEGIN IMMEDIATE transaction, and
+    commits on success or rolls back (then re-raises) on any exception -
+    always closing the connection either way.
+
+    The shared shape every "read-then-write-then-log" full-year-replace
+    import (SITS, SGA) needs: none of them can use the ordinary
+    `with get_db_connection() as conn:` pattern used elsewhere in this file,
+    since that manages the transaction but not the connection itself (a
+    quirk of sqlite3.Connection's own context-manager protocol), and these
+    functions need the connection actually closed on every path. Yields the
+    cursor; the caller does its work against it and returns/raises normally.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        yield cursor
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 def get_last_import_dates():
     """Most recent snapshot date for each externally-imported data source that
     carries a real per-import timestamp, keyed 'bb' (Template Alignment,
@@ -559,6 +620,7 @@ def get_last_import_dates():
         'bb': ("readiness_courses", "SELECT MAX(snapshot_date) FROM readiness_courses"),
         'ally': ("ally_courses", "SELECT MAX(snapshot_date) FROM ally_courses"),
         'leganto': ("leganto_lists", "SELECT MAX(snapshot_date) FROM leganto_lists"),
+        'sga': ("sga_imports", "SELECT MAX(imported_at) FROM sga_imports"),
     }
     results = {}
     with get_db_connection() as conn:
@@ -1382,16 +1444,27 @@ def purge_readiness(academic_year):
 def flag_module_for_spot_check(module_code: str, academic_year: str, flagged_by: str,
                                flagged_on: str, data_verdict_snapshot: str) -> int:
     """Records a DLA's own choice to spot-check a module, from the School
-    Dashboard. Returns the new row's id.
+    Dashboard. Returns the id of the (possibly pre-existing) open row.
 
     No uniqueness constraint at the table level - a module could legitimately
-    be flagged again in a later year, or re-flagged after a prior check. The
-    "already pending" case (don't let someone flag the same still-open spot-
-    check twice) is checked by the caller via get_pending_spot_check() before
-    this is called, rather than enforced here, since a school looking back
-    over its own history is a normal thing to want and should not be
-    constrained by the write path.
+    be flagged again in a later year, or re-flagged after a prior row for
+    this year was deleted. What must never happen is a second *open* row
+    (pending or checked) for the same module/year sitting alongside one that
+    already exists - that combination is exactly the "pending flag on an
+    already-checked module" condition School Dashboard's bulk-flag UI filters
+    out before calling this. That filtering used to be the only thing
+    preventing it, which left every other caller free to reintroduce it, so
+    the check is now made here too: this function looks for an existing open
+    row itself via get_open_spot_check() and, if one exists, returns its id
+    without inserting a duplicate, rather than trusting every caller to have
+    already excluded the module.
     """
+    module_code = module_code.strip().upper()
+    existing = get_open_spot_check(module_code, academic_year)
+    if existing is not None:
+        logging.info("🎯 Spot-check flag for '%s' (%s) skipped - already %s (id=%s).",
+                     module_code, academic_year, existing['status'], existing['id'])
+        return existing['id']
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1399,13 +1472,34 @@ def flag_module_for_spot_check(module_code: str, academic_year: str, flagged_by:
                 module_code, academic_year, flagged_by, flagged_on,
                 status, data_verdict_snapshot)
             VALUES (?, ?, ?, ?, 'pending', ?)
-        """, (module_code.strip().upper(), academic_year, flagged_by, flagged_on,
+        """, (module_code, academic_year, flagged_by, flagged_on,
               data_verdict_snapshot))
         conn.commit()
         new_id = cursor.lastrowid
     logging.info("🎯 Spot-check flagged for '%s' by '%s' (%s).",
                  module_code, flagged_by, academic_year)
     return new_id
+
+def get_open_spot_check(module_code: str, academic_year: str):
+    """This module's spot_checks row for this year, pending or checked, if
+    any - at most one in practice, since flag_module_for_spot_check() itself
+    now refuses to create a second one. None if never flagged, or the prior
+    row was deleted. The single source of truth for "does this module already
+    have an open spot-check this year" - flag_module_for_spot_check() checks
+    it itself; a caller that wants to pre-filter a whole list before flagging
+    (School Dashboard's bulk-flag UI) can still call it per module."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'spot_checks'):
+            return None
+        row = conn.execute("""
+            SELECT * FROM spot_checks
+            WHERE module_code = ? AND academic_year = ? AND status IN ('pending', 'checked')
+            ORDER BY flagged_on DESC LIMIT 1
+        """, (module_code.strip().upper(), academic_year)).fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in conn.execute("SELECT * FROM spot_checks LIMIT 0").description]
+        return dict(zip(cols, row))
 
 def get_school_spot_checks(school: str, academic_year: str = None):
     """Every spot-check flagged for modules in one school - not just the
@@ -1963,13 +2057,9 @@ def replace_sits_assessment(df, academic_year, filename, imported_by, keep_curre
     new_leads = (df.drop_duplicates(subset=['CIS unit code'])
                    .set_index('CIS unit code')['Academic contact'].to_dict())
 
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-
+    with _immediate_transaction() as cursor:
         current_leads = {}
-        if table_exists(conn, table):
+        if table_exists(cursor.connection, table):
             for code, lead in cursor.execute(
                     f"SELECT [CIS unit code], [Academic contact] FROM {table}").fetchall():
                 current_leads.setdefault(str(code).strip().upper(), lead)
@@ -2011,15 +2101,92 @@ def replace_sits_assessment(df, academic_year, filename, imported_by, keep_curre
             INSERT INTO sits_imports (imported_at, academic_year, filename, rows, modules, imported_by)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (now, academic_year, filename, len(df), len(new_leads), imported_by))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
     return {'rows': len(df), 'modules': len(new_leads),
             'overrides_kept': kept, 'overrides_cleared': cleared}
+
+
+# --- Sheffield Graduate Attributes -----------------------------------------
+
+_SGA_COLUMNS = ['academic_year', 'module_code', 'calendar_code', 'attribute',
+                'sub_attributes', 'comments', 'organisation', 'module_title']
+
+def get_sga_academic_years():
+    """Academic years present in sga_mappings, newest first."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'sga_mappings'):
+            return []
+        rows = conn.execute(
+            "SELECT DISTINCT academic_year FROM sga_mappings "
+            "WHERE academic_year IS NOT NULL AND academic_year != '' "
+            "ORDER BY academic_year DESC"
+        ).fetchall()
+    return [r[0] for r in rows]
+
+def get_sga_mappings(academic_year):
+    """Every sga_mappings row for one academic year (module x attribute grain)."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'sga_mappings'):
+            return pd.DataFrame(columns=_SGA_COLUMNS)
+        return pd.read_sql_query(
+            "SELECT * FROM sga_mappings WHERE academic_year = ?", conn, params=(academic_year,))
+
+def sga_imported(academic_year):
+    """True once at least one SGA import has been logged for this year - the
+    difference between 'no data' and 'a module with no SGAs'."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'sga_imports'):
+            return False
+        row = conn.execute("SELECT 1 FROM sga_imports WHERE academic_year = ? LIMIT 1",
+                           (academic_year,)).fetchone()
+    return row is not None
+
+def replace_sga_mappings(df, academic_year, filename, imported_by):
+    """
+    Replaces one academic year of sga_mappings with a parsed export
+    (processing.parse_sga_export()'s 'mappings') in one transaction, and logs
+    the import to sga_imports.
+
+    A full replace rather than Leganto's skip-if-unchanged snapshots: the SGA
+    export is the whole current state of the SGA tool, so a module whose
+    mappings were removed there has to disappear here too. Inserted with
+    executemany, not DataFrame.to_sql, which commits on its own.
+
+    Returns {'rows', 'modules'}.
+    """
+    import datetime
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    df = df[df['academic_year'] == academic_year]
+
+    with _immediate_transaction() as cursor:
+        cursor.execute("DELETE FROM sga_mappings WHERE academic_year = ?", (academic_year,))
+        cursor.executemany(
+            f"INSERT INTO sga_mappings ({', '.join(_SGA_COLUMNS)}) "
+            f"VALUES ({','.join('?' * len(_SGA_COLUMNS))})",
+            df[_SGA_COLUMNS].astype(str).itertuples(index=False, name=None))
+        modules = int(df['module_code'].nunique())
+        cursor.execute("""
+            INSERT INTO sga_imports (imported_at, academic_year, filename, rows, modules, imported_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (now, academic_year, filename, len(df), modules, imported_by))
+
+    logging.info("SGA import for %s: %d rows, %d modules.", academic_year, len(df), modules)
+    return {'rows': len(df), 'modules': modules}
+
+def purge_sga(academic_year):
+    """Deletes one academic year of sga_mappings and its import log rows."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'sga_mappings'):
+            return 0
+        cursor = conn.cursor()
+        before = cursor.execute(
+            "SELECT COUNT(*) FROM sga_mappings WHERE academic_year = ?", (academic_year,)
+        ).fetchone()[0]
+        cursor.execute("DELETE FROM sga_mappings WHERE academic_year = ?", (academic_year,))
+        cursor.execute("DELETE FROM sga_imports WHERE academic_year = ?", (academic_year,))
+        conn.commit()
+    logging.info("Purged %d sga_mappings rows for %s.", before, academic_year)
+    return before
 
 
 # Automatically initialize/migrate database when imported

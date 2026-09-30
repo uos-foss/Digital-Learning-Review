@@ -39,7 +39,7 @@ they are never missed by someone working in a single semester. Selecting
 
 ### 🏫 School Dashboard
 
-Seven tabs:
+Seven tabs, plus Graduate Attributes where enabled:
 
 * **Modules Overview**: four summary cards (total modules, modules with no
   activity, average Ally score, outstanding actionable items), then every
@@ -50,6 +50,13 @@ Seven tabs:
   Template Alignment Report's data with manual audit answers where recorded,
   plus a per-module item table (checklist, readiness, Leganto and Ally
   findings) beneath the chart.
+* **Graduate Attributes** (administrators, and any role granted
+  `view_sga_analytics`): how many of the school's modules have Sheffield
+  Graduate Attributes mapped in the SGA tool, how the claims spread across the
+  36 sub-attributes, which sub-attributes no module claims, which are claimed
+  by half or more of the mapped modules, and which modules claim more than
+  four of the twelve attributes. Informational only: it does not add to
+  actionable items.
 * **Ally Analytics**: a single view holding the issue-by-severity chart and the
   module table side by side, both driven by the severity and issue filters
   above them. No filters shows every module; narrowing to Severe replaces
@@ -148,6 +155,7 @@ That database is populated from several sources:
 | **Ally** | Accessibility scores, content counts and per-check issue counts, with history | Institutional report, imported periodically |
 | **Leganto** | Which modules have no reading list, and whether a list is Draft or Published | Monthly |
 | **Template Alignment Report** | Which required Blackboard template sections are visible, hidden, deleted or missing, and when each changed | Faculty report, imported periodically |
+| **SGA tool** | Which Sheffield Graduate Attributes each module highlights | Faculty export, imported in the Admin Panel; each import replaces the year in full |
 | **Blackboard** | Direct links to each module's VLE site | CSV import in the Admin Panel |
 | **Audits** | Advisor findings against each module | Saved in the Audit Portal as advisors work |
 

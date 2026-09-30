@@ -210,6 +210,54 @@ occurrence, so roll up to module grain on read via
   the way to drop a reference/test import once the real export for that
   year lands, without touching other years.
 
+## SGA (Sheffield Graduate Attributes) data
+
+`sga_mappings` holds the SGA tool's faculty CSV export at its own grain: one
+row per module x attribute per calendar period, sub-attributes stored as
+canonical names `|`-joined. Imported by `_render_sga_import()` in
+`views/admin_panel.py` via `processing.parse_sga_export()` and
+`database.replace_sga_mappings()`; `sga_imports` logs each import (the only
+import date, same as `sits_imports`). Added 25-09-2026.
+
+- **Informational only, deliberately.** SGA data feeds no finding: not
+  `derive_module_findings()`, not `Actionable Items`, not the Audit Portal
+  pre-fill, and not the existing `sga` audit field (which still reads the
+  `SKILLS_DEVELOPMENT_SGAS` template section's visibility only). The user
+  chose to see the data first and decide later whether "no SGAs mapped"
+  should gate the `sga` tick the way Leganto gates `reading_list`.
+- **Full replace per academic year, not snapshots.** The export is the SGA
+  tool's whole current state, so a mapping removed there must disappear here;
+  Leganto's skip-if-unchanged snapshot series can't represent a deletion.
+  Only `CURRENT_ACADEMIC_YEAR` (`Year` `26/27` -> `2026-27`) and
+  `FACULTY_SCHOOLS` prefixes are kept.
+- **`SGA_CATALOGUE` in `processing.py` is the fixed framework** (3 themes,
+  12 attributes, 36 sub-attributes with their definitions), transcribed from
+  the faculty's "Identifying SGAs by Module" planning document. That document
+  defines sub-attributes only, so each attribute's `description` is empty
+  until attribute-level text is supplied. The export's names drift in case,
+  spacing and `&`/`and` (`Research impact `, `Research & Critical
+  Thinking`), so every match goes through `_sga_key()`. Unknown names are
+  dropped and listed by the importer, never guessed; a sub-attribute filed
+  under the wrong attribute is kept under its own.
+- **Rows with no attribute and no sub-attribute are skipped, not reported as unknown.** The SGA tool lists a module even when nothing is mapped to it (266 rows, 267 modules in the first real export), so they are counted in `parse_sga_export()`'s `blank_rows` and shown as a caption. Absence and "listed but empty" both mean no SGAs; the table never stores the empty rows.
+- **Counts are `None`, not 0, until a year has been imported**
+  (`database.sga_imported()`), so "no data" never reads as "no SGAs".
+  Module grain is a union across calendar periods
+  (`aggregate_sga_to_modules()`), rolled up on read like Ally and Leganto.
+- **Gated by the `view_sga_analytics` capability**, via
+  `processing.can_view_sga()`: admins (`access_admin_panel`) always see the
+  SGA views, the Modules Overview `SGAs` column, the sidebar freshness entry
+  and the Module Report's one-line count on the Skills Development card.
+  Nothing is seeded; to widen access, an admin ticks the capability for a
+  role in Role Capabilities. The Module Report deliberately shows only
+  whether a module has SGAs and how many, never the attributes themselves,
+  and not in the PDF.
+- "Overuse" is two separate flags, both tunable constants:
+  `SGA_CONCENTRATION_SHARE` (a sub-attribute claimed by that share of mapped
+  modules) and `SGA_MODULE_MANY_ATTRIBUTES` (a module mapping more attributes
+  than that). Both were set before any real export existed - re-tune with
+  `diagnostics/check_sga_export.py <csv>`, which prints both distributions.
+
 ## Module readiness (template alignment) data
 
 `readiness_courses` / `readiness_sections` hold the faculty **Template
@@ -725,7 +773,8 @@ the corrected project memory on this. The schema has no field for a DLA's
 actual school alignment(s) today.
 
 `spot_checks` (owned by this portal) tracks flags through to outcome -
-`database.py`: `flag_module_for_spot_check()`, `get_spot_checks_for_schools()`,
+`database.py`: `flag_module_for_spot_check()`, `get_open_spot_check()`,
+`get_spot_checks_for_schools()`,
 `get_school_spot_checks()`, `get_pending_spot_check()`,
 `mark_spot_check_checked()`, `get_spot_check_agreement_summary()`,
 `purge_spot_checks()`. Agreement is still computed and stored on every
@@ -738,6 +787,21 @@ live in `views/school_dashboard.py`'s new "🎯 Spot-Checks" view; the
 snapshot/diff logic is I/O-free in `processing.py`
 (`build_spot_check_snapshot()`, `compute_spot_check_agreement()`).
 
+- **`flag_module_for_spot_check()` refuses a second open row itself, rather
+  than trusting every caller to pre-filter.** Added 29-09-2026: the function
+  used to insert unconditionally, with its own docstring disclaiming
+  responsibility ("checked by the caller... rather than enforced here") -
+  fine while School Dashboard's bulk-flag UI was the only caller and always
+  pre-filtered `flaggable`, but it meant any future caller (an import script,
+  a different UI) could recreate the exact "pending flag on an
+  already-checked module" condition that same UI's `flaggable` filter exists
+  to prevent. It now calls the new `get_open_spot_check()` (pending or
+  checked, this module/year) itself first and returns that row's id instead
+  of inserting a duplicate when one already exists - idempotent rather than
+  erroring, so an existing caller that still does its own pre-filtering
+  behaves exactly as before. Re-flagging after a real delete, or in a later
+  year, is unaffected - `get_open_spot_check()` only ever sees a row that
+  currently exists.
 - **A flag belongs to the school it was raised in, not to the DLA who raised
   it.** Changed 19-08-2026: any DLA currently working that school - their
   own, or one they've deliberately switched context into to cover a

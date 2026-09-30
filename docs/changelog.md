@@ -1,5 +1,20 @@
 Recent updates and releases for the Digital Learning Review portal.
 
+### Unreleased
+
+**Sheffield Graduate Attributes (SGAs)**
+
+* **SGA data can now be imported** from the SGA tool's faculty export in the
+  Admin Panel. Each import replaces the year's mappings, so anything removed
+  in the SGA tool disappears here too. Modules the tool lists with nothing
+  mapped are skipped, not flagged.
+* **Who sees it.** Admins always do; to widen access, tick the
+  `view_sga_analytics` capability for a role in Role Capabilities. The
+  Modules Overview gains an SGAs column, and a module report shows whether
+  the module has SGAs and how many.
+* SGA data is for information only. It does not change any finding, action
+  or audit suggestion.
+
 ### 🚀 Version 1.28.1 (Current): *Template Alignment by Semester*
 *29 September 2026*
 

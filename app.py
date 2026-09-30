@@ -13,7 +13,7 @@ logging.basicConfig(
 
 __version__ = "1.28.1"
 
-from processing import CURRENT_ACADEMIC_YEAR, fmt_report_date
+from processing import CURRENT_ACADEMIC_YEAR, fmt_report_date, can_view_sga
 
 # Import modularized views
 from views.faculty_overview import view_faculty_overview
@@ -147,7 +147,7 @@ def map_level_value(val):
 def load_audit_data():
     """
     Returns (df_aut, df_spr, df_ally_courses, df_ally_issues, df_ally_content,
-    df_readiness_sections). The four detail frames used to be written straight
+    df_readiness_sections, df_sga). The detail frames used to be written straight
     to st.session_state from inside this function - a bug, since a cache HIT
     skips the function body entirely, and st.cache_data's cache is shared
     across every session. Whichever session's script happened to cause the
@@ -160,7 +160,7 @@ def load_audit_data():
     regardless of hit/miss, fixes it for every session uniformly.
     """
     logging.info("📥 Constructing module list from SITS as single source of truth...")
-    empty_ally_readiness = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    empty_ally_readiness = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
     try:
         from database import get_db_connection
         with get_db_connection() as conn:
@@ -227,6 +227,19 @@ def load_audit_data():
         readiness_map = (readiness_modules.set_index('module_code').to_dict(orient='index')
                          if not readiness_modules.empty else {})
 
+        # Sheffield Graduate Attributes, from the SGA tool's export. df_sga is
+        # the module x sub-attribute frame the SGA views chart from. Counts are
+        # None, not 0, until a year has been imported at all, so "no data"
+        # never reads as "no SGAs".
+        from database import get_sga_mappings, sga_imported
+        from processing import explode_sga_mappings, aggregate_sga_to_modules
+
+        sga_loaded = sga_imported(CURRENT_ACADEMIC_YEAR)
+        df_sga = explode_sga_mappings(get_sga_mappings(CURRENT_ACADEMIC_YEAR))
+        sga_modules = aggregate_sga_to_modules(df_sga)
+        sga_map = (sga_modules.set_index('module_code').to_dict(orient='index')
+                   if not sga_modules.empty else {})
+
         # Combine legacy tables to build reference lookups
         legacy_dfs = [df for df in [legacy_aut, legacy_spr] if not df.empty]
         if legacy_dfs:
@@ -256,7 +269,7 @@ def load_audit_data():
         if df_sits.empty or 'CIS unit code' not in df_sits.columns:
             logging.warning("⚠️ sits_assessment_2026_27 is empty or missing 'CIS unit code' column.")
             return (pd.DataFrame(), pd.DataFrame(), df_ally_courses, df_ally_issues,
-                    df_ally_content, df_readiness_sections)
+                    df_ally_content, df_readiness_sections, df_sga)
             
         df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
         unique_modules = df_sits.drop_duplicates(subset=['CIS unit code']).copy()
@@ -335,6 +348,8 @@ def load_audit_data():
             drafted_sections = readiness.get('drafted_sections') or []
             blocking = readiness.get('blocking_sections') or []
 
+            sga = sga_map.get(code, {})
+
             # Get Blackboard URL (prefer blackboard_links table, fallback to legacy)
             blackboard_url = blackboard_links_map.get(code, ref_fields.get('URL', ''))
 
@@ -394,6 +409,10 @@ def load_audit_data():
                 'Template Sections': readiness.get('section_states') or {},
                 'Readiness Snapshot': readiness.get('snapshot_date', ''),
 
+                'SGA Attributes': int(sga.get('sga_attributes', 0)) if sga_loaded else None,
+                'SGA Sub-Attributes': int(sga.get('sga_sub_attributes', 0)) if sga_loaded else None,
+                'SGA Attribute Names': sga.get('sga_attribute_names', ''),
+
                 # Include other legacy audit columns as reference
                 'Available to students?': ref_fields.get('Available to students?', ''),
                 'Draft': ref_fields.get('Draft', ''),
@@ -445,7 +464,8 @@ def load_audit_data():
             logging.warning(f"Could not filter inactive modules: {e}")
 
         logging.info(f"✅ Successfully compiled SITS module list (Autumn: {len(df_aut)}, Spring: {len(df_spr)}).")
-        return df_aut, df_spr, df_ally_courses, df_ally_issues, df_ally_content, df_readiness_sections
+        return (df_aut, df_spr, df_ally_courses, df_ally_issues, df_ally_content,
+                df_readiness_sections, df_sga)
     except Exception as e:
         logging.error(f"Error loading SITS audit data: {e}")
         return (pd.DataFrame(), pd.DataFrame()) + empty_ally_readiness
@@ -638,7 +658,7 @@ def load_assessment_data():
 # Load the data
 with st.spinner("Fetching data from SQLite database..."):
     (df_aut, df_spr, df_ally_courses, df_ally_issues,
-     df_ally_content, df_readiness_sections) = load_audit_data()
+     df_ally_content, df_readiness_sections, df_sga) = load_audit_data()
     # Assigned here, outside load_audit_data() itself, so every session gets
     # these every rerun regardless of whether that call was a cache hit or
     # miss - see the docstring on load_audit_data() for why that distinction
@@ -647,6 +667,7 @@ with st.spinner("Fetching data from SQLite database..."):
     st.session_state["df_ally_issues"] = df_ally_issues
     st.session_state["df_ally_content"] = df_ally_content
     st.session_state["df_readiness_sections"] = df_readiness_sections
+    st.session_state["df_sga"] = df_sga
     checklist_sums = load_checklist_data()
     df_assess = load_assessment_data()
 
@@ -734,9 +755,12 @@ with st.sidebar:
         st.divider()
 
     import_dates = load_last_import_dates()
+    freshness_sources = [('sits', 'SITS'), ('bb', 'Blackboard Template Alignment'), ('ally', 'Ally'), ('leganto', 'Leganto')]
+    if can_view_sga(user_caps):
+        freshness_sources.append(('sga', 'SGAs'))
     freshness = ", ".join(
-        f"{label} ({fmt_report_date(import_dates[key]) if import_dates[key] else 'no data'})"
-        for key, label in (('sits', 'SITS'), ('bb', 'Blackboard Template Alignment'), ('ally', 'Ally'), ('leganto', 'Leganto'))
+        f"{label} ({fmt_report_date(import_dates.get(key)) if import_dates.get(key) else 'no data'})"
+        for key, label in freshness_sources
     )
     st.caption(f"Latest data from: {freshness}")
 

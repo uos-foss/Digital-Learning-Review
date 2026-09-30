@@ -7,7 +7,7 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
                         derive_module_findings, short_field_label,
                         format_comment_markdown, fmt_report_date,
-                        reading_list_verdict, READING_LIST_FIELD_ID)
+                        reading_list_verdict, READING_LIST_FIELD_ID, can_view_sga)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       delete_spot_checks, get_school_spot_checks,
@@ -16,6 +16,7 @@ from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_issue_profile,
     build_accessibility_risk_list,
 )
+from views.sga_widgets import render_school_sga
 
 def to_title_case(name: str) -> str:
     """Convert name to title case (capitalize each word)."""
@@ -50,6 +51,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
     # from everyone else rather than letting it fail on click.
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
     is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
+    show_sga = can_view_sga(user_caps)
 
     # A school handed over from the Faculty School Comparison table. Consumed
     # once, then cleared, so the user's saved_school preference is untouched.
@@ -198,6 +200,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             if not is_admin:
                 view_options = [v for v in view_options
                                  if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
+            # Admins only until view_sga_analytics is granted to a role.
+            if show_sga:
+                view_options.insert(2, "🎓 Graduate Attributes")
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
@@ -350,6 +355,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     if status == 'checked':
                         return "✅ Checked"
                     return ""
+                if show_sga and 'SGA Attributes' in display_df.columns \
+                        and display_df['SGA Attributes'].notna().any():
+                    cols.append('SGA Attributes')
+                    configs['SGA Attributes'] = st.column_config.NumberColumn(
+                        "SGAs",
+                        help="Sheffield Graduate Attributes mapped in the SGA tool, "
+                             "out of 12. 0 means none mapped.")
+
                 display_df['Spot-Check'] = display_df.apply(_spot_check_display, axis=1)
                 cols.append('Spot-Check')
                 configs['Spot-Check'] = st.column_config.TextColumn(
@@ -441,6 +454,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 # is needed here - only a rerun to refresh the status column.
                                 st.rerun()
                     st.divider()
+
+            elif selected_view == "🎓 Graduate Attributes":
+                render_school_sga(school_df, school)
 
             elif selected_view == "📊 Ally Analytics":
                 st.subheader(f"Accessibility Profile — {school} ({semester})")
@@ -1043,22 +1059,46 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                         .str.strip().str.upper())
                     redundant = shown[(shown['status'] == 'pending')
                                       & shown['module_code'].str.strip().str.upper().isin(checked_codes)]
+
+                    def _clear_sc_selection():
+                        # Every filter's own selection key, not just the one
+                        # currently shown - a delete can shift row positions
+                        # under a *different* filter tab too, so a selection
+                        # left there would otherwise silently point at
+                        # whatever row now sits at that stale index.
+                        for k in [k for k in st.session_state
+                                  if str(k).startswith("school_dashboard_spot_check_dataframe")]:
+                            del st.session_state[k]
+
+                    def _reset_confirm_if_selection_changed(state_key, selection_ids):
+                        # A fixed key per checkbox, reset here whenever the
+                        # set of ids it's confirming against has changed
+                        # since last render - not a key derived from the
+                        # selection itself, which would mint a new,
+                        # never-evicted session_state entry for every
+                        # distinct selection made over the life of the
+                        # session. Must run before the checkbox below is
+                        # instantiated this run.
+                        last_key = f"_{state_key}_last_ids"
+                        current = tuple(sorted(selection_ids))
+                        if st.session_state.get(last_key) != current:
+                            st.session_state.pop(state_key, None)
+                            st.session_state[last_key] = current
+
                     if can_audit and not redundant.empty:
                         with st.container(border=True):
                             st.warning(
                                 f"{len(redundant)} module(s) have a pending flag but were "
                                 "already checked this year. Removing the pending flags "
                                 "leaves their checked results as they were.")
+                            _reset_confirm_if_selection_changed("sc_redundant_confirm", redundant['id'])
                             redundant_confirm = st.checkbox(
-                                "Confirm removal",
-                                key=f"sc_redundant_confirm_{hash(tuple(sorted(redundant['id'])))}")
+                                "Confirm removal", key="sc_redundant_confirm")
                             if st.button(f"🗑️ Remove {len(redundant)} duplicate pending flag(s)",
                                          disabled=not redundant_confirm, key="btn_school_sc_redundant"):
                                 n = delete_spot_checks(redundant['id'].tolist())
                                 st.toast(f"Removed {n} duplicate pending flag(s).")
-                                for k in [k for k in st.session_state
-                                          if str(k).startswith("school_dashboard_spot_check_dataframe")]:
-                                    del st.session_state[k]
+                                _clear_sc_selection()
                                 st.rerun()
 
                     sc_filter = st.radio(
@@ -1104,17 +1144,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         st.info(f"🚀 {len(sc_rows)} flags selected: {n_pending} pending, "
                                 f"{n_checked} checked")
                         if can_audit:
+                            _reset_confirm_if_selection_changed("sc_bulk_remove_confirm", sel_ids)
                             bulk_confirm = st.checkbox(
-                                "Confirm removal",
-                                key=f"sc_bulk_remove_confirm_{hash(tuple(sorted(sel_ids)))}",
+                                "Confirm removal", key="sc_bulk_remove_confirm",
                                 help="Deletes these flags outright. Checked ones lose their "
                                      "agreement result and show as not spot-checked.")
                             if st.button(f"🗑️ Remove {len(sc_rows)} Flags",
                                          disabled=not bulk_confirm, key="btn_school_sc_bulk_remove"):
                                 n = delete_spot_checks(sel_ids)
                                 st.toast(f"Removed {n} spot-check flag(s).")
-                                if sc_table_key in st.session_state:
-                                    del st.session_state[sc_table_key]
+                                _clear_sc_selection()
                                 st.rerun()
                         st.divider()
                     elif sc_rows:
@@ -1168,8 +1207,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                     # plain del is fine here (unlike writing a
                                     # value to it) since it just drops the
                                     # widget's stored state for next run.
-                                    if sc_table_key in st.session_state:
-                                        del st.session_state[sc_table_key]
+                                    _clear_sc_selection()
                                     st.rerun()
                         st.divider()
 
