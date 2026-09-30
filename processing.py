@@ -2093,6 +2093,20 @@ def leganto_blocks_reading_list(leganto_missing, leganto_status):
     same reading derive_module_findings()'s own Leganto finding gives it."""
     return bool(leganto_missing) or str(leganto_status or '').strip() in ('Draft', 'Mixed')
 
+# The Skills Development (SGAs) section's tick also answers a second data
+# source, like the reading list: the SGA tool's own mapping for the module.
+SGA_SECTION = 'SKILLS_DEVELOPMENT_SGAS'
+
+
+def sga_blocks_sga_field(sga_attributes):
+    """Whether the SGA tool's data alone says the SGA section isn't done: the
+    module has no graduate attributes mapped. None (no SGA import yet this
+    year) and NaN are not a block - no evidence either way, so the section's
+    visibility decides, exactly as before the SGA data existed."""
+    if sga_attributes is None or pd.isna(sga_attributes):
+        return False
+    return int(sga_attributes) == 0
+
 def fmt_report_date(value):
     """ISO storage to the DD-MM-YYYY the portal shows users. Blank if unusable."""
     parsed = pd.to_datetime(str(value or ""), errors='coerce')
@@ -2436,7 +2450,8 @@ def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
     """
     from database import (get_db_connection, get_active_audit_fields,
                           get_readiness_courses_latest, get_readiness_sections_latest,
-                          get_leganto_lists_latest, table_exists)
+                          get_leganto_lists_latest, table_exists,
+                          get_sga_mappings, sga_imported)
     import pandas as pd
 
     active_fields = get_active_audit_fields()
@@ -2529,6 +2544,17 @@ def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
     except Exception:
         leganto_status_by_module = {}
 
+    # The SGA field also needs the module to have attributes mapped in the SGA
+    # tool, once a year's export has been imported (see sga_blocks_sga_field()).
+    sga_codes = None
+    try:
+        if sga_imported(CURRENT_ACADEMIC_YEAR):
+            sga_df = aggregate_sga_to_modules(
+                explode_sga_mappings(get_sga_mappings(CURRENT_ACADEMIC_YEAR)))
+            sga_codes = {str(c).strip().upper() for c in sga_df['module_code']}
+    except Exception:
+        sga_codes = None
+
     # Calculate compliance gap for each field
     gaps = {}
     for field in boolean_fields:
@@ -2542,6 +2568,9 @@ def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
         compliant_count = 0
         for code in valid_codes:
             manual = readiness_manual_override(fid, manual_by_module.get(code, {}))
+            if (manual and section_key == SGA_SECTION and sga_codes is not None
+                    and code not in sga_codes):
+                manual = None  # no mapping: a 'complete' tick doesn't stand
             if manual is not None:
                 is_compliant = manual
             elif section_key:
@@ -2550,6 +2579,8 @@ def calculate_dynamic_compliance_gap(school_code=None, module_codes=None):
                 if is_compliant and section_key == READING_LIST_SECTION:
                     is_compliant = not leganto_blocks_reading_list(
                         code in leganto_missing_set, leganto_status_by_module.get(code, ''))
+                if is_compliant and section_key == SGA_SECTION and sga_codes is not None:
+                    is_compliant = code in sga_codes
             else:
                 is_compliant = False
             if is_compliant:
@@ -2971,6 +3002,11 @@ def derive_module_findings(active_row, responses, active_fields):
 
         if audit_field_id:
             manual = readiness_manual_override(audit_field_id, responses)
+            if manual and key == SGA_SECTION and sga_blocks_sga_field(active_row.get('SGA Attributes')):
+                # A 'complete' tick doesn't stand against an empty SGA mapping:
+                # some DLAs only checked the link's visibility. The data
+                # verdict below decides instead. A 'not complete' tick stays.
+                manual = None
             if manual is not None:
                 # Mirrors _render_section_card()'s own manual-override wording
                 # exactly (views/module_report.py) - once a DLA has recorded a
@@ -2988,6 +3024,15 @@ def derive_module_findings(active_row, responses, active_fields):
                           "A Digital Learning Advisor has recorded this as not yet complete in the audit.")
             else:
                 is_ready = readiness_section_is_ready(key, state_key)
+                if (is_ready and key == SGA_SECTION
+                        and sga_blocks_sga_field(active_row.get('SGA Attributes'))):
+                    # Visible, but the SGA tool has nothing mapped for this
+                    # module, so the section is empty of the content it exists
+                    # for. A 'complete' DLA answer does not override this.
+                    is_ready = False
+                    badge = "Visible, no SGAs mapped"
+                    action = ("The section is visible to students, but the SGA tool has no "
+                              "graduate attributes mapped to this module yet.")
             findings.append({
                 'source': 'readiness',
                 'state': 'completed' if is_ready else 'pending',
@@ -3124,6 +3169,13 @@ def readiness_prefill_for_module(active_row):
                 evidence_text += f" Leganto: {words}."
             else:
                 evidence_text += " Leganto: no list status on record."
+        if key == SGA_SECTION:
+            attrs = pd.to_numeric(row.get('SGA Attributes'), errors='coerce')
+            if sga_blocks_sga_field(attrs):
+                suggested = False
+                evidence_text += " SGA tool: no graduate attributes mapped."
+            elif not pd.isna(attrs):
+                evidence_text += f" SGA tool: {int(attrs)} graduate attribute{'s' if attrs != 1 else ''} mapped."
         prefill[audit_field_id] = {
             'suggested': suggested,
             'evidence_text': evidence_text,

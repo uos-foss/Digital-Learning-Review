@@ -219,12 +219,24 @@ canonical names `|`-joined. Imported by `_render_sga_import()` in
 `database.replace_sga_mappings()`; `sga_imports` logs each import (the only
 import date, same as `sits_imports`). Added 25-09-2026.
 
-- **Informational only, deliberately.** SGA data feeds no finding: not
-  `derive_module_findings()`, not `Actionable Items`, not the Audit Portal
-  pre-fill, and not the existing `sga` audit field (which still reads the
-  `SKILLS_DEVELOPMENT_SGAS` template section's visibility only). The user
-  chose to see the data first and decide later whether "no SGAs mapped"
-  should gate the `sga` tick the way Leganto gates `reading_list`.
+- **The count gates the `sga` tick, like Leganto gates `reading_list`.**
+  Changed 30-09-2026 (it was informational only, by the user's choice to see
+  the data first). A module the SGA tool lists with no attributes mapped is
+  still an action even when its Skills Development (SGAs) section is visible:
+  `processing.sga_blocks_sga_field()` is true only for a count of 0, never for
+  `None` (no import yet), so without an import nothing changes. It applies in
+  `derive_module_findings()` (pending `'readiness'` finding, "Visible, no SGAs
+  mapped"), `readiness_prefill_for_module()` (suggestion unticked, evidence
+  text names the count), `calculate_dynamic_compliance_gap()` (no mapping means
+  not compliant) and the module report's Blackboard Template card and PDF. The
+  SGA data **overrides a DLA's "complete" tick** (unlike Leganto, where the
+  answer wins): some DLAs only checked the link's visibility in Blackboard, not
+  whether SGAs exist. A "not complete" tick still stands. This is deliberately
+  interim - some modules may be exempt, and the team has yet to decide how
+  (an exemption mechanism does not exist; do not invent one unasked).
+  The gate applies to everyone and to `Actionable Items`, regardless of the
+  `view_sga_analytics` capability; that capability only controls who sees SGA
+  counts and attributes. Nothing else reads SGA data into findings.
 - **Full replace per academic year, not snapshots.** The export is the SGA
   tool's whole current state, so a mapping removed there must disappear here;
   Leganto's skip-if-unchanged snapshot series can't represent a deletion.
