@@ -3206,11 +3206,13 @@ def module_alignment_status(active_row, responses, active_fields):
     The single definition behind School Dashboard's and Faculty Overview's
     matrix rows and the Module Report's Report Summary, so the three cannot
     disagree about the same module. Everything comes from
-    derive_module_findings(). Symbols: '✅' done, '❌' outstanding, and for
-    Accessibility '🚩' when Ally is switched off or reports a severe issue
-    (deliberately stricter than the 'ally' finding's severe-or-major trigger:
-    major is a count of issue types and nearly every module has one, so it
-    would flag the whole school).
+    derive_module_findings(). Symbols: '✅' done, '❌' outstanding, and for the
+    Accessibility column a traffic light, not done/not done: '🔴' when Ally is
+    switched off or reports a severe issue, '🟠' for major issue types only,
+    '🟢' when neither, and '⚪' when there is nothing to judge yet (no Ally
+    score, or a course still holding only its rolled-over template). Major
+    is a count of issue types and nearly every module with Ally data has
+    one, so expect most modules to read amber rather than green.
 
     With the reading_list field active its own column covers the reading
     list and Leganto is folded into it; without it, a separate 'Reading List'
@@ -3243,6 +3245,14 @@ def module_alignment_status(active_row, responses, active_fields):
         cells['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
 
     ally_severe = int(active_row.get('Ally Severe', 0) or 0)
-    ally_flag = ally_severe > 0 or active_row.get('Ally Enabled') is False
-    cells['Accessibility'] = '🚩' if ally_flag else '✅'
+    ally_major = int(active_row.get('Ally Major', 0) or 0)
+    overall = active_row.get('Ally Overall')
+    if active_row.get('Ally Enabled') is False or ally_severe > 0:
+        cells['Accessibility'] = '🔴'
+    elif ally_major > 0:
+        cells['Accessibility'] = '🟠'
+    elif pd.isna(overall) or active_row.get('Content Maturity') == 'Not yet built':
+        cells['Accessibility'] = '⚪'
+    else:
+        cells['Accessibility'] = '🟢'
     return list(cells.items())

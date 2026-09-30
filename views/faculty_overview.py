@@ -650,7 +650,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             st.caption(
                 "A detailed view of the status of Blackboard template items "
                 "across the selected schools' modules. ✅ done · ❌ outstanding · "
-                "🚩 accessibility needs a look."
+                "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
             )
             matrix_rows = []
             for _, r in matrix_scope_df.iterrows():

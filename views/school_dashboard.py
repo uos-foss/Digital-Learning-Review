@@ -650,7 +650,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     st.caption(
                         "A detailed view of the status of Blackboard template items "
                         "across the School's modules. ✅ done · ❌ outstanding · "
-                        "🚩 accessibility needs a look."
+                        "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
                     )
                     matrix_rows = []
                     for _, r in school_df.iterrows():

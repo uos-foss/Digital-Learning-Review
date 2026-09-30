@@ -474,7 +474,7 @@ def _render_report_summary(alignment, active_row, has_audit=False):
                 f"{symbol} {html.escape(label)}</span>"
                 for label, symbol in alignment)
             st.markdown(f"<div style='line-height:1.9;'>{chips}</div>", unsafe_allow_html=True)
-            st.caption("✅ done · ❌ outstanding · 🚩 accessibility needs a look")
+            st.caption("✅ done · ❌ outstanding · accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet")
 
         st.caption(_refreshed_line(active_row))
 

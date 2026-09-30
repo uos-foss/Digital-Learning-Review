@@ -137,7 +137,10 @@ def _card(title=None, level=3, colour="#6B7280", badge=None, lines=(), depth=0, 
 _ALIGNMENT_WORDS = {
     '✅': ("Done", "#10B981"),
     '❌': ("To do", "#DC2626"),
-    '🚩': ("Check", AMBER),
+    '🟢': ("Good", "#10B981"),
+    '🟠': ("Major issues", AMBER),
+    '🔴': ("Severe issues", "#DC2626"),
+    '⚪': ("No data yet", "#6B7280"),
 }
 
 

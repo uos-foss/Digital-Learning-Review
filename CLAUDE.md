@@ -888,7 +888,8 @@ snapshot/diff logic is I/O-free in `processing.py`
   (same triggers as the old banner bullets, so it still agrees with
   `derive_module_findings()`), then the data refresh dates. Since 30-09-2026
   the "still to do" bullets are replaced by this module's row of the school's
-  Template Alignment matrix (ticks, crosses and the accessibility flag only),
+  Template Alignment matrix (ticks, crosses and an accessibility traffic
+  light: red severe or Ally off, amber major only, green neither, white no data),
   from `processing.module_alignment_status()`, which School Dashboard and
   Faculty Overview's matrices now call too so the three cannot drift.
   The PDF summary reads the same row, as words (Done / To do / Check) in a
