@@ -1,6 +1,18 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.29.0 (Current): *Alignment at a Glance*
+### 🚀 Version 1.29.1 (Current): *Advisor Comment Fix*
+*30 September 2026*
+
+**Module report**
+
+* **Empty advisor comments no longer show raw code.** Some older audits were
+  saved with a comment box that had nothing typed in it, and the module report
+  and School Dashboard's Spot-Check Comments showed the stored text
+  (`{"tags": [], "custom": ""}`) instead of nothing. An empty one now shows no
+  comment. When something was typed, it appears as normal, with any tags on
+  their own line.
+
+### 🚀 Version 1.29.0: *Alignment at a Glance*
 *30 September 2026*
 
 **Module report**
