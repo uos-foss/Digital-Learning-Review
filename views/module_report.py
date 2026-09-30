@@ -19,6 +19,8 @@ from processing import (
     SECTION_STATES,
     derive_module_findings,
     readiness_manual_override,
+    SGA_SECTION,
+    sga_blocks_sga_field,
     format_comment_markdown,
     compute_audit_verdict,
     fmt_report_date,
@@ -724,7 +726,8 @@ def _render_module_checks(actions, has_audit, active_row=None, responses=None,
         _render_actions_panel(actions)
 
 
-def _section_card_content(key, state, responses, has_audit, created, leganto=None):
+def _section_card_content(key, state, responses, has_audit, created, leganto=None,
+                          sga_attrs=None):
     """
     What one template section's card says - label, badge, colour, action
     and footer text - without rendering it. Shared by _render_section_card()
@@ -787,7 +790,16 @@ def _section_card_content(key, state, responses, has_audit, created, leganto=Non
         show_detail = True
         colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
 
+    if key == SGA_SECTION and tier == 'ok' and sga_blocks_sga_field(sga_attrs):
+        badge, tier = "Visible, no SGAs mapped", 'action'
+        action = ("Visible to students, but the SGA tool has no graduate attributes mapped "
+                  "to this module yet.")
+        show_detail = True
+        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
+
     manual = readiness_manual_override(audit_field_id, responses) if has_audit else None
+    if manual and key == SGA_SECTION and sga_blocks_sga_field(sga_attrs):
+        manual = None  # an empty SGA mapping outranks a 'complete' tick
     if manual is not None:
         data_label = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])[0]
         if manual:
@@ -803,7 +815,8 @@ def _section_card_content(key, state, responses, has_audit, created, leganto=Non
             'footer': footer, 'show_detail': show_detail}
 
 
-def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0):
+def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0,
+                         sga_attrs=None):
     """
     One template section, as a styled card: status badge, what it means, and
     when it was last changed.
@@ -849,7 +862,7 @@ def _render_section_card(key, state, responses, has_audit, created, leganto=None
     alone doesn't: a caution, a fault, a DLA's manual verification, or
     Reading List's Leganto status.
     """
-    card = _section_card_content(key, state, responses, has_audit, created, leganto)
+    card = _section_card_content(key, state, responses, has_audit, created, leganto, sga_attrs)
     label, badge, colour = card['label'], card['badge'], card['colour']
     action, footer, show_detail = card['action'], card['footer'], card['show_detail']
 
@@ -907,7 +920,8 @@ def _sga_note(active_row):
     SGA tool has any attributes mapped for this module, and how many. None
     when there is nothing to say - no SGA import yet this year, or the viewer
     lacks the SGA capability (admins only until it's granted to a role).
-    Informational only, so never amber and never in the PDF."""
+    A plain note, never amber and never in the PDF; the action itself comes
+    from the section card."""
     if active_row is None or not can_view_sga(st.session_state.get("capabilities", [])):
         return None
     attrs = pd.to_numeric(active_row.get('SGA Attributes'), errors='coerce')
@@ -921,7 +935,7 @@ def _sga_note(active_row):
 
 
 def _render_section_tree(nodes, states, responses, has_audit, created, leganto, depth=0,
-                         sga_note=None):
+                         sga_note=None, sga_attrs=None):
     """
     Walks processing.TEMPLATE_SECTION_TREE, rendering each node at its
     nesting depth - a status card for a tracked section, a plain heading for
@@ -938,7 +952,7 @@ def _render_section_tree(nodes, states, responses, has_audit, created, leganto, 
             if state:
                 _render_section_card(value, state, responses, has_audit, created,
                                      leganto=leganto if value == 'MODULE_READING_LIST' else None,
-                                     depth=depth)
+                                     depth=depth, sga_attrs=sga_attrs)
             # Independent of `state`: the SGA tool export is a separate
             # import from Template Alignment readiness, so a module can have
             # real SGA data with no (or no yet-imported) readiness state for
@@ -953,7 +967,7 @@ def _render_section_tree(nodes, states, responses, has_audit, created, leganto, 
             _render_label_node(value, depth, has_children_data=bool(children))
         if children:
             _render_section_tree(children, states, responses, has_audit, created, leganto,
-                                 depth + 1, sga_note)
+                                 depth + 1, sga_note, sga_attrs)
 
 
 def _render_template_sections(active_row, responses=None, has_audit=False,
@@ -996,10 +1010,12 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
         "students, have been edited, etc.")
 
     _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto,
-                         sga_note=_sga_note(active_row))
+                         sga_note=_sga_note(active_row),
+                         sga_attrs=pd.to_numeric(active_row.get('SGA Attributes'), errors='coerce'))
 
 
-def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, depth=0):
+def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, depth=0,
+                       sga_attrs=None):
     """TEMPLATE_SECTION_TREE flattened for the PDF, walked exactly as
     _render_section_tree() walks it, with each card's wording from
     _section_card_content()."""
@@ -1010,14 +1026,14 @@ def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, de
             if state:
                 card = _section_card_content(
                     value, state, responses, has_audit, created,
-                    leganto if value == 'MODULE_READING_LIST' else None)
+                    leganto if value == 'MODULE_READING_LIST' else None, sga_attrs)
                 rows.append({'kind': 'section', 'depth': depth, **card})
         else:
             rows.append({'kind': 'heading', 'depth': depth, 'label': value,
                          'note': '' if children else "Not part of the readiness data yet."})
         if children:
             rows += _pdf_template_rows(children, states, responses, has_audit, created,
-                                       leganto, depth + 1)
+                                       leganto, depth + 1, sga_attrs)
     return rows
 
 
@@ -1425,7 +1441,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             leganto = {'missing': leganto_missing, 'status': leganto_status,
                        'items': leganto_items, 'draft_items': leganto_draft_items}
             template_rows = _pdf_template_rows(TEMPLATE_SECTION_TREE, states, responses, has_audit,
-                                               readiness_created_date(states), leganto)
+                                               readiness_created_date(states), leganto,
+                                               sga_attrs=pd.to_numeric(
+                                                   active_row.get('SGA Attributes'), errors='coerce'))
         pdf_lead, pdf_level = '', ''
         if active_row is not None:
             raw_lead = str(active_row.get('Mod. lead', '')).strip()

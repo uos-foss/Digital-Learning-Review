@@ -1,7 +1,7 @@
 """
 Sheffield Graduate Attributes views, shared by School Dashboard and Faculty
-Overview. Informational only: nothing here feeds derive_module_findings() or
-Actionable Items (see "SGA data" in CLAUDE.md).
+Overview. These views only display; the count's gating of the `sga` tick lives in
+processing.derive_module_findings() (see "SGA data" in CLAUDE.md).
 
 Both views take the semester-filtered module frame their page already built
 (so a module's SGA counts ride along as 'SGA Attributes' / 'SGA

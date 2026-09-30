@@ -55,8 +55,8 @@ Seven tabs, plus Graduate Attributes where enabled:
   Graduate Attributes mapped in the SGA tool, how the claims spread across the
   36 sub-attributes, which sub-attributes no module claims, which are claimed
   by half or more of the mapped modules, and which modules claim more than
-  four of the twelve attributes. Informational only: it does not add to
-  actionable items.
+  four of the twelve attributes. A module with no attributes
+  mapped still has an action on its Skills Development (SGAs) section.
 * **Ally Analytics**: a single view holding the issue-by-severity chart and the
   module table side by side, both driven by the severity and issue filters
   above them. No filters shows every module; narrowing to Severe replaces
