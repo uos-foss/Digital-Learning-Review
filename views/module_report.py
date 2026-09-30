@@ -9,6 +9,7 @@ from report_pdf import build_module_report_pdf
 from processing import (
     get_module_mapping,
     resolve_semester_df,
+    module_alignment_status,
     FACULTY_SCHOOLS,
     CURRENT_ACADEMIC_YEAR,
     summarise_ally_issues,
@@ -541,25 +542,35 @@ def _render_advisor_comment(responses):
         st.markdown(body)
 
 
-def _render_report_summary(points, active_row, has_audit=False):
+def _render_report_summary(alignment, active_row, has_audit=False):
     """
     One collapsed "Report Summary" above both tabs: whether a Digital
-    Learning Advisor has checked the module, what's still to do, and when
-    each data source was last refreshed.
+    Learning Advisor has checked the module, this module's row of the
+    school's Template Alignment matrix, and when each data source was last
+    refreshed.
 
     Replaced three separate blocks on 24-09-2026 - the amber health banner,
-    a "Data last refreshed" caption and an "About this report" expander -
-    which with the header and advisor comment made five stacked boxes before
-    the tabs. Collapsed because the Actions panel and the Accessibility tab
-    already carry every outstanding item in full; this is the overview.
+    a "Data last refreshed" caption and an "About this report" expander.
+    The "Still to do" bullet list was swapped for the alignment row on
+    30-09-2026, so the module reads exactly like its line on School
+    Dashboard / Faculty Overview (processing.module_alignment_status() feeds
+    all three). The bullets are still built by _summary_points() for the PDF.
+    Collapsed because the Actions panel and the Accessibility tab already
+    carry every outstanding item in full; this is the overview.
     """
     with st.expander("📋 Report Summary"):
         st.markdown(_summary_intro(has_audit))
 
-        if points:
-            st.markdown("**Still to do**\n\n" + "\n".join(f"- {p}" for p in points))
-        else:
-            st.markdown("✅ Nothing outstanding right now.")
+        if alignment:
+            # Wrapping chips, not a table: a table of ten columns runs off the
+            # edge of a phone, chips flow onto as many lines as they need.
+            chips = "".join(
+                f"<span style='display:inline-block;border:1px solid rgba(128,128,128,0.3);"
+                f"border-radius:14px;padding:2px 10px;margin:0 6px 6px 0;white-space:nowrap;'>"
+                f"{symbol} {html.escape(label)}</span>"
+                for label, symbol in alignment)
+            st.markdown(f"<div style='line-height:1.9;'>{chips}</div>", unsafe_allow_html=True)
+            st.caption("✅ done · ❌ outstanding · 🚩 accessibility needs a look")
 
         st.caption(_refreshed_line(active_row))
 
@@ -1489,7 +1500,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                                      leganto_draft, leganto_items, active_row,
                                      leganto_status, leganto_draft_items, responses)
 
-        _render_report_summary(points, active_row, has_audit)
+        alignment = (module_alignment_status(active_row, responses, active_fields)
+                     if active_row is not None else [])
+        _render_report_summary(alignment, active_row, has_audit)
 
         if has_audit:
             _render_advisor_comment(responses)

@@ -1622,6 +1622,10 @@ TEMPLATE_SECTION_SHORT_LABELS = {
     'HOW_YOUR_FEEDBACK_SHAPES': 'TellUs Report',
     'KEY_STAFF_CONTACTS': 'Staff Contacts',
     'ENCORE_LECTURE_CAPTURE': 'Encore',
+    'WELCOME_MODULE_OUTLINE': 'Welcome',
+    'ASSESSMENT_OVERVIEW': 'Assess. Overview',
+    'ASSESSMENT_DETAIL': 'Assess. Detail',
+    'MODULE_READING_LIST': 'Reading List',
 }
 
 def short_field_label(field_id, fallback_label):
@@ -3192,3 +3196,53 @@ def compute_spot_check_agreement(data_verdict_snapshot, saved_responses):
 
     return {'agreed': sum(1 for d in detail if d['agreed']),
             'total': len(detail), 'detail': detail}
+
+
+def module_alignment_status(active_row, responses, active_fields):
+    """
+    One module's row of the item-by-item Template Alignment matrix, as an
+    ordered list of (column label, symbol): done, outstanding, or a flag.
+
+    The single definition behind School Dashboard's and Faculty Overview's
+    matrix rows and the Module Report's Report Summary, so the three cannot
+    disagree about the same module. Everything comes from
+    derive_module_findings(). Symbols: '✅' done, '❌' outstanding, and for
+    Accessibility '🚩' when Ally is switched off or reports a severe issue
+    (deliberately stricter than the 'ally' finding's severe-or-major trigger:
+    major is a count of issue types and nearly every module has one, so it
+    would flag the whole school).
+
+    With the reading_list field active its own column covers the reading
+    list and Leganto is folded into it; without it, a separate 'Reading List'
+    column is added. A recorded reading_list answer suppresses the Leganto
+    finding, so the answer alone decides.
+    """
+    boolean_fields = [f for f in active_fields if f['field_type'] in ('boolean', 'yes/no')]
+    findings = derive_module_findings(active_row, responses, active_fields)
+
+    by_field = {}
+    leganto_state = 'completed'
+    for f in findings:
+        if f['source'] == 'checklist' and 'field_id' in f:
+            by_field[f['field_id']] = f['state']
+        elif f['source'] == 'readiness' and f.get('audit_field_id'):
+            by_field[f['audit_field_id']] = f['state']
+        elif f['source'] == 'leganto':
+            leganto_state = f['state']
+
+    cells = {}
+    for field in boolean_fields:
+        col = short_field_label(field['id'], field['label'])
+        cells[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
+
+    rl_field = next((f for f in boolean_fields if f['id'] == READING_LIST_FIELD_ID), None)
+    if rl_field is not None:
+        if leganto_state != 'completed':
+            cells[short_field_label(rl_field['id'], rl_field['label'])] = '❌'
+    else:
+        cells['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
+
+    ally_severe = int(active_row.get('Ally Severe', 0) or 0)
+    ally_flag = ally_severe > 0 or active_row.get('Ally Enabled') is False
+    cells['Accessibility'] = '🚩' if ally_flag else '✅'
+    return list(cells.items())

@@ -5,9 +5,9 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
-                        derive_module_findings, short_field_label,
+                        module_alignment_status,
                         format_comment_markdown, fmt_report_date,
-                        reading_list_verdict, READING_LIST_FIELD_ID, can_view_sga)
+                        reading_list_verdict, can_view_sga)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       delete_spot_checks, get_school_spot_checks,
@@ -657,63 +657,12 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         code = r['New module code']
                         active_row = r.to_dict()
                         responses = checklist_sums.get(code, {}).get('Responses', {})
-                        findings = derive_module_findings(active_row, responses, active_fields)
-
-                        by_field = {}
-                        leganto_state = 'completed'
-                        for f in findings:
-                            if f['source'] == 'checklist' and 'field_id' in f:
-                                by_field[f['field_id']] = f['state']
-                            elif f['source'] == 'readiness' and f.get('audit_field_id'):
-                                by_field[f['audit_field_id']] = f['state']
-                            elif f['source'] == 'leganto':
-                                leganto_state = f['state']
-
-                        # A separate, stricter threshold from derive_module_findings()'s
-                        # own 'ally' finding (severe OR major, matching the health
-                        # banner) - deliberately not reused here. Major is a count of
-                        # distinct issue *types*, not items, and ~99% of modules with
-                        # any Ally data have at least one - it would flag almost the
-                        # whole school in this quick-glance column. Severe is rare
-                        # (~10%) and a much more reliable "worth a look" signal; Ally
-                        # being switched off is kept since that's a visibility problem
-                        # regardless of severity. Actionable Items / the Accessibility
-                        # tab's own finding are untouched - they still gate on
-                        # severe-or-major, so this column can flag fewer modules than
-                        # the badge counts without disagreeing with it.
-                        ally_severe = int(active_row.get('Ally Severe', 0) or 0)
-                        ally_flag = ally_severe > 0 or active_row.get('Ally Enabled') is False
-
                         row = {
                             'Module Code': code,
                             'Module Name': r.get('Module name', ''),
                             'Module Lead': to_title_case(r.get('Mod. lead', '')),
                         }
-                        for field in boolean_fields:
-                            # Short label as the column header - a space-constrained
-                            # display, unlike the module report this is spot-checked
-                            # against, which always shows the full section name.
-                            col = short_field_label(field['id'], field['label'])
-                            row[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
-                        # With reading_list active, its own column already
-                        # covers the reading list: fold Leganto into it rather
-                        # than showing a second Reading List column. With a
-                        # recorded answer there is no Leganto finding, so
-                        # leganto_state stays 'completed' and the answer alone
-                        # decides - it overrides Leganto.
-                        rl_field = next((f for f in boolean_fields
-                                         if f['id'] == READING_LIST_FIELD_ID), None)
-                        if rl_field is not None:
-                            rl_col = short_field_label(rl_field['id'], rl_field['label'])
-                            if leganto_state != 'completed':
-                                row[rl_col] = '❌'
-                        else:
-                            row['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
-                        # Not a done/not-done item like the others - a flag for
-                        # attention (severe/major Ally issue, or Ally disabled),
-                        # not a completion state, so ❌ would misleadingly imply
-                        # something is "incomplete" rather than "worth a look".
-                        row['Accessibility'] = '🚩' if ally_flag else '✅'
+                        row.update(module_alignment_status(active_row, responses, active_fields))
                         matrix_rows.append(row)
 
                     matrix_df = pd.DataFrame(matrix_rows).sort_values('Module Code').reset_index(drop=True)

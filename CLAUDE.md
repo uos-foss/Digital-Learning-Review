@@ -886,7 +886,12 @@ snapshot/diff logic is I/O-free in `processing.py`
   before the tabs. The summary opens with whether a DLA has checked the
   module, lists what is still to do as one plain next step per source
   (same triggers as the old banner bullets, so it still agrees with
-  `derive_module_findings()`), then the data refresh dates. The old "not yet
+  `derive_module_findings()`), then the data refresh dates. Since 30-09-2026
+  the "still to do" bullets are replaced by this module's row of the school's
+  Template Alignment matrix (ticks, crosses and the accessibility flag only),
+  from `processing.module_alignment_status()`, which School Dashboard and
+  Faculty Overview's matrices now call too so the three cannot drift.
+  `_summary_points()` is still built, for the PDF. The old "not yet
   audited" bullet was dropped because the opening sentence says it. It is
   collapsed because the Actions panel and Accessibility tab carry every item
   in full. Earlier notes in this file that say "health banner" now mean this
