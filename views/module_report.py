@@ -1139,8 +1139,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
     # this page: Streamlit re-injects styles on every run.
     st.markdown(
         """<style>
-        .block-container { padding-top: 3rem; }
-        .mr-page-title { margin: 0 0 4px 0; padding: 0; font-size: 1.75rem; }
+        div.block-container { padding-top: 3rem !important; }
+        div[data-testid="stMarkdownContainer"] h1.mr-page-title {
+            margin: 0 0 4px 0 !important; padding: 0 !important; font-size: 1.75rem !important; }
         </style>""", unsafe_allow_html=True)
 
     if only_own_school:
