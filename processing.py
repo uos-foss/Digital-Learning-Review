@@ -506,10 +506,24 @@ def format_comment_markdown(value):
     hold the structured observation/action JSON the field carried before the
     tag-picker UI was dropped (see INERT_TEXT_FIELD_IDS);
     those are unpacked into labelled lines rather than shown as raw JSON.
+    An empty one returns "", so callers that skip a blank comment skip it too.
     """
     raw = str(value or '').strip()
     if not raw:
         return ""
+    if raw.startswith("{"):
+        # The tag-picker's own shape, {"tags": [...], "custom": "..."}: the
+        # typed text is `custom`, and an untouched picker left both empty.
+        # Nothing to show for an empty one, rather than the raw braces.
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and ("tags" in data or "custom" in data):
+            tags = [str(t).strip() for t in data.get("tags") or [] if str(t).strip()]
+            custom = format_comment_markdown(data.get("custom"))
+            parts = ([f"**Tags:** {', '.join(tags)}"] if tags else []) + ([custom] if custom else [])
+            return "\n\n".join(parts)
     if raw.startswith(("[", "{")) or "**Observation:**" in raw:
         parsed = parse_custom_observations(raw)
         # parse_custom_observations() falls back to handing plain text back as
