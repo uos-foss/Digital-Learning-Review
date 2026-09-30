@@ -1,6 +1,28 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.29.1 (Current): *Advisor Comment Fix*
+### 🚀 Version 1.30.0 (Current): *SGAs Count as an Action*
+*30 September 2026*
+
+**Sheffield Graduate Attributes (SGAs)**
+
+* **A module with no SGAs mapped now has an action.** If the SGA tool lists
+  no graduate attributes for a module, its Skills Development (SGAs) section
+  stays outstanding even when the section is visible to students. Before, SGA
+  data was for information only and never changed an action.
+* **The SGA tool's data outranks a "complete" tick.** Some advisors only
+  checked that the link was visible in Blackboard, so a module with nothing
+  mapped is not treated as complete on that tick alone. A "not complete" tick
+  still stands.
+* **Where it shows.** The module report's Blackboard Template card and PDF,
+  the Actions panel, Actionable Items on the dashboards, the Audit Portal's
+  suggested tick, and the Skills Development figure on Template Alignment.
+  It applies to everyone, whether or not they can see SGA counts.
+* **Nothing changes until an SGA export has been imported** for the year, so
+  a missing import is never read as "no SGAs".
+* **This is an interim rule.** Some modules may not need SGAs, and there is
+  no way yet to mark one as exempt.
+
+### 🚀 Version 1.29.1: *Advisor Comment Fix*
 *30 September 2026*
 
 **Module report**
