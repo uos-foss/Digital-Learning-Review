@@ -8,6 +8,7 @@ from datetime import datetime
 from report_pdf import build_module_report_pdf
 from processing import (
     get_module_mapping,
+    resolve_semester_df,
     FACULTY_SCHOOLS,
     CURRENT_ACADEMIC_YEAR,
     summarise_ally_issues,
@@ -1181,7 +1182,20 @@ def title_case_name(name: str) -> str:
 
 def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_checklist_data_cache=None):
     module_mapping = get_module_mapping(df_aut, df_spr)
-    combined_options = sorted([f"{code} - {name}" for code, name in module_mapping.items()])
+    # The dropdown lists only the modules running in the selected semester,
+    # like every other view. The full mapping is kept for titles and lookups.
+    semester = st.session_state.get("semester", "Autumn")
+    semester_df = resolve_semester_df(df_aut, df_spr, semester)
+    semester_codes = set()
+    if semester_df is not None and not semester_df.empty and 'New module code' in semester_df.columns:
+        semester_codes = set(semester_df['New module code'].dropna().astype(str).str.strip())
+    # A module jumped to from another page stays selectable even if it does
+    # not run in this semester, so the dropdown never blanks under a report.
+    keep_code = st.session_state.get("selected_module_code", "")
+    combined_options = sorted(
+        f"{code} - {name}" for code, name in module_mapping.items()
+        if code in semester_codes or code == keep_code
+    )
 
     schools_list = list(FACULTY_SCHOOLS)
 
