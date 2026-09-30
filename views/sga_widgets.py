@@ -53,8 +53,7 @@ def _kpis(df, usage):
               help="Sub-attributes that no module here claims.")
     c4.metric(f"Modules claiming over {SGA_MODULE_MANY_ATTRIBUTES} attributes", many,
               help="Modules mapping more attributes than this may be listing everything "
-                   "the module touches rather than the few it develops. The threshold "
-                   "is SGA_MODULE_MANY_ATTRIBUTES in processing.py.")
+                   "the module touches rather than the few it develops.")
 
 
 def _usage_chart(usage):
