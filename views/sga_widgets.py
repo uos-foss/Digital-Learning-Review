@@ -152,8 +152,11 @@ def render_school_sga(school_df, school):
             'SGA Attributes', 'SGA Sub-Attributes', 'SGA Attribute Names', 'Status']
     table = table[[c for c in cols if c in table.columns]]
     table['Mod. lead'] = table['Mod. lead'].astype(str).str.title()
-    st.dataframe(
-        table.reset_index(drop=True), hide_index=True, width="stretch",
+    table = table.reset_index(drop=True)
+    st.caption("Select a module (tick its checkbox) to jump to its report or audit.")
+    selection = st.dataframe(
+        table, hide_index=True, width="stretch",
+        on_select="rerun", selection_mode="single-row", key="sga_school_modules_table",
         column_config={
             'New module code': 'Module Code', 'Module name': 'Module Name',
             'Mod. lead': 'Module Lead', 'UG/ PG/ Other': 'Level',
@@ -164,6 +167,31 @@ def render_school_sga(school_df, school):
                 'Flag', help=f"No SGAs: nothing mapped in the SGA tool. Claims many: more "
                              f"than {SGA_MODULE_MANY_ATTRIBUTES} of 12 attributes."),
         })
+
+    rows = [i for i in selection.selection.rows if i < len(table)]
+    if rows:
+        code = table.iloc[rows[0]]['New module code']
+        # pg_audit is only registered for edit_checklist holders, and
+        # st.switch_page raises on an unregistered page.
+        can_audit = any(c.lower() == "edit_checklist"
+                        for c in st.session_state.get("capabilities", []))
+        st.info(f"🚀 Quick Action Launch: **{code}**")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📊 Jump to Report Card", width="stretch", type="primary",
+                         key="btn_sga_rc"):
+                _jump(code, school, st.session_state.pg_module)
+        with c2:
+            if can_audit and st.button("✅ Open Audit Portal", width="stretch",
+                                       key="btn_sga_audit"):
+                _jump(code, school, st.session_state.pg_audit)
+
+
+def _jump(code, school, page):
+    st.session_state.selected_module_code = code
+    st.session_state.context_focus_own = False
+    st.session_state.context_school = school
+    st.switch_page(page)
 
 
 def render_faculty_sga(active_df):
