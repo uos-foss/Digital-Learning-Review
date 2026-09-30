@@ -762,7 +762,6 @@ with st.sidebar:
         f"{label} ({fmt_report_date(import_dates.get(key)) if import_dates.get(key) else 'no data'})"
         for key, label in freshness_sources
     )
-    st.caption(f"Latest data from: {freshness}")
 
     # Semester Selector placed at the top (above main navigation)
     st.radio(
@@ -773,7 +772,15 @@ with st.sidebar:
         on_change=update_semester,
         help="Active semester filter for school and module-level data."
     )
-    
+
+    # Collapsed: the five import dates took a third of the sidebar on a
+    # laptop screen, and are only wanted occasionally. One line per source
+    # inside, so they read better than the old comma-joined caption.
+    with st.expander("📅 Data last imported", expanded=False):
+        for key, label in freshness_sources:
+            stamp = fmt_report_date(import_dates.get(key)) if import_dates.get(key) else 'no data'
+            st.caption(f"**{label}:** {stamp}")
+
     st.divider()
 
     st.caption("Main")
