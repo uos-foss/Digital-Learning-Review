@@ -5,9 +5,8 @@ from processing import (aggregate_faculty_stats, calculate_module_compliance,
                         calculate_dynamic_compliance_gap, get_school_comparison,
                         resolve_semester_df, summarise_ai_declarations,
                         FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR, reading_list_verdict,
-                        can_view_sga, parse_user_schools, derive_module_findings,
-                        short_field_label, format_comment_markdown, fmt_report_date,
-                        READING_LIST_FIELD_ID)
+                        can_view_sga, parse_user_schools,
+                        module_alignment_status, format_comment_markdown, fmt_report_date)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, get_spot_checks_for_schools, get_spot_check_comments)
 from views.ally_widgets import (
@@ -651,46 +650,20 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             st.caption(
                 "A detailed view of the status of Blackboard template items "
                 "across the selected schools' modules. ✅ done · ❌ outstanding · "
-                "🚩 accessibility needs a look."
+                "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
             )
             matrix_rows = []
             for _, r in matrix_scope_df.iterrows():
                 code = r['New module code']
                 active_row = r.to_dict()
                 responses = checklist_sums.get(code, {}).get('Responses', {})
-                findings = derive_module_findings(active_row, responses, active_fields)
-
-                by_field = {}
-                leganto_state = 'completed'
-                for f in findings:
-                    if f['source'] == 'checklist' and 'field_id' in f:
-                        by_field[f['field_id']] = f['state']
-                    elif f['source'] == 'readiness' and f.get('audit_field_id'):
-                        by_field[f['audit_field_id']] = f['state']
-                    elif f['source'] == 'leganto':
-                        leganto_state = f['state']
-
-                ally_severe = int(active_row.get('Ally Severe', 0) or 0)
-                ally_flag = ally_severe > 0 or active_row.get('Ally Enabled') is False
-
                 row = {
                     'School': r.get('School', ''),
                     'Module Code': code,
                     'Module Name': r.get('Module name', ''),
                     'Module Lead': to_title_case(r.get('Mod. lead', '')),
                 }
-                for field in boolean_fields:
-                    col = short_field_label(field['id'], field['label'])
-                    row[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
-                rl_field = next((f for f in boolean_fields
-                                 if f['id'] == READING_LIST_FIELD_ID), None)
-                if rl_field is not None:
-                    rl_col = short_field_label(rl_field['id'], rl_field['label'])
-                    if leganto_state != 'completed':
-                        row[rl_col] = '❌'
-                else:
-                    row['Reading List'] = '✅' if leganto_state == 'completed' else '❌'
-                row['Accessibility'] = '🚩' if ally_flag else '✅'
+                row.update(module_alignment_status(active_row, responses, active_fields))
                 matrix_rows.append(row)
 
             matrix_df = pd.DataFrame(matrix_rows).sort_values(

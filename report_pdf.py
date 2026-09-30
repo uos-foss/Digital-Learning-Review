@@ -132,11 +132,27 @@ def _card(title=None, level=3, colour="#6B7280", badge=None, lines=(), depth=0, 
     }
 
 
-def _point(text):
-    """A summary point's leading '**Label:**' (if any) split off to set in bold."""
-    match = re.match(r"\*\*(.+?)\*\*\s*(.*)", str(text), re.S)
-    bold, rest = (match.group(1), match.group(2)) if match else ("", str(text))
-    return {'bold': _clean(bold), 'text': _clean(rest)}
+# The page shows the alignment row as emoji; the PDF has no emoji font, and a
+# status must never rest on colour alone, so each symbol becomes a word.
+_ALIGNMENT_WORDS = {
+    '✅': ("Done", "#10B981"),
+    '❌': ("To do", "#DC2626"),
+    '🟢': ("Good", "#10B981"),
+    '🟠': ("Major issues", AMBER),
+    '🔴': ("Severe issues", "#DC2626"),
+    '⚪': ("No data yet", "#6B7280"),
+}
+
+
+def _alignment(rows):
+    """The Report Summary's alignment row as header/value pairs, the value a
+    word in a colour that meets contrast on white."""
+    out = []
+    for label, symbol in rows or []:
+        word, colour = _ALIGNMENT_WORDS.get(symbol, (symbol, "#6B7280"))
+        out.append({'label': _clean(label), 'value': word,
+                    'ink': _hex(_readable(_rgb(colour)))})
+    return out
 
 
 def _paragraphs(markdown):
@@ -165,7 +181,7 @@ def _template_cards(rows):
             continue
         lines = []
         if row.get("show_detail"):
-            lines = [(row.get("action"), 8.5, BODY), (row.get("footer"), 8, MUTED)]
+            lines = [(row.get("action"), 9, BODY), (row.get("footer"), 8, MUTED)]
         out.append(_card(row["label"], level=3 + depth, colour=row.get("colour"),
                          badge=row.get("badge"), lines=lines, depth=depth))
     return out
@@ -224,7 +240,7 @@ def build_module_report_pdf(data):
     """
     data keys (all optional except code/name):
       code, name, lead, level, site_url, audit_status, generated
-      summary_intro, points (markdown strings), refreshed
+      summary_intro, alignment [(label, symbol)], refreshed
       comment (markdown), comment_heading
       actions: [{'label', 'description'}]
       template: [{'kind': 'heading'|'section', 'depth', 'label', 'badge',
@@ -250,7 +266,7 @@ def build_module_report_pdf(data):
         'muted': _hex(MUTED),
         'accent': _hex(ACCENT),
         'intro': _clean(data.get("summary_intro")),
-        'points': [_point(p) for p in data.get("points") or []],
+        'alignment': _alignment(data.get("alignment")),
         'refreshed': _clean(data.get("refreshed")),
         'comment': ({'heading': _clean(data.get("comment_heading"))
                                 or "Comments from your Digital Learning Advisor",
