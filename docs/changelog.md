@@ -1,6 +1,30 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### Unreleased
+### 🚀 Version 1.29.0 (Current): *Alignment at a Glance*
+*30 September 2026*
+
+**Module report**
+
+* **The module list follows the semester.** The search box now lists only
+  the modules running in the semester you have chosen, like the other
+  views. A module you jump to from another page stays in the list.
+* **The Report Summary shows the module's alignment.** The "Still to do"
+  bullets are replaced by a single row of the same ticks, crosses and
+  accessibility light the School Dashboard shows for this module. It wraps
+  onto several lines on a phone.
+* **Accessibility is now a traffic light.** Red means Ally is switched off or
+  has found severe issues, amber means major issues only, green means
+  neither, and white means there is nothing to judge yet. It replaces the
+  tick, which read as "done" for modules that still had major issues. Most
+  modules with Ally data will show amber, because nearly all have at least
+  one major issue type. The School Dashboard and Faculty Overview
+  item-by-item tables use the same light, with shorter column headings.
+* **The PDF matches.** Its Report Summary shows the same row, using words
+  (Done, To do, Good, Major issues, Severe issues, No data yet) so the status
+  never depends on colour alone.
+* **Card text is one consistent size.** Titles, descriptions, counts and
+  status labels now use the same four sizes in every card. Small text in the
+  template and accessibility cards is slightly larger than before.
 
 **Sheffield Graduate Attributes (SGAs)**
 
@@ -15,7 +39,7 @@ Recent updates and releases for the Digital Learning Review portal.
 * SGA data is for information only. It does not change any finding, action
   or audit suggestion.
 
-### 🚀 Version 1.28.1 (Current): *Template Alignment by Semester*
+### 🚀 Version 1.28.1: *Template Alignment by Semester*
 *29 September 2026*
 
 **Template Alignment**
