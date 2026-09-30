@@ -63,6 +63,28 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
         st.session_state.context_school = drilldown_school
         st.session_state.sd_school_select_all = drilldown_school
 
+    # Laptop screens showed little but controls above the fold, so the page
+    # title is a compact heading, the top padding is trimmed, and the school
+    # heading sits left-aligned at the top, with the school control on one
+    # short row beneath it. Scoped to this page: Streamlit re-injects styles on
+    # every run.
+    st.markdown(
+        """<style>
+        div.block-container { padding-top: 3rem !important; }
+        div[data-testid="stMarkdownContainer"] h1.sd-page-title {
+            margin: 0 0 4px 0 !important; padding: 0 !important; font-size: 1.75rem !important; }
+        </style>""", unsafe_allow_html=True)
+
+    # The heading needs the selected school, which the controls below work
+    # out, so its slot is reserved here (keeping it at the top) and filled in
+    # once `school` is known.
+    head_slot = st.container()
+    # No control to show for a user locked to a single school.
+    if only_own_school and len(parse_user_schools(st.session_state.saved_school)) == 1:
+        col_school = None
+    else:
+        col_school = st.columns([1, 2])[0]
+
     if only_own_school:
         user_schools = parse_user_schools(st.session_state.saved_school)
         if len(user_schools) == 1:
@@ -72,15 +94,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             # pick which one to view - the dashboard shows one at a time -
             # but the options are restricted to their own schools, not the
             # full faculty list.
-            school = st.selectbox(
+            school = col_school.selectbox(
                 "Select which of your schools to view",
                 user_schools,
                 key="sd_school_select_locked",
             )
-        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
-        st.markdown(f"<h1>School Dashboard{school_context_badge}</h1>", unsafe_allow_html=True)
+        school_context_badge = f" <span style='font-size: 14px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 3px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
     else:
-        st.title("School Dashboard")
         user_schools = parse_user_schools(st.session_state.saved_school)
         # If not faculty-wide, show the focus checkbox. If unchecked, let them select another school context.
         # `context_focus_own` / `context_school` are plain session-state
@@ -97,21 +117,21 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
         # CLAUDE.md.
         if user_schools != ["All"]:
             label = format_user_schools(user_schools)
-            filter_by_school = st.checkbox(
-                f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})",
+            filter_by_school = col_school.checkbox(
+                f"My school{'s' if len(user_schools) > 1 else ''} only",
                 value=st.session_state.get("context_focus_own", True),
                 key="sd_context_focus_own_widget",
                 help="Uncheck to work in another school's context - this stays locked "
                      "across pages until you re-check this or pick your own school "
                      "again, so covering a colleague's school doesn't keep reverting "
-                     "back to yours."
+                     f"back to yours. Your school{'s' if len(user_schools) > 1 else ''}: {label}."
             )
             st.session_state.context_focus_own = filter_by_school
             if filter_by_school:
                 if len(user_schools) == 1:
                     school = user_schools[0]
                 else:
-                    school = st.selectbox(
+                    school = col_school.selectbox(
                         "Select which of your schools to view",
                         user_schools,
                         key="sd_school_select_focus",
@@ -120,7 +140,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 persisted_school = st.session_state.get("context_school")
                 default_idx = (schools.index(persisted_school) if persisted_school in schools
                                else (schools.index(user_schools[0]) if user_schools[0] in schools else 0))
-                school = st.selectbox(
+                school = col_school.selectbox(
                     "Select School to View",
                     schools,
                     index=default_idx,
@@ -137,7 +157,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             # same reasoning as the checkbox branch above.
             persisted_school = st.session_state.get("context_school")
             default_idx = schools.index(persisted_school) if persisted_school in schools else 0
-            school = st.selectbox(
+            school = col_school.selectbox(
                 "Select School to View",
                 schools,
                 index=default_idx,
@@ -148,9 +168,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             st.session_state.context_school = school
         
     semester = st.session_state.semester
-    st.header(f"{school} - {semester} Semester")
-    if data_freshness:
-        st.caption(f"📅 Latest data from: {data_freshness}")
+    # Page title and the school being viewed share one heading block, with the
+    # context badge (locked accounts) alongside. The "Latest data from" caption
+    # that used to sit here repeats the sidebar's, so it is gone.
+    badge = school_context_badge if only_own_school else ""
+    with head_slot:
+        st.markdown(
+            f"<h1 class='sd-page-title'>School Dashboard{badge}</h1>"
+            f"<div style='font-size:1.35rem;font-weight:700;line-height:1.3;'>"
+            f"{school} - {semester} Semester</div>",
+            unsafe_allow_html=True)
 
     target_df = resolve_semester_df(df_aut, df_spr, semester)
     
@@ -190,8 +217,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     type_counts = matching_assess['Assessment type'].value_counts().reset_index()
                     type_counts.columns = ['Assessment Type', 'Count']
 
-            st.divider()
-            
             # Segmented view navigation control
             # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
             # disabled - add them back to this list to restore. Their view code

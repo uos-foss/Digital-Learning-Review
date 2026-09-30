@@ -1133,13 +1133,26 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
     user_caps = st.session_state.get("capabilities", [])
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
 
+    # Laptop screens showed little but controls above the fold, so the page
+    # title is a compact heading, the top padding is trimmed, and the school
+    # control sits beside the module search instead of above it. Scoped to
+    # this page: Streamlit re-injects styles on every run.
+    st.markdown(
+        """<style>
+        div.block-container { padding-top: 3rem !important; }
+        div[data-testid="stMarkdownContainer"] h1.mr-page-title {
+            margin: 0 0 4px 0 !important; padding: 0 !important; font-size: 1.75rem !important; }
+        </style>""", unsafe_allow_html=True)
+
     if only_own_school:
         user_schools = parse_user_schools(st.session_state.saved_school)
-        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
-        st.markdown(f"<h1>Module Report{school_context_badge}</h1>", unsafe_allow_html=True)
+        school_context_badge = f" <span style='font-size: 14px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 3px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
+        st.markdown(f"<h1 class='mr-page-title'>Module Report{school_context_badge}</h1>", unsafe_allow_html=True)
         combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
+        col_school, col_search = None, st.container()
     else:
-        st.title("Module Report")
+        st.markdown("<h1 class='mr-page-title'>Module Report</h1>", unsafe_allow_html=True)
+        col_school, col_search = st.columns([1, 2.2], vertical_alignment="bottom")
         # Optional multi-tenant school filter to focus without siloing.
         # `context_focus_own` / `context_school` are plain session-state
         # values (never a widget's own `key=`) shared with School Dashboard's
@@ -1152,14 +1165,14 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         user_schools = parse_user_schools(st.session_state.saved_school)
         if user_schools != ["All"]:
             label = format_user_schools(user_schools)
-            filter_by_school = st.checkbox(
-                f"Focus on my school{'s' if len(user_schools) > 1 else ''} ({label})",
+            filter_by_school = col_school.checkbox(
+                f"My school{'s' if len(user_schools) > 1 else ''} only",
                 value=st.session_state.get("context_focus_own", True),
                 key="rc_context_focus_own_widget",
                 help="Uncheck to work in another school's context - this stays locked "
                      "across pages until you re-check this or pick your own school "
                      "again, so covering a colleague's school doesn't keep reverting "
-                     "back to yours.")
+                     f"back to yours. Your school{'s' if len(user_schools) > 1 else ''}: {label}.")
             st.session_state.context_focus_own = filter_by_school
             if filter_by_school:
                 combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
@@ -1167,7 +1180,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 options = ["All Schools"] + schools_list
                 persisted_school = st.session_state.get("context_school")
                 default_idx = options.index(persisted_school) if persisted_school in options else 0
-                selected_school = st.selectbox(
+                selected_school = col_school.selectbox(
                     "Select School to Focus",
                     options,
                     index=default_idx,
@@ -1186,7 +1199,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             options = ["All Schools"] + schools_list
             persisted_school = st.session_state.get("context_school")
             default_idx = options.index(persisted_school) if persisted_school in options else 0
-            selected_school = st.selectbox(
+            selected_school = col_school.selectbox(
                 "Filter by School",
                 options,
                 index=default_idx,
@@ -1224,7 +1237,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         else:
             st.session_state.selected_module_code = ""
 
-    st.selectbox(
+    col_search.selectbox(
         "Search by Module Code or Name",
         options=[""] + combined_options,
         index=current_idx,
@@ -1239,11 +1252,18 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # ambiguous which module the report below belongs to - e.g. after
         # jumping here from School Dashboard, without having to first check
         # the dropdown above.
-        col_title, col_pdf = st.columns([4, 1], vertical_alignment="bottom")
-        with col_title:
-            st.markdown(f"#### {selected_code} — {module_mapping.get(selected_code, selected_code)}")
-        # Filled at the end, once the report below has been worked out.
-        pdf_slot = col_pdf.empty()
+        # One bordered header: name and PDF button on top, the metadata row
+        # (filled in below, once the module's row is known) directly under it.
+        header_box = st.container(border=True)
+        with header_box:
+            col_title, col_pdf = st.columns([4, 1], vertical_alignment="center")
+            with col_title:
+                st.markdown(
+                    f"<div style='font-size:1.35rem;font-weight:700;line-height:1.3;'>"
+                    f"{selected_code} — {module_mapping.get(selected_code, selected_code)}</div>",
+                    unsafe_allow_html=True)
+            # Filled at the end, once the report below has been worked out.
+            pdf_slot = col_pdf.empty()
 
         # Extract Autumn and Spring module audit rows
         aut_m = df_aut[df_aut['New module code'] == selected_code] if not df_aut.empty else pd.DataFrame()
@@ -1377,10 +1397,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             # now, per user request - compute_audit_verdict() above is left
             # in place rather than removed, since this is explicitly temporary.
 
-            st.markdown(
-                f"""<div style="border:1px solid rgba(128,128,128,0.25);border-radius:8px;
-                            padding:10px 16px;margin-bottom:8px;display:flex;flex-wrap:wrap;
-                            gap:6px 28px;align-items:baseline;">
+            header_box.markdown(
+                f"""<div style="display:flex;flex-wrap:wrap;gap:6px 28px;align-items:baseline;">
                     <span><b>Module Lead:</b> {mod_lead}</span>
                     <span><b>Level:</b> {ug_pg}</span>
                     <span><b>Module Site:</b> {vle_value}</span>
@@ -1393,8 +1411,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
         if has_audit:
             _render_advisor_comment(responses)
-
-        st.markdown(" ")
 
         # 2. Module Checks and Readiness first - it's the actionable tab for
         # a module lead - then Accessibility Report.
