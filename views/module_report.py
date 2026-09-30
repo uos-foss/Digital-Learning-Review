@@ -15,14 +15,11 @@ from processing import (
     summarise_ally_issues,
     summarise_ally_issue_categories,
     TEMPLATE_SECTIONS,
-    LEAD_OWNED_SECTIONS,
     TEMPLATE_SECTION_TREE,
     SECTION_STATES,
-    INSTITUTION_MAPPED_FIELD_IDS,
     derive_module_findings,
     readiness_manual_override,
     format_comment_markdown,
-    READING_LIST_FIELD_ID,
     compute_audit_verdict,
     fmt_report_date,
     fmt_report_datetime,
@@ -100,6 +97,16 @@ STATE_TIER_COLOUR = {
 TEXT_BODY = "color:inherit;opacity:0.85"
 TEXT_MUTED = "color:inherit;opacity:0.7"
 TEXT_FAINT = "color:inherit;opacity:0.6"
+
+# One type scale for the hand-built HTML cards (template, Ally, Actions), so
+# text doing the same job is the same size in every card. Before 30-09-2026
+# these were hard-coded per card, anywhere from 10px to 15px. Title: a card's
+# heading. Body: the sentence under it. Secondary: counts, dates, notes.
+# Badge: the small status pill.
+FS_TITLE = 15
+FS_BODY = 14
+FS_SECONDARY = 13
+FS_BADGE = 11
 
 # Card copy for sections nobody expects a module lead to edit - every section
 # except the ones in LEAD_OWNED_SECTIONS. For these, edited-or-not is noise (see
@@ -345,7 +352,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                 f"""<div style="border-left:4px solid {colour};background-color:{colour}0D;
                             padding:8px 12px;border-radius:4px;margin-bottom:12px;">
                     <b style="color:{colour};">{icon} {display_maturity}</b>
-                    <span style="{TEXT_MUTED};font-size:13px;"> — {note}</span>
+                    <span style="{TEXT_MUTED};font-size:{FS_SECONDARY}px;"> — {note}</span>
                 </div>""", unsafe_allow_html=True)
 
         # 2. The three scores, each with the volume of content behind it.
@@ -366,7 +373,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                 st.plotly_chart(fig, use_container_width=False,
                                 config={'displayModeBar': False}, key=f"gauge_{selected_code}_{tile_key}")
                 st.markdown(
-                    f"<div style='text-align:center;font-size:11px;{TEXT_MUTED};margin-top:-16px;'>{sub_text}</div>",
+                    f"<div style='text-align:center;font-size:{FS_SECONDARY}px;{TEXT_MUTED};margin-top:-16px;'>{sub_text}</div>",
                     unsafe_allow_html=True)
 
         if not active_row.get('Ally Enabled', True):
@@ -396,109 +403,6 @@ def _ally_issue_categories(selected_code):
     mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
                      == str(selected_code).strip().upper()]
     return summarise_ally_issue_categories(mine)
-
-
-def _summary_points(ally_profile, pending_count, leganto_missing,
-                    leganto_draft=False, leganto_items=0, active_row=None,
-                    leganto_status='', leganto_draft_items=0, responses=None):
-    """
-    What's still to do across Ally, the checklist, Leganto and the Blackboard
-    template, as short plain-English points for the Report Summary.
-
-    Until 24-09-2026 this was an always-visible amber banner of
-    semicolon-joined fragments ("12 major accessibility issue types (168
-    items).") that read as a charge sheet against the module. Each point is
-    now one next step, naming where to look, and they sit inside the
-    collapsed Report Summary rather than above everything else. The
-    triggers are unchanged, so this still agrees with
-    derive_module_findings() (see the severe-or-major Ally threshold note
-    there). The old "not yet audited" point is gone: the summary's opening
-    sentence already says whether a Digital Learning Advisor has checked
-    the module.
-    """
-    severe = ally_profile[ally_profile['severity_label'] == 'Severe'] if not ally_profile.empty else ally_profile
-    major = ally_profile[ally_profile['severity_label'] == 'Major'] if not ally_profile.empty else ally_profile
-
-    def plural(n, word):
-        return f"{n} {word}{'s' if n != 1 else ''}"
-
-    points = []
-    if len(severe) or len(major):
-        types = len(severe) + len(major)
-        items = (int(severe['items'].sum()) if len(severe) else 0) + \
-                (int(major['items'].sum()) if len(major) else 0)
-        points.append(f"**Accessibility:** Ally has found {plural(types, 'type')} of issue worth "
-                      f"fixing ({plural(items, 'item')}). The Accessibility Report tab shows "
-                      f"what they are.")
-    if pending_count:
-        points.append(f"**Checklist:** {plural(pending_count, 'item')} still to complete.")
-
-    # Template alignment. Stated as sections not yet visible to students, a
-    # fact about the course, rather than the vendor's "Non-Compliant" banding,
-    # which reads as a verdict on the lead.
-    #
-    # Worked out per section from 'Template Sections' rather than read from
-    # app.py's precomputed 'Lead Sections Outstanding' / 'Drafted Sections' /
-    # 'Template Blocking' lists, because those are raw data and know nothing
-    # of the audit. A recorded answer for a mapped section wins here exactly
-    # as it does in derive_module_findings() and _render_section_card():
-    # ticked drops it, unticked keeps it outstanding whatever the data says.
-    # Before 25-09-2026 a fully ticked audit still left this summary listing
-    # sections as outstanding and missing, contradicting the Actions panel.
-    if active_row is not None:
-        states = active_row.get('Template Sections') or {}
-
-        def label(key):
-            return TEMPLATE_SECTIONS.get(key, (key,))[0]
-
-        def manual(key):
-            field_id = TEMPLATE_SECTIONS.get(key, (None, None, None))[2]
-            return readiness_manual_override(field_id, responses)
-
-        outstanding, drafted = [], []
-        for key in LEAD_OWNED_SECTIONS:
-            state = states.get(key, {}).get('state')
-            verdict = manual(key)
-            if verdict is True:
-                continue
-            if verdict is False or state in ('drafted_hidden', 'not_started',
-                                             'deleted', 'missing', 'unknown'):
-                outstanding.append(label(key))
-                if state == 'drafted_hidden':
-                    drafted.append(label(key))
-        blocking = [label(key) for key, sec in states.items()
-                    if sec.get('status') in ('Deleted', 'Missing') and manual(key) is not True]
-        if len(outstanding):
-            total = int(active_row.get('Lead Sections Total') or len(LEAD_OWNED_SECTIONS))
-            point = (f"**Blackboard template:** {len(outstanding)} of {total} module "
-                     f"sections still to be made ready for students.")
-            # The work exists and only needs releasing - a far smaller ask
-            # than the count alone implies.
-            if len(drafted):
-                n = len(drafted)
-                who = "One has" if n == 1 else f"{n} have"
-                need = "needs" if n == 1 else "need"
-                point += (f" {who} already been worked on and just {need} making "
-                          f"visible ({', '.join(drafted)}).")
-            points.append(point)
-        if len(blocking):
-            n = len(blocking)
-            verb = "is" if n == 1 else "are"
-            need = "needs" if n == 1 else "need"
-            points.append(f"**Blackboard template:** {plural(n, 'section')} {verb} missing "
-                          f"from the Blackboard course and {need} restoring.")
-
-    if leganto_missing:
-        points.append("**Reading list:** no Leganto reading list is connected yet.")
-    elif leganto_status == 'Mixed':
-        # Distinct from plain Draft - a Mixed module already has most or all
-        # of its items published on at least one course shell.
-        points.append(f"**Reading list:** partly published in Leganto, with "
-                      f"{leganto_draft_items} of {plural(leganto_items, 'item')} still in Draft.")
-    elif leganto_draft:
-        points.append(f"**Reading list:** still in Draft in Leganto "
-                      f"({plural(leganto_items, 'item')}), so students can't see it yet.")
-    return points
 
 
 def _render_advisor_comment(responses):
@@ -554,7 +458,7 @@ def _render_report_summary(alignment, active_row, has_audit=False):
     The "Still to do" bullet list was swapped for the alignment row on
     30-09-2026, so the module reads exactly like its line on School
     Dashboard / Faculty Overview (processing.module_alignment_status() feeds
-    all three). The bullets are still built by _summary_points() for the PDF.
+    all three), and the PDF's summary reads the same row.
     Collapsed because the Actions panel and the Accessibility tab already
     carry every outstanding item in full; this is the overview.
     """
@@ -602,11 +506,11 @@ def _render_ally_issue_card(row):
     colour = TIER_COLOUR.get(row['severity_label'], "#6B7280")
     st.markdown(
         f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05; padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid {colour}0D; border-right: 1px solid {colour}0D; border-bottom: 1px solid {colour}0D;">
-            <span style="background:{colour}1A;color:{colour};font-size:10px;
+            <span style="background:{colour}1A;color:{colour};font-size:{FS_BADGE}px;
                          font-weight:700;padding:2px 6px;border-radius:4px;
                          text-transform:uppercase;">{row['severity_label']}</span>
-            <h4 style="margin: 6px 0 6px 0; color: inherit; font-size: 15px; font-weight: 600;">{row['label']}</h4>
-            <div style="margin: 0; {TEXT_BODY}; font-size: 14px; line-height: 1.5;">
+            <h4 style="margin: 6px 0 6px 0; color: inherit; font-size: {FS_TITLE}px; font-weight: 600;">{row['label']}</h4>
+            <div style="margin: 0; {TEXT_BODY}; font-size: {FS_BODY}px; line-height: 1.5;">
                 {row['items']} item(s) · {icon} {where}. {row['advice']}
             </div>
         </div>""", unsafe_allow_html=True)
@@ -659,7 +563,7 @@ def _render_actions_panel(actions):
 
         li = f'<li style="margin-bottom:12px;"><strong>{label}</strong>'
         if description:
-            li += f'<br/><span style="{TEXT_MUTED};font-size:13px;">{description}</span>'
+            li += f'<br/><span style="{TEXT_MUTED};font-size:{FS_SECONDARY}px;">{description}</span>'
         li += '</li>'
         items_html.append(li)
 
@@ -681,9 +585,9 @@ def _render_ally_category_card(row):
     checks_word = "issue type" if row['checks'] == 1 else "issue types"
     st.markdown(
         f"""<div style="border-left: 4px solid {colour}; background-color: {colour}05; padding: 12px 16px; margin-bottom: 12px; border-radius: 4px; border-top: 1px solid {colour}0D; border-right: 1px solid {colour}0D; border-bottom: 1px solid {colour}0D;">
-            <h4 style="margin: 0 0 4px 0; color: inherit; font-size: 15px; font-weight: 600;">{row['icon']} {row['title']}</h4>
-            <div style="{TEXT_MUTED}; font-size: 12px; margin-bottom: 8px;">{row['items']} {items_word} across {row['checks']} {checks_word}</div>
-            <div style="{TEXT_BODY}; font-size: 14px; line-height: 1.5;">{row['why']}</div>
+            <h4 style="margin: 0 0 4px 0; color: inherit; font-size: {FS_TITLE}px; font-weight: 600;">{row['icon']} {row['title']}</h4>
+            <div style="{TEXT_MUTED}; font-size: {FS_SECONDARY}px; margin-bottom: 8px;">{row['items']} {items_word} across {row['checks']} {checks_word}</div>
+            <div style="{TEXT_BODY}; font-size: {FS_BODY}px; line-height: 1.5;">{row['why']}</div>
         </div>""", unsafe_allow_html=True)
 
 
@@ -958,18 +862,18 @@ def _render_section_card(key, state, responses, has_audit, created, leganto=None
     # text instead of closing the div - exactly the stray "</div>" that
     # showed up on every collapsed card before this.
     detail_html = (
-        f'<p style="margin:4px 0 4px 0;{TEXT_BODY};font-size:12px;">{action}</p>'
-        f'<p style="margin:0;{TEXT_FAINT};font-size:11px;">{footer}</p>'
+        f'<p style="margin:4px 0 4px 0;{TEXT_BODY};font-size:{FS_BODY}px;">{action}</p>'
+        f'<p style="margin:0;{TEXT_FAINT};font-size:{FS_SECONDARY}px;">{footer}</p>'
         if show_detail else "")
 
     st.markdown(
         f'<div style="border-left: 4px solid {colour}; background-color: {colour}05; '
         f'padding: 8px 12px; margin-bottom: 6px; margin-left: {indent}px; border-radius: 4px;">'
-        f'<h4 style="margin:0;color:inherit;font-size:14px;font-weight:600;'
+        f'<h4 style="margin:0;color:inherit;font-size:{FS_TITLE}px;font-weight:600;'
         f'display:flex;align-items:center;">'
         f'<span style="display:inline-block;vertical-align:middle;margin-right:10px;">{icon}</span>'
         f'<span style="flex:1;">{label}</span>'
-        f'<span style="background:{colour}1A;color:{colour};font-size:10px;'
+        f'<span style="background:{colour}1A;color:{colour};font-size:{FS_BADGE}px;'
         f'font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;'
         f'white-space:nowrap;margin-left:8px;">{badge}</span>'
         f'</h4>'
@@ -990,11 +894,11 @@ def _render_label_node(name, depth, has_children_data):
         f"""<div style="margin:14px 0 6px {indent}px;">
             <span style="display:inline-block;vertical-align:middle;
                          margin-right:12px;opacity:0.6;">{icon}</span>
-            <span style="font-weight:700;font-size:14px;color:inherit;">{name}</span>
+            <span style="font-weight:700;font-size:{FS_TITLE}px;color:inherit;">{name}</span>
         </div>""", unsafe_allow_html=True)
     if not has_children_data:
         st.markdown(
-            f"""<p style="margin:0 0 8px {indent}px;{TEXT_FAINT};font-size:11px;">
+            f"""<p style="margin:0 0 8px {indent}px;{TEXT_FAINT};font-size:{FS_SECONDARY}px;">
                 Not part of the readiness data yet.</p>""", unsafe_allow_html=True)
 
 
@@ -1044,7 +948,7 @@ def _render_section_tree(nodes, states, responses, has_audit, created, leganto, 
                 top_margin = "-2px" if state else "8px"
                 st.markdown(
                     f'<p style="margin:{top_margin} 0 8px {depth * 24 + 16}px;{TEXT_FAINT};'
-                    f'font-size:11px;">🎓 {sga_note}</p>', unsafe_allow_html=True)
+                    f'font-size:{FS_SECONDARY}px;">🎓 {sga_note}</p>', unsafe_allow_html=True)
         else:
             _render_label_node(value, depth, has_children_data=bool(children))
         if children:
@@ -1355,7 +1259,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         leganto_status = str(active_row.get('Leganto List Status', '')).strip() if active_row is not None else ''
         leganto_items = int(active_row.get('Leganto List Items', 0) or 0) if active_row is not None else 0
         leganto_draft_items = int(active_row.get('Leganto Draft Items', 0) or 0) if active_row is not None else 0
-        leganto_draft = leganto_status in ('Draft', 'Mixed')
 
         # Checklist, Leganto, Ally and readiness findings all come from one
         # place - processing.derive_module_findings() - so the worklist below,
@@ -1401,25 +1304,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # richly elsewhere (the Blackboard Template card to its left, the
         # Accessibility tab) - see "Unified module findings" in CLAUDE.md.
         actions = [f for f in findings if f['state'] == 'pending']
-
-        # The banner's "N checklist items outstanding" bullet is checklist-only
-        # - Ally, Leganto and lead-owned template readiness each already have
-        # their own dedicated bullet, computed directly from active_row/
-        # ally_profile. The institution-owned mapped fields (sga,
-        # assessment_overview, encore_link) have no bullet of their own,
-        # though, so a 'readiness' finding for one of them is counted here
-        # too - otherwise a DLA manually marking one of them incomplete would
-        # silently drop out of the banner now that doing so produces a
-        # 'readiness' finding instead of a 'checklist' one (see "Unified
-        # module findings" in CLAUDE.md). student_voice moved to the
-        # lead-owned side 15-09-2026 and now gets its own signal via "Lead
-        # Sections Outstanding" instead.
-        checklist_pending_count = len([
-            f for f in findings if f['state'] == 'pending' and (
-                f['source'] == 'checklist'
-                or (f['source'] == 'readiness'
-                    and f.get('audit_field_id') in INSTITUTION_MAPPED_FIELD_IDS))
-        ])
 
         ally_profile = _ally_issue_profile(selected_code)
         ally_categories = _ally_issue_categories(selected_code)
@@ -1486,19 +1370,6 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span><b>Module Site:</b> {vle_value}</span>
                     <span title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor - and, if it has, when that check was last saved."><b>Audit Status:</b> {audit_status_label}</span>
                 </div>""", unsafe_allow_html=True)
-
-        # A recorded reading_list answer overrides Leganto (see
-        # processing.READING_LIST_FIELD_ID), so the summary drops its Leganto
-        # point then - an unticked answer is counted with the checklist
-        # items instead, like the other institution-mapped fields.
-        if has_audit and readiness_manual_override(READING_LIST_FIELD_ID, responses) is not None:
-            points = _summary_points(ally_profile, checklist_pending_count, False,
-                                     False, leganto_items, active_row, '', leganto_draft_items,
-                                     responses)
-        else:
-            points = _summary_points(ally_profile, checklist_pending_count, leganto_missing,
-                                     leganto_draft, leganto_items, active_row,
-                                     leganto_status, leganto_draft_items, responses)
 
         alignment = (module_alignment_status(active_row, responses, active_fields)
                      if active_row is not None else [])
@@ -1580,7 +1451,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             'audit_status': audit_status_label if active_row is not None else '',
             'generated': datetime.now().strftime('%d-%m-%Y %H:%M'),
             'summary_intro': _summary_intro(has_audit),
-            'points': points,
+            'alignment': alignment,
             'refreshed': _refreshed_line(active_row),
             'comment': format_comment_markdown(responses.get('comments', '')) if has_audit else '',
             'actions': pdf_actions,

@@ -891,7 +891,8 @@ snapshot/diff logic is I/O-free in `processing.py`
   Template Alignment matrix (ticks, crosses and the accessibility flag only),
   from `processing.module_alignment_status()`, which School Dashboard and
   Faculty Overview's matrices now call too so the three cannot drift.
-  `_summary_points()` is still built, for the PDF. The old "not yet
+  The PDF summary reads the same row, as words (Done / To do / Check) in a
+  header-row table, and `_summary_points()` was removed. The old "not yet
   audited" bullet was dropped because the opening sentence says it. It is
   collapsed because the Actions panel and Accessibility tab carry every item
   in full. Earlier notes in this file that say "health banner" now mean this

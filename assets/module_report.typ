@@ -71,7 +71,7 @@
   stroke: none,
   fill: rgb("#F9FAFB"),
   inset: (x: 2.5mm, y: 1.5mm),
-  table.header(..d.meta.map(m => text(7.5pt, weight: "regular", fill: muted, upper(m.label)))),
+  table.header(..d.meta.map(m => text(8pt, weight: "regular", fill: muted, upper(m.label)))),
   ..d.meta.map(m => text(9pt, weight: "bold", m.value)),
 )
 
@@ -83,11 +83,17 @@
 == Report Summary
 
 #if d.intro != "" { par(d.intro) }
-#if d.points.len() > 0 {
-  heading(level: 3, bookmarked: false, outlined: false)[Still to do]
-  list(..d.points.map(p => if p.bold != "" [#strong(p.bold) #p.text] else [#p.text]))
-} else {
-  par[Nothing outstanding right now.]
+#if d.alignment.len() > 0 {
+  // A table with a header row, so each status is read with its label. The
+  // value is a word, never colour alone.
+  table(
+    columns: (1fr,) * d.alignment.len(),
+    stroke: (x: none, top: none, bottom: 0.3mm + rgb("#E5E7EB")),
+    align: center,
+    inset: (x: 1mm, y: 1.5mm),
+    table.header(..d.alignment.map(a => text(8pt, weight: "bold", a.label))),
+    ..d.alignment.map(a => text(8pt, fill: rgb(a.ink), a.value)),
+  )
 }
 #if d.refreshed != "" { par(text(8pt, fill: muted, d.refreshed)) }
 
