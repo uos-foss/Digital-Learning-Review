@@ -18,6 +18,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.shortcuts import render
 
+import processing
+
 from auditdata.models import AuditField
 from modules import data
 
@@ -78,7 +80,9 @@ def _display(row):
         "code": row.get("New module code", ""),
         "name": row.get("Module name", ""),
         "lead": row.get("Module Lead", ""),
-        "school": row.get("School", ""),
+        # The module record carries no 'School' column; every reader derives
+        # it from the code through this one helper.
+        "school": processing.school_of(row.get("New module code", "")),
         "ally_overall_pct": round(float(overall) * 100, 1) if overall is not None else None,
         "ally_enabled": row.get("Ally Enabled", True),
         "ally_severe": row.get("Ally Severe", 0),
