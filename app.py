@@ -389,7 +389,7 @@ def page_admin():
     view_admin_panel(df_aut, df_spr, checklist_sums, df_assess)
 
 def page_audit_portal():
-    view_audit_portal(df_aut, df_spr, checklist_sums, df_assess)
+    view_audit_portal(df_aut, df_spr, checklist_sums, df_assess, load_checklist_data)
 
 # Define st.Page objects
 pg_about = st.Page(view_about, title="Welcome", icon=":material/home:")

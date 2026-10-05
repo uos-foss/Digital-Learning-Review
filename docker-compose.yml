@@ -22,3 +22,6 @@ services:
     # Force Streamlit to use the right port, binding address, and path
     command: streamlit run app.py --server.port=8500 --server.address=0.0.0.0 --server.baseUrlPath=digital-learning-review
     restart: unless-stopped
+    # Cap memory so one runaway container cannot starve the VM (and sshd/Caddy). Streamlit holds the audit/Ally/readiness frames per session.
+    mem_limit: 1g
+    memswap_limit: 1g

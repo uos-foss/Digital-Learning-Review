@@ -962,6 +962,14 @@ snapshot/diff logic is I/O-free in `processing.py`
   flagging a module - `spot_checks` isn't read by any of the three) should not
   call `st.cache_data.clear()` just out of habit; a plain `st.rerun()` is
   enough to refresh what actually depends on session/query-time state.
+  Clear only the loader whose output changed: an Audit Portal save writes
+  `audit_responses`, which only `load_checklist_data()` reads, so
+  `views/audit_portal.py` calls `load_checklist_data_cache.clear()` (the
+  function is passed in from `app.py`, as `view_module_report()` already
+  does) instead of wiping `load_audit_data()`'s Ally/Leganto/readiness
+  aggregation for every session. It falls back to `st.cache_data.clear()`
+  if the argument is missing. Imports and Admin Panel edits still use the
+  full clear, since they change what several loaders return.
 
 - **Never write `st.session_state` from inside an `@st.cache_data`-decorated
   function.** `st.cache_data`'s cache is shared across every session (unlike
