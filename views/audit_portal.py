@@ -20,7 +20,7 @@ from database import (
 )
 from masquerade import is_masquerading
 
-def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
+def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_checklist_data_cache=None):
     user_caps = st.session_state.get("capabilities", [])
     if "edit_checklist" not in [c.lower() for c in user_caps]:
         st.error("Access Denied: You do not have permission to access the Audit Portal.")
@@ -416,7 +416,11 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None):
                                 selected_code, CURRENT_ACADEMIC_YEAR, username_upper, timestamp,
                                 snapshot, agreement['agreed'], agreement['total'])
 
-                        st.cache_data.clear()
+                        # Only load_checklist_data() reads audit_responses; the Ally/Leganto/readiness loaders are unaffected.
+                        if load_checklist_data_cache is not None:
+                            load_checklist_data_cache.clear()
+                        else:
+                            st.cache_data.clear()
                         logging.info(f"✅ Audit {action} for '{selected_code}' by '{username_upper}'.")
                         st.success(f"Audit {action}!")
                         st.rerun()
