@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from processing import (  # noqa: E402
     parse_ally_export, aggregate_ally_to_modules, summarise_ally_issues,
     count_ally_issues_by_module, reconcile_ally_modules, FACULTY_SCHOOLS,
+    is_faculty_code,
 )
 
 FAILURES = []
@@ -52,7 +53,7 @@ def main(path, academic_year):
           parsed['dropped_out_of_faculty'] >= 0,
           f"{parsed['dropped_out_of_faculty']} rows")
     check("every kept module code is a faculty prefix",
-          courses['module_code'].str[:3].isin(FACULTY_SCHOOLS).all())
+          is_faculty_code(courses['module_code']).all())
     print(f"  -> {len(courses)} courses, {courses['module_code'].nunique()} module codes\n")
 
     print("Grain")
