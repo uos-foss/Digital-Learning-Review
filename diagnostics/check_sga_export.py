@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from processing import (  # noqa: E402
     parse_sga_export, explode_sga_mappings, aggregate_sga_to_modules, summarise_sga_usage,
     SGA_CONCENTRATION_SHARE, SGA_MODULE_MANY_ATTRIBUTES, CURRENT_ACADEMIC_YEAR,
+    school_series,
 )
 
 FAILURES = []
@@ -74,7 +75,7 @@ def main(path):
     print(f"\n  Thresholds: concentrated >= {SGA_CONCENTRATION_SHARE:.0%}, "
           f"claims many > {SGA_MODULE_MANY_ATTRIBUTES} attributes")
 
-    by_school = modules.assign(school=modules['module_code'].str[:3]).groupby('school')
+    by_school = modules.assign(school=school_series(modules['module_code'])).groupby('school')
     print("\nBy school: modules with SGAs, mean attributes")
     for school, grp in by_school:
         print(f"  {school}: {len(grp):>4}  {grp['sga_attributes'].mean():.1f}")

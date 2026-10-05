@@ -4,6 +4,7 @@ import contextlib
 import pandas as pd
 import logging
 from processing import parse_custom_observations  # noqa: F401 - re-exported, see below
+from processing import school_series
 
 def get_database_path():
     """
@@ -1713,7 +1714,7 @@ def get_spot_check_agreement_summary(academic_year: str = None):
         df = pd.read_sql_query(sql, conn, params=params)
     if df.empty:
         return df
-    df['school'] = df['module_code'].astype(str).str.strip().str.upper().str[:3]
+    df['school'] = school_series(df['module_code'])
     grouped = df.groupby(['school', 'academic_year']).agg(
         checked=('module_code', 'count'),
         agreed=('agreement_agreed', 'sum'),

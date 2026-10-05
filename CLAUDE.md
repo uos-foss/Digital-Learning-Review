@@ -1011,6 +1011,21 @@ snapshot/diff logic is I/O-free in `processing.py`
   it needs an upstream Streamlit fix.
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
   five hardcoded copies. Do not add a sixth.
+- **A module code's school**: `processing.school_of(code)` for one code,
+  `school_series(codes)` for a Series, `is_faculty_code(codes)` for the
+  in-faculty test. Do not write `[:3]` again. The rule was spelled out ~20
+  times across `processing.py`, `database.py`, three views and four
+  diagnostics, in three different forms - `.str[:3]`,
+  `.astype(str).str[:3]` and `.astype(str).str.strip().str.upper().str[:3]` -
+  so whether a padded or lowercase code counted as in-faculty depended on
+  which copy read it. The helpers always normalise first. Proven a no-op when
+  introduced (05-10-2026): every one of the 20,688 codes across 13 tables is
+  already stripped and uppercase, and all seven `load_audit_data()` frames
+  plus the findings for 766 modules fingerprinted identical before and after.
+  `diagnostics/check_school_codes.py` re-asserts both, so an import that
+  starts writing ` edc004 ` is caught there rather than by a school quietly
+  losing modules from its totals. `SCHOOL_CODE_LENGTH` is the one place the
+  three is written down, for whenever another faculty's code format differs.
 - **`processing.py` is I/O-free** - pandas transformations only. SQL belongs in
   `database.py`, Sheets access in `data_manager.py`, ETL in `sync_data.py`,
   module-row assembly in `loaders.py` (see "Data architecture" above).
