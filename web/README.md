@@ -90,7 +90,7 @@ web/
   dlr/routers.py      auditdata -> shared database; never migrate it
   dlr/hashers.py      Verify existing scrypt hashes, never write them
   auditdata/models.py Unmanaged models over audit_fields, audit_responses
-  modules/loaders.py  Builds one module's row (see the warning below)
+  modules/data.py     Calls loaders.py at the repo root for a module's row
   modules/views.py    Report page, HTMX fragment, Plotly chart
   tests/              Pure logic tests, no database
   smoke.py            End-to-end check against the real database
@@ -102,35 +102,34 @@ refuses to migrate the shared schema in either direction, so Django can never
 alter a table another app depends on. `manage.py makemigrations --check`
 confirms it proposes nothing.
 
-## The finding that matters
+## The finding that mattered, now fixed
 
-**The module-row assembly is trapped inside Streamlit, and
-`modules/loaders.py` currently duplicates it.**
+The spike's first version had to **duplicate the module-row mapping**, because
+the assembly lived inside `app.py::load_audit_data()`, wrapped in
+`@st.cache_data` in a module that configures Streamlit pages at import time.
+Nothing outside a running Streamlit script could build a module row.
 
-`derive_module_findings()` documents the row it needs (`Ally Severe`,
-`Template Sections`, `Leganto List Status` and so on), but the code that
-*builds* that row lives in `app.py::load_audit_data()`, which is wrapped in
-`@st.cache_data` and sits in a module that configures Streamlit pages at
-import time. Django cannot call it, so `loaders.py` repeats the mapping for a
-single module.
+That assembly now lives in **`loaders.py` at the repo root**, with no
+Streamlit in it. `app.py::load_audit_data()` is a thin cached wrapper around
+`loaders.load_audit_frames()`, and `modules/data.py` here calls
+`loaders.load_module_record(code)`. One mapping, two front ends.
 
-Two copies of that mapping is exactly the drift risk that keeping both front
-ends in one repo is meant to prevent. **Before porting any further page,
-extract the row assembly out of `app.py` into a Streamlit-free loader at the
-repo root that both front ends import, and delete the duplication in
-`loaders.py`.** Everything it needs is already free of Streamlit: the
-`database.get_*_latest()` queries and the `processing.aggregate_*_to_modules()`
-functions. Only the assembly is stuck.
+The extraction was verified rather than assumed: all seven returned frames and
+the derived findings for all 766 modules were fingerprinted before and after,
+and every hash matched. `diagnostics/check_module_loader.py` re-checks it
+against the live database, which was impossible before.
 
-That extraction is worth doing for the Streamlit app regardless, since it
-would also make `load_audit_data()` testable for the first time.
+**Still duplicated:** `load_checklist_data()` builds its own leaner row in
+`module_row()`, re-querying and re-aggregating for the Actionable Items badge.
+It agrees with `loaders.py` today, but it should move onto
+`loaders.load_module_sources()` when there is appetite to re-verify the badge
+counts.
 
 ## Smaller things noticed
 
 - **`school_of(code)` is missing.** The first-three-letters rule is copied
-  about 16 times across the Streamlit app, and `loaders.py` now makes 17. One
-  helper in `processing.py` would settle it, and it is a prerequisite for any
-  other faculty using this code.
+  about 16 times across the Streamlit app. One helper in `processing.py` would
+  settle it, and it is a prerequisite for any other faculty using this code.
 - **Row keys carry spaces** (`Ally Overall`, `Module name`), which Django
   templates cannot resolve by dot notation. `views._display()` maps them to
   template-friendly names in one place, which is where that renaming belongs
@@ -140,5 +139,9 @@ would also make `load_audit_data()` testable for the first time.
   for reading and another reason writes should keep going through
   `database.py`.
 - **The SITS table is not modelled.** It has no primary key, and its name
-  carries the academic year, which is a contract with AI-Audit. `loaders.py`
-  reads it with pandas, exactly as the Streamlit app does.
+  carries the academic year, which is a contract with AI-Audit. The repo-root
+  `loaders.py` reads it with pandas, which both front ends now share.
+- **A pre-existing pandas FutureWarning** about concatenating all-NA columns
+  fires on the legacy audit tables. It moved with the code and is unchanged;
+  fixing it would alter column dtypes, so it wants its own change and its own
+  verification.

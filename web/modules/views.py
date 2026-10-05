@@ -19,7 +19,7 @@ from django.http import Http404
 from django.shortcuts import render
 
 from auditdata.models import AuditField
-from modules import loaders
+from modules import data
 
 
 @login_required
@@ -32,7 +32,7 @@ def module_index(request):
 
 @login_required
 def module_report(request, code):
-    row, findings = loaders.load_findings(code)
+    row, findings = data.load_findings(code)
     if row is None:
         raise Http404(f"{code} is not in SITS for the current academic year.")
 
@@ -55,7 +55,7 @@ def module_accessibility(request, code):
     on every page load. Proves partial rendering works; the Ally detail itself
     is left for the real port.
     """
-    row = loaders.load_module_row(code)
+    row = data.load_module_row(code)
     if row is None:
         raise Http404(code)
 

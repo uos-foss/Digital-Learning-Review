@@ -31,7 +31,7 @@ def main():
 
     import database
     import pandas as pd
-    from modules import loaders
+    from modules import data
 
     setup_test_environment()
     failures = []
@@ -52,7 +52,7 @@ def main():
     code = codes[0]
 
     # 2. The row contract and the findings pipeline, unchanged from Streamlit.
-    row, findings = loaders.load_findings(code)
+    row, findings = data.load_findings(code)
     check("module row built", row is not None)
     check("findings produced", findings is not None,
           f"{len(findings)} findings, "
