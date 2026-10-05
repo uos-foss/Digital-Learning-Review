@@ -6,6 +6,49 @@ import json
 # Schools that make up this faculty. Module codes are prefixed with these.
 FACULTY_SCHOOLS = ["ALA", "ECN", "EDC", "GPL", "IJC", "MGT", "SPR"]
 
+# How many leading characters of a module code name its school. A fact about
+# the code format, not about this faculty - another faculty's codes would use
+# the same rule with a different FACULTY_SCHOOLS.
+SCHOOL_CODE_LENGTH = 3
+
+
+def school_of(code):
+    """
+    The school a module code belongs to: its first three characters.
+
+    One definition for a rule that was written out ~20 times across the app,
+    as a mix of `.str[:3]`, `.astype(str).str[:3]` and
+    `.astype(str).str.strip().str.upper().str[:3]`. The inconsistency was the
+    problem: whether a stray lowercase or padded code counted as in-faculty
+    depended on which copy happened to read it. This normalises first, always,
+    which on the current data changes nothing (every code in every table is
+    already stripped and uppercase) and keeps a future import from silently
+    dropping modules out of a school.
+
+    Blank for a missing code, never 'NAN' or a crash.
+    """
+    if code is None or (isinstance(code, float) and pd.isna(code)):
+        return ''
+    return str(code).strip().upper()[:SCHOOL_CODE_LENGTH]
+
+
+def school_series(codes):
+    """school_of() for a pandas Series of module codes."""
+    return (codes.astype(str).str.strip().str.upper()
+            .str[:SCHOOL_CODE_LENGTH])
+
+
+def is_faculty_code(codes):
+    """
+    Boolean Series: is each module code's school one of this faculty's?
+
+    Cross-faculty provision (FCS) and the SCS/POL codes that appear in some
+    exports are not, and every view derives a school from the code prefix, so
+    those rows would belong to no school at all - see the SITS notes in
+    CLAUDE.md.
+    """
+    return school_series(codes).isin(FACULTY_SCHOOLS)
+
 # The year the portal is reporting on. Ally holds every year Blackboard has
 # ever had, so reads have to say which one they want. Bump this at rollover,
 # alongside the sits_assessment_* table name.
@@ -625,7 +668,7 @@ def _drop_outside_faculty(df, result, code_col='module_code'):
     applies once module_code has been derived, so a faculty-scoping change
     (e.g. a new cross-faculty exception) is made in one place, not once per
     importer."""
-    in_faculty = df[code_col].str[:3].isin(FACULTY_SCHOOLS)
+    in_faculty = is_faculty_code(df[code_col])
     result['dropped_out_of_faculty'] = int((~in_faculty).sum())
     return df[in_faculty]
 
@@ -961,7 +1004,7 @@ def parse_sits_export(df, academic_year):
             f"This export contains academic year(s) {', '.join(wrong_years)}; "
             f"only {expected_year} can be imported.")
 
-    in_faculty = (df['CIS unit code'] != '') & df['CIS unit code'].str[:3].isin(FACULTY_SCHOOLS)
+    in_faculty = (df['CIS unit code'] != '') & is_faculty_code(df['CIS unit code'])
     result['dropped_out_of_faculty'] = int((~in_faculty).sum())
     result['dropped_codes'] = sorted(set(df.loc[~in_faculty, 'CIS unit code']) - {''})
     result['rows'] = df[in_faculty].reset_index(drop=True)
@@ -1903,7 +1946,7 @@ def detect_bulk_edit_dates(df_sections):
 
     df = df_sections.copy()
     df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
-    df['school'] = df['module_code'].str[:3]
+    df['school'] = school_series(df['module_code'])
     df['last_modified'] = df['last_modified'].astype(str).str.strip()
     df = df[df['last_modified'] != ""]
     if df.empty:
@@ -2294,7 +2337,7 @@ def _readiness_section_states(df_courses, df_sections):
     states = {}
     for row in grouped.itertuples(index=False):
         status = rank_to_status.get(row.rank, "")
-        school = row.module_code[:3]
+        school = school_of(row.module_code)
         is_bulk = (school, row.last_modified) in bulk_dates
         evidence = classify_edit_evidence(
             row.last_modified, created.get(row.module_code, ""), is_bulk)
@@ -2658,7 +2701,7 @@ def get_school_comparison(active_df, checklist_sums):
                         if f.get('field_type') in ('boolean', 'yes/no')]
 
     df = active_df.copy()
-    df['School'] = df['New module code'].astype(str).str.strip().str.upper().str[:3]
+    df['School'] = school_series(df['New module code'])
     df = df[df['School'].isin(FACULTY_SCHOOLS)]
 
     if df.empty:

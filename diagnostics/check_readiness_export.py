@@ -24,6 +24,7 @@ from processing import (  # noqa: E402
     reconcile_ally_modules, FACULTY_SCHOOLS, TEMPLATE_SECTIONS, LEAD_OWNED_SECTIONS,
     SECTIONS_SHIP_HIDDEN, READINESS_BULK_EDIT_SHARE, READINESS_BULK_EDIT_MIN_MODULES,
     READINESS_SECTION_RANK, SECTION_STATES,
+    is_faculty_code, school_series,
 )
 
 FAILURES = []
@@ -63,7 +64,7 @@ def main(path, academic_year):
           parsed['dropped_out_of_faculty'] >= 0,
           f"{parsed['dropped_out_of_faculty']} rows")
     check("every kept module code is a faculty prefix",
-          courses['module_code'].str[:3].isin(FACULTY_SCHOOLS).all())
+          is_faculty_code(courses['module_code']).all())
     print(f"  -> {len(courses)} courses, {courses['module_code'].nunique()} module codes\n")
 
     print("Grain")
@@ -178,7 +179,7 @@ def main(path, academic_year):
           f"or {READINESS_BULK_EDIT_MIN_MODULES}+ modules on one day")
     # Printed with the numbers behind each call, since this is the table the
     # thresholds are calibrated against.
-    joined['school'] = joined['module_code'].astype(str).str[:3]
+    joined['school'] = school_series(joined['module_code'])
     sizes = joined.groupby('school')['module_code'].nunique()
     counts = (joined[joined['last_modified'] != ""]
               .groupby(['school', 'last_modified'])['module_code'].nunique())

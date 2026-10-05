@@ -60,6 +60,7 @@ from processing import (
     SECTION_KEY_BY_AUDIT_FIELD,
     parse_user_schools,
     format_user_schools,
+    school_of, school_series,
 )
 from masquerade import start_masquerade
 from views.module_report import title_case_name
@@ -152,7 +153,7 @@ def _sits_module_codes():
             df = pd.read_sql_query(
                 'SELECT DISTINCT "CIS unit code" AS c FROM sits_assessment_2026_27', conn)
         codes = {str(c).strip().upper() for c in df['c'] if str(c).strip()}
-        return {c for c in codes if c[:3] in FACULTY_SCHOOLS}
+        return {c for c in codes if school_of(c) in FACULTY_SCHOOLS}
     except Exception as exc:
         logging.warning(f"Could not read SITS codes for Ally reconciliation: {exc}")
         return set()
@@ -2600,7 +2601,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
 
                     overrides = get_module_lead_overrides().set_index('module_code')
                     view_df = view_df.assign(
-                        School=view_df['module_code'].str[:3],
+                        School=school_series(view_df['module_code']),
                         Status=view_df['module_code'].apply(lambda c: "🚫 Inactive" if c in inactive_codes else "✅ Active"),
                         **{"Current Lead": view_df['lead'].apply(title_case_name),
                            "Hand-set": view_df['module_code'].isin(overrides.index)}
