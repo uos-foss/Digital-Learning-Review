@@ -45,6 +45,30 @@ SITS in particular no longer comes from Sheets at all (see "SITS data" below).
 - The database lives on a host volume (`/opt/shared-audit-data` → `/app/data`),
   shared with sibling apps. It is not in git and is not in the image.
 
+**`loaders.py` assembles the module list, and has no Streamlit in it.** It is
+the layer between `database.py` (SQL) and `processing.py` (I/O-free pandas):
+it runs the queries, hands the frames to the `aggregate_*_to_modules()`
+functions and builds one record per module in the shape the views and
+`derive_module_findings()` read. `app.py::load_audit_data()` is now a thin
+`@st.cache_data` wrapper around `loaders.load_audit_frames()` - the caching
+stays in `app.py` because that is Streamlit's concern. Extracted 05-10-2026
+from ~320 lines inline in that cached function, which meant nothing but a
+running Streamlit script could build a module row: it could not be tested,
+and the Django spike under `web/` had to duplicate the mapping to render one
+module. Verified by fingerprinting all seven returned frames plus the derived
+findings for all 766 modules before and after - byte-identical.
+`diagnostics/check_module_loader.py` re-checks it against the live database
+(whole faculty, or one module code), which was impossible before.
+Do not put `st.*` in `loaders.py`, and do not rebuild a module row anywhere
+else - `build_module_record()` is the one mapping, `load_module_record(code)`
+the single-module path.
+
+  Still outstanding: `load_checklist_data()` builds its own leaner row in
+  `module_row()`, re-querying and re-aggregating Ally/Leganto/readiness for
+  the badge. It agrees with `loaders.py` today, but it is a second copy of
+  the same idea and should move onto `load_module_sources()` once there is
+  appetite to re-verify the badge counts.
+
 **The `users` table is authoritative in SQLite.** The Admin Panel writes there
 and never back to Sheets, so the Users sheet is always stale. Sync must only
 insert genuinely new accounts - `sync_new_users_only()`. Anything that rebuilds
@@ -988,7 +1012,8 @@ snapshot/diff logic is I/O-free in `processing.py`
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
   five hardcoded copies. Do not add a sixth.
 - **`processing.py` is I/O-free** - pandas transformations only. SQL belongs in
-  `database.py`, Sheets access in `data_manager.py`, ETL in `sync_data.py`.
+  `database.py`, Sheets access in `data_manager.py`, ETL in `sync_data.py`,
+  module-row assembly in `loaders.py` (see "Data architecture" above).
 - **Semester selection**: always go through `resolve_semester_df()`. "All year"
   used to mean different things on different pages. Year-long modules appear in
   *both* Autumn and Spring frames; "All year" narrows to just those.
