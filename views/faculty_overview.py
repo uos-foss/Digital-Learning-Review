@@ -1337,10 +1337,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         width="stretch",
                     )
 
-                gen_ai_yes = int((per_module['Gen AI Activity'] == "Yes").sum())
+                high_exposure = int((per_module['AI Could Do Most/All'] > 0).sum())
                 st.caption(
-                    f"{gen_ai_yes} of {len(per_module)} declared modules report a Gen AI "
-                    "engaged learning activity."
+                    f"{high_exposure} of {len(per_module)} declared modules have at least one "
+                    "assessment where current AI could undertake most or all of the work."
                 )
 
                 with st.expander("Declared modules", expanded=False):

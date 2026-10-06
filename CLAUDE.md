@@ -1200,3 +1200,23 @@ Admin Panel or the School Dashboard's spot-check actions, despite
 `masquerade.py`'s docstring and the sidebar banner both saying it is
 view-only. Read it before starting work in those areas, and mark an item
 `[RESOLVED]` there rather than deleting it when you fix one.
+
+## AI declarations (read from the satellite AI-Audit app)
+
+The satellite AI-Audit app (`../AI-Audit`) writes one row per assessment per
+submission to `assessment_responses` in the shared database. Its old
+`ai_audit_queue` / `ai_audit_responses` tables are dead (owner's test rows only)
+and this app no longer creates or reads them. Migrated 06-10-2026.
+
+- `database.get_ai_declarations()` reads `assessment_responses` and keeps only
+  each module's latest `timestamp`. A resubmission adds rows and never
+  overwrites, so without that filter resubmitted modules are double counted.
+- `processing.summarise_ai_declarations()` rolls up to module grain. The old
+  "Gen AI Activity" Yes/No question no longer exists; its replacement is
+  `AI Could Do Most/All`, the count of a module's assessments where Q1 says
+  current AI could undertake most or all of the work (matched on the stem
+  "most or all", not the full option text). Shown in the School Dashboard's
+  Declared tab and as the Faculty Overview caption. Q2 to Q4 are loaded but not
+  yet displayed.
+- Keep it read-only: this portal must never write `assessment_responses`.
+  Wording and options are in `../AI-Audit/questions.py`.

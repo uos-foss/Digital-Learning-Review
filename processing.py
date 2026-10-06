@@ -591,7 +591,8 @@ def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=No
     """
     Rolls per-assessment AI declarations up to per-module.
 
-    The satellite AI-Audit app records one row per assessment, so a module with
+    The satellite AI-Audit app records one row per assessment
+    (get_ai_declarations() keeps only each module's latest submission), so a module with
     three assessments contributes three rows. The Faculty and School views want
     modules, not assessments: a module counts as declared once any of its
     assessments has been.
@@ -612,7 +613,7 @@ def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=No
     Returns {'per_module': DataFrame, 'declared': int, 'in_scope': int,
     'unmatched': list, 'other_semester': list}.
     """
-    empty = pd.DataFrame(columns=['module_code', 'Assessments Declared', 'Gen AI Activity'])
+    empty = pd.DataFrame(columns=['module_code', 'Assessments Declared', 'AI Could Do Most/All'])
     result = {'per_module': empty, 'declared': 0, 'in_scope': 0,
               'unmatched': [], 'other_semester': []}
 
@@ -645,17 +646,18 @@ def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=No
     if df.empty:
         return result
 
-    # "Yes" if any assessment on the module reported a Gen AI learning activity.
-    gen_ai = df.groupby('module_code')['gen_ai_activity'].apply(
-        lambda s: "Yes" if (s.astype(str).str.strip().str.lower() == "yes").any() else "No"
-    )
+    # Assessments where the lead said current AI could undertake most or all
+    # of the work (Q1). Matched on the option's stem rather than its full
+    # wording, so a small rewording in AI-Audit's questions.py does not zero it.
+    high = df['ai_capability'].astype(str).str.lower().str.contains('most or all', regex=False)
     counts = df.groupby('module_code').size()
+    high_counts = high.groupby(df['module_code']).sum().reindex(counts.index).astype(int)
 
     per_module = pd.DataFrame({
         'module_code': counts.index,
         'Assessments Declared': counts.values,
+        'AI Could Do Most/All': high_counts.values,
     })
-    per_module['Gen AI Activity'] = per_module['module_code'].map(gen_ai)
 
     result['per_module'] = per_module.reset_index(drop=True)
     result['declared'] = len(per_module)

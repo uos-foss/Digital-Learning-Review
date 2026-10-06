@@ -973,7 +973,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         shown['Module Name'] = shown['module_code'].map(names)
                         st.dataframe(
                             shown.rename(columns={'module_code': 'Code'})[
-                                ['Code', 'Module Name', 'Assessments Declared', 'Gen AI Activity']
+                                ['Code', 'Module Name', 'Assessments Declared', 'AI Could Do Most/All']
                             ],
                             hide_index=True,
                             width="stretch",

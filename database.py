@@ -64,28 +64,6 @@ def init_db():
     except Exception as e:
         logging.error(f"Migration error from self_audit_checklist to audit_checklist: {e}")
         
-    # Owned by the satellite AI-Audit app, which shares this database. Kept here
-    # only so a cold start from either app produces the same schema - this app
-    # never writes it. The column list must stay identical to that app's
-    # database.py, or whichever runs first wins and the other breaks.
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ai_audit_queue (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            module_code TEXT,
-            module_title TEXT,
-            school TEXT,
-            user_id TEXT,
-            gen_ai_activity TEXT,
-            assessment_title TEXT,
-            assessment_type TEXT,
-            ai_usability TEXT,
-            ai_intended_use TEXT,
-            status TEXT,
-            is_synced INTEGER DEFAULT 0
-        )
-    """)
-
     # Create audit_fields table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_fields (
@@ -689,11 +667,8 @@ def mark_checklists_synced(record_ids: list):
         cursor.execute(f"UPDATE audit_checklist SET is_synced = 1 WHERE id IN ({placeholders})", record_ids)
         conn.commit()
 
-# The ai_audit_queue write helpers that used to live here are gone. That queue
-# belongs to the satellite AI-Audit app: it inserts the rows, pushes them to its
-# own sheet and then deletes them. Writing it from here would have double-posted
-# every submission, because that app removes the rows this app only flagged as
-# synced. Read the table if you need it; do not write it.
+# assessment_responses belongs to the satellite AI-Audit app (see
+# get_ai_declarations()). This portal reads it and never writes it.
 
 # --- New Dynamic Fields and Response helper functions ---
 
@@ -782,69 +757,41 @@ def get_all_audit_responses():
     with get_db_connection() as conn:
         return pd.read_sql_query("SELECT * FROM audit_responses", conn)
 
+AI_DECLARATION_COLUMNS = [
+    'module_code', 'module_title', 'school', 'user_id', 'timestamp',
+    'assessment_title', 'assessment_type', 'ai_capability', 'ai_permitted_use',
+    'ai_permitted_use_other', 'ai_standard', 'change_needed', 'status',
+]
+
 def get_ai_declarations():
     """
-    Every AI in the Curriculum declaration, as a DataFrame, one row per
-    assessment.
+    Each module's latest AI in the Curriculum declaration, as a DataFrame, one
+    row per assessment.
 
     Owned by the satellite AI-Audit app - see the shared database contract in
-    docs/developer-guide.md. Read only: this portal must never write these
-    tables. ai_audit_queue is that app's durable record; ai_audit_responses is
-    its cache of the responses spreadsheet and holds the same declarations
-    again, so the two are unioned and de-duplicated with the queue winning.
+    docs/developer-guide.md. Read only: this portal must never write
+    assessment_responses.
+
+    A resubmission adds a new set of rows with a new timestamp and never
+    overwrites, so only each module's latest timestamp is kept (the AI-Audit
+    app does the same in latest_per_module()); otherwise a resubmitted module
+    would be double counted.
 
     Returns an empty frame if the satellite has never run against this
     database, which is the normal state of a fresh local checkout.
     """
-    columns = ['module_code', 'module_title', 'school', 'user_id', 'timestamp',
-               'gen_ai_activity', 'assessment_title', 'assessment_type',
-               'ai_usability', 'ai_intended_use', 'status']
-    frames = []
-
     with get_db_connection() as conn:
-        if table_exists(conn, 'ai_audit_queue'):
-            frames.append(pd.read_sql_query(
-                """
-                SELECT module_code, module_title, school, user_id, timestamp,
-                       gen_ai_activity, assessment_title, assessment_type,
-                       ai_usability, ai_intended_use, status
-                FROM ai_audit_queue
-                """, conn))
+        if not table_exists(conn, 'assessment_responses'):
+            return pd.DataFrame(columns=AI_DECLARATION_COLUMNS)
+        df = pd.read_sql_query(
+            f"SELECT {', '.join(AI_DECLARATION_COLUMNS)} FROM assessment_responses", conn)
 
-        if table_exists(conn, 'ai_audit_responses'):
-            # That table is written by df.to_sql from the spreadsheet, so its
-            # columns are the sheet's display headers rather than these names.
-            df_resp = pd.read_sql_query("SELECT * FROM ai_audit_responses", conn)
-            if not df_resp.empty:
-                renames = {
-                    'Module Code': 'module_code', 'Module Title': 'module_title',
-                    'School': 'school', 'User ID': 'user_id', 'Timestamp': 'timestamp',
-                    'Gen AI Learning Activity': 'gen_ai_activity',
-                    'Assessment Title': 'assessment_title',
-                    'Assessment Type': 'assessment_type',
-                    'AI Usability': 'ai_usability',
-                    'AI Intended Use': 'ai_intended_use', 'Status': 'status',
-                }
-                df_resp = df_resp.rename(columns=renames)
-                for col in columns:
-                    if col not in df_resp.columns:
-                        df_resp[col] = ""
-                frames.append(df_resp[columns])
-
-    if not frames:
-        return pd.DataFrame(columns=columns)
-
-    df = pd.concat(frames, ignore_index=True)
     if df.empty:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=AI_DECLARATION_COLUMNS)
 
     df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
-
-    key = pd.DataFrame({
-        c: df[c].astype(str).str.strip().str.upper()
-        for c in ['timestamp', 'module_code', 'assessment_title', 'user_id']
-    })
-    return df[~key.duplicated(keep='first')].reset_index(drop=True)
+    latest = df.groupby('module_code')['timestamp'].transform('max')
+    return df[df['timestamp'] == latest].reset_index(drop=True)
 
 # --- Ally institutional report -------------------------------------------
 #

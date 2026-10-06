@@ -126,8 +126,7 @@ them, so this boundary is a convention that nothing enforces.
 | `ally_courses`, `ally_issues`, `ally_content`, `ally_scores` | this portal | AI-Audit must not touch |
 | `leganto_lists`, `leganto_nolist` | this portal | AI-Audit must not touch |
 | `readiness_courses`, `readiness_sections` | this portal | AI-Audit must not touch |
-| `ai_audit_queue` | **AI-Audit** | this portal reads |
-| `ai_audit_responses` | **AI-Audit** | this portal reads |
+| `assessment_responses` | **AI-Audit** | this portal reads |
 
 **Ally tables.** `ally_courses` holds one row per Blackboard course per
 snapshot, and a module can run more than one course shell, so rolling up to
@@ -155,13 +154,12 @@ columns by fuzzy name. The v1.16.0 import purges it.
 
 Points that have already caused bugs:
 
-- **Never write `ai_audit_*` from here.** `sync_ai_responses()` was removed in
-  v1.15.0 for exactly this reason: it pulled AI-Audit's sheet into
-  `ai_audit_responses`, which that app maintains itself, and the two `.env`
-  files can name different copies of that sheet.
-- Both apps call `init_db()` at start-up and both declare `ai_audit_queue` with
-  `CREATE TABLE IF NOT EXISTS`. Whichever starts first defines the schema, so
-  the column list must stay identical in both `database.py` files.
+- **Never write `assessment_responses` from here.** It holds one row per
+  assessment per AI-Audit submission, and a resubmission adds rows rather than
+  replacing them, so read only each module's latest `timestamp`
+  (`database.get_ai_declarations()` does). The old `ai_audit_queue` and
+  `ai_audit_responses` tables are dead and no longer created here; they only
+  hold test rows.
 - AI-Audit reads `sits_assessment_2026_27` but never populates it. That is
   `sync_assessment_data()` here. Both must name the same **"All Schools
   2026/27"** worksheet, or leads declare against a module list this portal does

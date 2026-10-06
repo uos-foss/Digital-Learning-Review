@@ -43,10 +43,10 @@ def push_unsynced_checklists():
         logging.info(f"✅ Successfully synced {len(synced_ids)} checklists to Google Sheets.")
 
 # There was a push_unsynced_ai_responses() here. It is deliberately gone: the
-# ai_audit_queue is the satellite AI-Audit app's outbox, and that app pushes and
-# then deletes those rows. This one only flagged them as synced, so if this
-# module were ever re-enabled the two would fight and every submission would be
-# posted twice. Do not reinstate it.
+# the satellite AI-Audit app used to keep an ai_audit_queue outbox that it pushed
+# to Sheets itself. That queue is gone: it now writes assessment_responses
+# straight to the shared database and this portal only reads it. There is
+# nothing here to push. Do not reinstate it.
 
 def background_sync_loop(interval_seconds=3600):
     """Loop that runs synchronization periodically."""
