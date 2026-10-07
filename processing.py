@@ -1462,6 +1462,8 @@ SGA_MODULE_MANY_ATTRIBUTES = 4
 # them; an admin ticks this for a role in the Admin Panel's Role Capabilities
 # tab to widen access.
 SGA_CAPABILITY = "view_sga_analytics"
+FIX_CLAIM_CAPABILITY = "report_fixed"
+FIX_CLAIM_FEATURE = "fix_claims"  # feature_schools.feature: schools it is rolled out to
 
 def can_view_sga(user_caps):
     caps = {str(c).strip().lower() for c in (user_caps or [])}
@@ -2950,6 +2952,20 @@ def get_school_comparison(active_df, checklist_sums):
 # plus 'source' and 'state' as the only new keys - so nothing downstream
 # needed new rendering code, only a new place to get the list from.
 
+def fix_claim_words(claim):
+    """Plain text, never HTML: the name and note are free text typed by a lead,
+    so a caller that puts this in markup must html.escape() it.
+
+    The one sentence saying a module lead has reported a section fixed and a
+    Digital Learning Advisor has yet to check. Shared by the findings and the
+    Blackboard Template card so they cannot word it differently."""
+    who = str(claim.get('submitter_name') or '').strip()
+    note = str(claim.get('note') or '').strip()
+    text = (f"Reported as fixed on {fmt_report_date(claim.get('claimed_on'))}"
+            f"{f' by {who}' if who else ''}. "
+            f"A Digital Learning Advisor will take another look.")
+    return f"{text} Note: {note}" if note else text
+
 def readiness_manual_override(audit_field_id, responses):
     """
     Whether a Digital Learning Advisor's own audit answer should override a
@@ -2998,7 +3014,7 @@ drive real findings, but it's a general-purpose free-text box now with no
 input UI for that structure - a DLA typing an unrelated note into it should
 not silently create a permanent open action item."""
 
-def derive_module_findings(active_row, responses, active_fields):
+def derive_module_findings(active_row, responses, active_fields, fix_claims=None):
     """
     Every checklist, Leganto, Ally and template-readiness finding for one
     module, as one flat list of {'source', 'state', 'type', ...} dicts.
@@ -3017,6 +3033,11 @@ def derive_module_findings(active_row, responses, active_fields):
     active_fields: from get_active_audit_fields() - passed in rather than
     fetched here to keep this I/O-free and callable once per module without
     re-querying each time.
+    fix_claims: optional {field_id: {'claimed_by', 'claimed_on', 'note'}} of live
+    module lead "this is fixed" claims (database.get_active_fix_claims()). It
+    only adds a sentence to a manually-recorded-incomplete readiness finding;
+    pending/completed and every count are unaffected, so callers that only
+    want the count (app.py) pass nothing.
 
     Only Ally and readiness findings are never rendered as generic cards -
     both already have their own richer, source-specific display (the Ally
@@ -3194,6 +3215,7 @@ def derive_module_findings(active_row, responses, active_fields):
         badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
 
         if audit_field_id:
+            fix_claimed = None
             manual = readiness_manual_override(audit_field_id, responses)
             if manual and key == SGA_SECTION and sga_blocks_sga_field(active_row.get('SGA Attributes')):
                 # A 'complete' tick doesn't stand against an empty SGA mapping:
@@ -3215,6 +3237,11 @@ def derive_module_findings(active_row, responses, active_fields):
                 action = ("A Digital Learning Advisor has recorded this as complete in the audit."
                           if manual else
                           "A Digital Learning Advisor has recorded this as not yet complete in the audit.")
+                claim = (fix_claims or {}).get(audit_field_id)
+                if claim and not manual:
+                    badge = "Reported fixed"
+                    action = fix_claim_words(claim)
+                    fix_claimed = claim.get('claimed_on')
             else:
                 is_ready = readiness_section_is_ready(key, state_key)
                 if (is_ready and key == SGA_SECTION
@@ -3235,6 +3262,7 @@ def derive_module_findings(active_row, responses, active_fields):
                 'description': action,
                 'audit_field_id': audit_field_id,
                 'manual_override': manual,
+                'fix_claimed': fix_claimed,
             })
         elif state_key in ('deleted', 'missing'):
             findings.append({
@@ -3439,7 +3467,7 @@ def compute_spot_check_agreement(data_verdict_snapshot, saved_responses):
             'total': len(detail), 'detail': detail}
 
 
-def module_alignment_status(active_row, responses, active_fields):
+def module_alignment_status(active_row, responses, active_fields, fix_claims=None):
     """
     One module's row of the item-by-item Template Alignment matrix, as an
     ordered list of (column label, symbol): done, outstanding, or a flag.
@@ -3459,9 +3487,15 @@ def module_alignment_status(active_row, responses, active_fields):
     list and Leganto is folded into it; without it, a separate 'Reading List'
     column is added. A recorded reading_list answer suppresses the Leganto
     finding, so the answer alone decides.
+
+    fix_claims swaps a template section's '❌' for '🔧' when a module lead has
+    reported it fixed and an advisor has yet to check it, so the matrix does
+    not show a cross for work already done. The module report, School
+    Dashboard and Faculty Overview all pass them; the Actionable Items counts
+    still include the item.
     """
     boolean_fields = [f for f in active_fields if f['field_type'] in ('boolean', 'yes/no')]
-    findings = derive_module_findings(active_row, responses, active_fields)
+    findings = derive_module_findings(active_row, responses, active_fields, fix_claims)
 
     by_field = {}
     leganto_state = 'completed'
@@ -3469,14 +3503,14 @@ def module_alignment_status(active_row, responses, active_fields):
         if f['source'] == 'checklist' and 'field_id' in f:
             by_field[f['field_id']] = f['state']
         elif f['source'] == 'readiness' and f.get('audit_field_id'):
-            by_field[f['audit_field_id']] = f['state']
+            by_field[f['audit_field_id']] = 'reported' if f.get('fix_claimed') else f['state']
         elif f['source'] == 'leganto':
             leganto_state = f['state']
 
     cells = {}
     for field in boolean_fields:
         col = short_field_label(field['id'], field['label'])
-        cells[col] = '✅' if by_field.get(field['id']) == 'completed' else '❌'
+        cells[col] = {'completed': '✅', 'reported': '🔧'}.get(by_field.get(field['id']), '❌')
 
     rl_field = next((f for f in boolean_fields if f['id'] == READING_LIST_FIELD_ID), None)
     if rl_field is not None:

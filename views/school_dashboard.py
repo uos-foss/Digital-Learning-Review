@@ -7,11 +7,13 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
                         module_alignment_status,
                         format_comment_markdown, fmt_report_date,
-                        reading_list_verdict, can_view_sga)
+                        reading_list_verdict, can_view_sga, FIX_CLAIM_FEATURE,
+                        TEMPLATE_SECTIONS, SECTION_KEY_BY_AUDIT_FIELD)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
                       delete_spot_checks, get_school_spot_checks,
-                      get_spot_check_comments)
+                      get_spot_check_comments, get_fix_claims_for_school,
+                      get_all_active_fix_claims, feature_enabled_for)
 from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_issue_profile,
     build_accessibility_risk_list,
@@ -221,10 +223,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
             # disabled - add them back to this list to restore. Their view code
             # below is untouched.
-            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List", "🎯 Spot-Checks", "💬 Spot-Check Comments"]
+            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List", "🎯 Spot-Checks", "💬 Spot-Check Comments", "✅ Reported Fixes"]
             if not is_admin:
                 view_options = [v for v in view_options
                                  if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
+            # Reported Fixes is rolled out school by school (Admin Panel, Role
+            # Capabilities), so it is hidden wherever it is not switched on.
+            if not feature_enabled_for(FIX_CLAIM_FEATURE, school):
+                view_options = [v for v in view_options if v != "✅ Reported Fixes"]
             # Admins only until view_sga_analytics is granted to a role.
             if show_sga:
                 view_options.insert(2, "🎓 Graduate Attributes")
@@ -674,9 +680,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     st.markdown("#### Item-by-item status")
                     st.caption(
                         "A detailed view of the status of Blackboard template items "
-                        "across the School's modules. ✅ done · ❌ outstanding · "
+                        "across the School's modules. ✅ done · ❌ outstanding · 🔧 reported fixed, awaiting check · "
                         "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
                     )
+                    all_fix_claims = get_all_active_fix_claims()
                     matrix_rows = []
                     for _, r in school_df.iterrows():
                         code = r['New module code']
@@ -687,7 +694,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             'Module Name': r.get('Module name', ''),
                             'Module Lead': to_title_case(r.get('Mod. lead', '')),
                         }
-                        row.update(module_alignment_status(active_row, responses, active_fields))
+                        row.update(module_alignment_status(
+                            active_row, responses, active_fields,
+                            all_fix_claims.get(str(code).strip().upper())))
                         matrix_rows.append(row)
 
                     matrix_df = pd.DataFrame(matrix_rows).sort_values('Module Code').reset_index(drop=True)
@@ -1306,6 +1315,84 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             export_comments.to_csv(index=False).encode('utf-8'),
                             f"{school}_spot_check_comments.csv", "text/csv",
                             key="btn_sd_sc_comments_export")
+
+            elif selected_view == "✅ Reported Fixes":
+                st.subheader(f"Reported Fixes for {school}")
+                st.caption(
+                    "Template sections a module lead has reported as fixed after a "
+                    "Digital Learning Advisor recorded them as not complete. Reporting "
+                    "a fix changes nothing in the audit. It is checked once an advisor "
+                    "saves that section's audit answer again in the Audit Portal.")
+
+                fixes = get_fix_claims_for_school(school)
+                if fixes.empty:
+                    st.info("No fixes have been reported for this school yet.")
+                else:
+                    fixes = fixes.copy()
+                    fixes['Module'] = fixes['module_code'].astype(str).str.strip().str.upper()
+                    fixes['Name'] = fixes['Module'].map(year_names).fillna('')
+                    fixes['Section'] = fixes['field_id'].map(
+                        lambda f: TEMPLATE_SECTIONS[SECTION_KEY_BY_AUDIT_FIELD[f]][0]
+                        if f in SECTION_KEY_BY_AUDIT_FIELD else f)
+                    fixes['Reporter email'] = [
+                        ('' if pd.isna(n) else str(n).strip()) or ('' if pd.isna(l) else str(l))
+                        for n, l in zip(fixes['submitter_name'], fixes['claimed_by'])]
+                    fixes['Note'] = fixes['note'].fillna('')
+                    fixes['Reported on'] = fixes['claimed_on'].map(fmt_report_date)
+                    fixes['Status'] = fixes['checked'].map(
+                        {True: "✅ Checked by advisor", False: "⏳ Awaiting check"})
+                    fixes['Checked on'] = [fmt_report_date(c) if ok else ""
+                                           for c, ok in zip(fixes['checked_on'], fixes['checked'])]
+
+                    m1, m2 = st.columns(2)
+                    m1.metric("Awaiting check", int((~fixes['checked']).sum()))
+                    m2.metric("Checked by an advisor", int(fixes['checked'].sum()))
+
+                    status_filter = st.radio(
+                        "Show", ["All", "Awaiting check", "Checked"], horizontal=True,
+                        key="sd_fix_status")
+                    shown = fixes
+                    if status_filter == "Awaiting check":
+                        shown = fixes[~fixes['checked']]
+                    elif status_filter == "Checked":
+                        shown = fixes[fixes['checked']]
+
+                    cols = ['Module', 'Name', 'Section', 'Reporter email',
+                            'Reported on', 'Note', 'Status', 'Checked on']
+                    if shown.empty:
+                        st.info("Nothing matches that filter.")
+                    else:
+                        shown_view = shown[cols].reset_index(drop=True)
+                        st.caption("Select a row (tick the checkbox) to jump to that module's report or audit.")
+                        fix_selection = st.dataframe(
+                            shown_view, hide_index=True, width="stretch",
+                            on_select="rerun", selection_mode="single-row",
+                            key="school_dashboard_fixes_table")
+                        picked = [i for i in fix_selection.selection.rows if i < len(shown_view)]
+                        if picked:
+                            clicked_code = shown_view.iloc[picked[0]]['Module']
+                            st.divider()
+                            st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("📊 Jump to Report Card", width="stretch",
+                                             type="primary", key="btn_fixes_rc"):
+                                    st.session_state.selected_module_code = clicked_code
+                                    st.session_state.context_focus_own = False
+                                    st.session_state.context_school = school
+                                    st.switch_page(st.session_state.pg_module)
+                            with c2:
+                                if can_audit and st.button("✅ Open Audit Portal", width="stretch",
+                                                           key="btn_fixes_audit"):
+                                    st.session_state.selected_module_code = clicked_code
+                                    st.session_state.context_focus_own = False
+                                    st.session_state.context_school = school
+                                    st.switch_page(st.session_state.pg_audit)
+                        st.download_button(
+                            f"📥 Export {school} Reported Fixes",
+                            shown[cols].to_csv(index=False).encode('utf-8'),
+                            f"{school}_reported_fixes.csv", "text/csv",
+                            key="btn_sd_fixes_export")
 
             st.divider()
             csv_school = school_df.to_csv(index=False).encode('utf-8')

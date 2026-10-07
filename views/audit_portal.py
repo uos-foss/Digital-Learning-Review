@@ -6,12 +6,13 @@ from processing import (
     resolve_active_row, compute_spot_check_agreement, build_spot_check_snapshot,
     CURRENT_ACADEMIC_YEAR,
     compute_audit_verdict, parse_user_schools, format_user_schools,
-    module_matches_user_schools,
+    module_matches_user_schools, fmt_report_date, fix_claim_words,
 )
 from database import (
     get_active_audit_fields,
     get_audit_responses,
     get_audit_response_history,
+    get_active_fix_claims,
     save_audit_response,
     get_spot_checks_for_schools,
     get_pending_spot_check,
@@ -215,6 +216,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
             st.markdown(f"#### {selected_code} — {module_mapping.get(selected_code, selected_code)}")
             active_row = resolve_active_row(selected_code, df_aut, df_spr)
             readiness_prefill = readiness_prefill_for_module(active_row)
+            fix_claims = get_active_fix_claims(selected_code)
 
             url = str(active_row.get('URL', '')).strip() if active_row is not None else ""
             if url == 'nan':
@@ -314,6 +316,9 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
                             else:
                                 tooltip = "N/A"
                             responses_input[fid] = st.checkbox(label, value=def_val, help=tooltip, key=f"ap_chk_{selected_code}_{fid}")
+                            if fid in fix_claims:
+                                st.caption(f"✋ {fix_claim_words(fix_claims[fid])} "
+                                           "Saving this audit clears the note.")
                         elif ftype == 'text':
                             help_text = field.get('description') or None
                             responses_input[fid] = st.text_area(

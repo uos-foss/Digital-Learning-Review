@@ -6,6 +6,7 @@ import re
 import html
 from datetime import datetime
 from report_pdf import build_module_report_pdf
+from masquerade import is_masquerading
 from processing import (
     get_module_mapping,
     resolve_semester_df,
@@ -19,6 +20,11 @@ from processing import (
     SECTION_STATES,
     derive_module_findings,
     readiness_manual_override,
+    fix_claim_words,
+    FIX_CLAIM_CAPABILITY,
+    FIX_CLAIM_FEATURE,
+    school_of,
+    SECTION_KEY_BY_AUDIT_FIELD,
     SGA_SECTION,
     sga_blocks_sga_field,
     format_comment_markdown,
@@ -37,6 +43,9 @@ from database import (
     get_active_audit_fields,
     get_audit_responses,
     save_audit_response,
+    save_fix_claim,
+    feature_enabled_for,
+    get_active_fix_claims,
     get_pending_spot_check,
     get_last_import_dates,
 )
@@ -476,7 +485,7 @@ def _render_report_summary(alignment, active_row, has_audit=False):
                 f"{symbol} {html.escape(label)}</span>"
                 for label, symbol in alignment)
             st.markdown(f"<div style='line-height:1.9;'>{chips}</div>", unsafe_allow_html=True)
-            st.caption("✅ done · ❌ outstanding · accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet")
+            st.caption("✅ done · ❌ outstanding · 🔧 reported fixed, awaiting check · accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet")
 
         st.caption(_refreshed_line(active_row))
 
@@ -697,9 +706,107 @@ def _render_ally_issues(ally_categories, ally_profile, is_template=False):
             _render_issue_cards(ally_profile)
 
 
+def _section_order():
+    """TEMPLATE_SECTION_TREE section keys in the order the report shows them."""
+    order = []
+    def walk(nodes):
+        for node_type, value, children in nodes:
+            if node_type == 'section':
+                order.append(value)
+            walk(children)
+    walk(TEMPLATE_SECTION_TREE)
+    return {k: i for i, k in enumerate(order)}
+
+
+_FIX_BOX_CSS = """<style>
+.st-key-mr_fix_box {
+    border-left: 4px solid #6B7280; background-color: rgba(107,114,128,0.06);
+    border-radius: 4px; padding: 14px 16px 6px 16px; margin-top: 14px;
+}
+</style>"""
+
+
+def _render_reported_fixed_panel(claimed):
+    """Template sections a module lead has reported as fixed, in the same
+    panel style as the Actions list but green: they are no longer something
+    the lead has to do, only something an advisor has yet to look at."""
+    items = ''.join(
+        f'<li style="margin-bottom:12px;"><strong>{html.escape(str(a.get("section_label", "")))}'
+        f'</strong><br/><span style="{TEXT_MUTED};font-size:{FS_SECONDARY}px;">'
+        f'{html.escape(a.get("description", ""))}</span></li>'
+        for a in claimed)
+    st.markdown(
+        '<div style="margin-top:14px;border-left:4px solid #10B981; '
+        'background-color:rgba(16,185,129,0.06); border-radius:4px; '
+        'padding:14px 16px 2px 16px;">'
+        f'<div style="font-weight:600;margin-bottom:8px;">✅ Reported fixed ({len(claimed)})</div>'
+        f'<ul style="margin:0; padding-left:18px;">{items}</ul></div>',
+        unsafe_allow_html=True)
+
+
+def _render_fix_claim_buttons(open_actions, module_code):
+    """
+    Lets a module lead say a template section a Digital Learning Advisor
+    recorded as not complete has since been fixed. Only those sections get a
+    button: every other action resolves from the data on its own. A claim
+    changes wording and where the item is listed on this page, never the
+    advisor's answer, the counts or the matrix; it stays until the advisor
+    next saves that field. Held by the report_fixed capability, and refused
+    while masquerading.
+    """
+    caps = [str(c).lower() for c in st.session_state.get("capabilities", [])]
+    if not module_code or FIX_CLAIM_CAPABILITY not in caps:
+        return
+    if not feature_enabled_for(FIX_CLAIM_FEATURE, school_of(module_code)):
+        return
+    claimable = [a for a in open_actions
+                 if a.get('source') == 'readiness' and a.get('manual_override') is False
+                 and a.get('audit_field_id')]
+    if not claimable:
+        return
+    # Same order as the Blackboard Template cards on the left.
+    position = _section_order()
+    claimable.sort(key=lambda a: position.get(
+        SECTION_KEY_BY_AUDIT_FIELD.get(a['audit_field_id']), len(position)))
+
+    st.markdown(_FIX_BOX_CSS, unsafe_allow_html=True)
+    with st.container(key="mr_fix_box"):
+        st.markdown("**Fixed something?**")
+        st.caption("Let the school know.")
+        with st.form(f"mr_fix_form_{module_code}", border=False):
+            ticked = {}
+            for a in claimable:
+                fid = a['audit_field_id']
+                ticked[fid] = st.checkbox(a.get('section_label') or fid,
+                                          key=f"mr_fix_tick_{module_code}_{fid}")
+            note = st.text_area("Comment (optional)", key=f"mr_fix_note_{module_code}",
+                                height=80, max_chars=500, placeholder="e.g. What was changed?")
+            submitted = st.form_submit_button("Mark selected as fixed")
+        if submitted:
+            chosen = [fid for fid, on in ticked.items() if on]
+            if is_masquerading():
+                st.warning("Viewing as another user. Nothing was saved.")
+            elif not chosen:
+                st.warning("Tick at least one section.")
+            else:
+                # Everyone signs in with Google, and the session username is
+                # their email address (stored upper-case), so that is who is
+                # recorded. Shown in lower case. One comment covers every
+                # section ticked.
+                login = str(st.session_state.get("username", "")).strip()
+                who = login.lower() if "@" in login else login
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                saved = [save_fix_claim(module_code, fid, login, now, note, who)
+                         for fid in chosen]
+                if all(saved):
+                    st.rerun()
+                else:
+                    st.warning("Reporting fixes is not switched on for this school.")
+
+
 def _render_module_checks(actions, has_audit, active_row=None, responses=None,
                           leganto_missing=False, leganto_status='', leganto_items=0,
-                          leganto_draft_items=0):
+                          leganto_draft_items=0, fix_claims=None, module_code=None):
     """
     Blackboard Template sections and outstanding Actions, side by side: the
     detailed per-section state on the left (roughly three-quarters width),
@@ -720,14 +827,23 @@ def _render_module_checks(actions, has_audit, active_row=None, responses=None,
     col_sections, col_actions = st.columns([3, 1])
     with col_sections:
         _render_template_sections(active_row, responses, has_audit,
-                                  leganto_missing, leganto_status, leganto_items, leganto_draft_items)
+                                  leganto_missing, leganto_status, leganto_items, leganto_draft_items,
+                                  fix_claims)
     with col_actions:
-        st.markdown(f"#### Actions ({len(actions)})")
-        _render_actions_panel(actions)
+        # A section the lead has reported fixed is no longer theirs to do, so
+        # it leaves the list and the count here. The Actionable Items badge
+        # elsewhere still counts it until an advisor re-checks.
+        open_actions = [a for a in actions if not a.get('fix_claimed')]
+        reported_fixed = [a for a in actions if a.get('fix_claimed')]
+        st.markdown(f"#### Actions ({len(open_actions)})")
+        _render_actions_panel(open_actions)
+        if reported_fixed:
+            _render_reported_fixed_panel(reported_fixed)
+        _render_fix_claim_buttons(open_actions, module_code)
 
 
 def _section_card_content(key, state, responses, has_audit, created, leganto=None,
-                          sga_attrs=None):
+                          sga_attrs=None, fix_claims=None):
     """
     What one template section's card says - label, badge, colour, action
     and footer text - without rendering it. Shared by _render_section_card()
@@ -797,6 +913,7 @@ def _section_card_content(key, state, responses, has_audit, created, leganto=Non
         show_detail = True
         colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
 
+    claimed = False
     manual = readiness_manual_override(audit_field_id, responses) if has_audit else None
     if manual and key == SGA_SECTION and sga_blocks_sga_field(sga_attrs):
         manual = None  # an empty SGA mapping outranks a 'complete' tick
@@ -810,13 +927,18 @@ def _section_card_content(key, state, responses, has_audit, created, leganto=Non
             action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
         footer = f"Automatically detected as of the last update: {data_label}. {footer}"
         show_detail = True
+        claim = (fix_claims or {}).get(audit_field_id)
+        if claim and not manual:
+            badge, colour = "Reported fixed", STATE_TIER_COLOUR['ok']
+            action = fix_claim_words(claim)
+            claimed = True
 
     return {'label': label, 'badge': badge, 'colour': colour, 'action': action,
-            'footer': footer, 'show_detail': show_detail}
+            'footer': footer, 'show_detail': show_detail, 'claimed': claimed}
 
 
 def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0,
-                         sga_attrs=None):
+                         sga_attrs=None, fix_claims=None):
     """
     One template section, as a styled card: status badge, what it means, and
     when it was last changed.
@@ -862,9 +984,12 @@ def _render_section_card(key, state, responses, has_audit, created, leganto=None
     alone doesn't: a caution, a fault, a DLA's manual verification, or
     Reading List's Leganto status.
     """
-    card = _section_card_content(key, state, responses, has_audit, created, leganto, sga_attrs)
+    card = _section_card_content(key, state, responses, has_audit, created, leganto, sga_attrs,
+                                 fix_claims)
     label, badge, colour = card['label'], card['badge'], card['colour']
     action, footer, show_detail = card['action'], card['footer'], card['show_detail']
+    if card['claimed']:
+        action = html.escape(action)  # carries a lead's free text
 
     icon = CONTENT_TYPE_ICONS.get(SECTION_CONTENT_TYPE.get(key), '')
     indent = depth * 24
@@ -935,7 +1060,7 @@ def _sga_note(active_row):
 
 
 def _render_section_tree(nodes, states, responses, has_audit, created, leganto, depth=0,
-                         sga_note=None, sga_attrs=None):
+                         sga_note=None, sga_attrs=None, fix_claims=None):
     """
     Walks processing.TEMPLATE_SECTION_TREE, rendering each node at its
     nesting depth - a status card for a tracked section, a plain heading for
@@ -952,7 +1077,7 @@ def _render_section_tree(nodes, states, responses, has_audit, created, leganto, 
             if state:
                 _render_section_card(value, state, responses, has_audit, created,
                                      leganto=leganto if value == 'MODULE_READING_LIST' else None,
-                                     depth=depth, sga_attrs=sga_attrs)
+                                     depth=depth, sga_attrs=sga_attrs, fix_claims=fix_claims)
             # Independent of `state`: the SGA tool export is a separate
             # import from Template Alignment readiness, so a module can have
             # real SGA data with no (or no yet-imported) readiness state for
@@ -967,12 +1092,12 @@ def _render_section_tree(nodes, states, responses, has_audit, created, leganto, 
             _render_label_node(value, depth, has_children_data=bool(children))
         if children:
             _render_section_tree(children, states, responses, has_audit, created, leganto,
-                                 depth + 1, sga_note, sga_attrs)
+                                 depth + 1, sga_note, sga_attrs, fix_claims)
 
 
 def _render_template_sections(active_row, responses=None, has_audit=False,
                               leganto_missing=False, leganto_status='', leganto_items=0,
-                              leganto_draft_items=0):
+                              leganto_draft_items=0, fix_claims=None):
     """
     The Blackboard template's required sections, from the faculty Template
     Alignment Report.
@@ -1011,11 +1136,12 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
 
     _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto,
                          sga_note=_sga_note(active_row),
-                         sga_attrs=pd.to_numeric(active_row.get('SGA Attributes'), errors='coerce'))
+                         sga_attrs=pd.to_numeric(active_row.get('SGA Attributes'), errors='coerce'),
+                         fix_claims=fix_claims)
 
 
 def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, depth=0,
-                       sga_attrs=None):
+                       sga_attrs=None, fix_claims=None):
     """TEMPLATE_SECTION_TREE flattened for the PDF, walked exactly as
     _render_section_tree() walks it, with each card's wording from
     _section_card_content()."""
@@ -1026,14 +1152,14 @@ def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, de
             if state:
                 card = _section_card_content(
                     value, state, responses, has_audit, created,
-                    leganto if value == 'MODULE_READING_LIST' else None, sga_attrs)
+                    leganto if value == 'MODULE_READING_LIST' else None, sga_attrs, fix_claims)
                 rows.append({'kind': 'section', 'depth': depth, **card})
         else:
             rows.append({'kind': 'heading', 'depth': depth, 'label': value,
                          'note': '' if children else "Not part of the readiness data yet."})
         if children:
             rows += _pdf_template_rows(children, states, responses, has_audit, created,
-                                       leganto, depth + 1, sga_attrs)
+                                       leganto, depth + 1, sga_attrs, fix_claims)
     return rows
 
 
@@ -1325,7 +1451,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             responses = {}
             last_updated_str = "Never"
 
-        findings = derive_module_findings(active_row, responses, active_fields)
+        fix_claims = get_active_fix_claims(selected_code)
+        findings = derive_module_findings(active_row, responses, active_fields, fix_claims)
 
         # Not gated on has_audit - a never-audited module has no responses at
         # all, so this already resolves to 'blank' correctly by itself;
@@ -1405,7 +1532,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                     <span title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor - and, if it has, when that check was last saved."><b>Audit Status:</b> {audit_status_label}</span>
                 </div>""", unsafe_allow_html=True)
 
-        alignment = (module_alignment_status(active_row, responses, active_fields)
+        alignment = (module_alignment_status(active_row, responses, active_fields, fix_claims)
                      if active_row is not None else [])
         _render_report_summary(alignment, active_row, has_audit)
 
@@ -1442,7 +1569,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
             with tab_checks:
                 _render_module_checks(actions, has_audit, active_row, responses,
-                                      leganto_missing, leganto_status, leganto_items, leganto_draft_items)
+                                      leganto_missing, leganto_status, leganto_items, leganto_draft_items,
+                                      fix_claims, selected_code)
 
             with tab_accessibility:
                 _render_ally_card(selected_code, active_row, ally_profile, ally_categories)
@@ -1459,7 +1587,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             template_rows = _pdf_template_rows(TEMPLATE_SECTION_TREE, states, responses, has_audit,
                                                readiness_created_date(states), leganto,
                                                sga_attrs=pd.to_numeric(
-                                                   active_row.get('SGA Attributes'), errors='coerce'))
+                                                   active_row.get('SGA Attributes'), errors='coerce'),
+                                               fix_claims=fix_claims)
         pdf_lead, pdf_level = '', ''
         if active_row is not None:
             raw_lead = str(active_row.get('Mod. lead', '')).strip()

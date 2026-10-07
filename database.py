@@ -4,7 +4,7 @@ import contextlib
 import pandas as pd
 import logging
 from processing import parse_custom_observations  # noqa: F401 - re-exported, see below
-from processing import school_series
+from processing import school_series, school_of
 
 def get_database_path():
     """
@@ -367,6 +367,38 @@ def init_db():
     # actually checked, and agreement has to be measured against what the
     # advisor was shown when they chose it, not against whatever the data
     # says by the time they open it.
+    # A module lead's claim that a template section a DLA recorded as not
+    # complete has since been fixed. One row per module and audit field, replaced
+    # by a later claim. A claim never changes the DLA's answer or any count; it
+    # stays live only until the DLA next saves that field (see
+    # get_active_fix_claims()).
+    # Which schools a feature is switched on for, so it can be rolled out one
+    # school at a time. A feature with no rows is on for nobody.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS feature_schools (
+            feature TEXT,
+            school TEXT,
+            PRIMARY KEY (feature, school)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fix_claims (
+            module_code TEXT,
+            field_id TEXT,
+            claimed_by TEXT,
+            claimed_on TEXT,
+            note TEXT,
+            submitter_name TEXT,
+            PRIMARY KEY (module_code, field_id)
+        )
+    """)
+    # claimed_by is the login, which for a module lead is usually a shared
+    # school account; submitter_name is who actually pressed the button.
+    cursor.execute("PRAGMA table_info(fix_claims)")
+    if 'submitter_name' not in [row[1] for row in cursor.fetchall()]:
+        cursor.execute("ALTER TABLE fix_claims ADD COLUMN submitter_name TEXT")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS spot_checks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -751,6 +783,106 @@ def table_exists(conn, table_name):
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     return cursor.fetchone() is not None
+
+def get_feature_schools(feature: str):
+    """The set of school codes a feature is switched on for."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'feature_schools'):
+            return set()
+        rows = conn.execute("SELECT school FROM feature_schools WHERE feature = ?",
+                            (feature,)).fetchall()
+    return {str(r['school']).strip().upper() for r in rows}
+
+def set_feature_schools(feature: str, schools):
+    """Replaces the schools a feature is switched on for."""
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM feature_schools WHERE feature = ?", (feature,))
+        conn.executemany("INSERT INTO feature_schools (feature, school) VALUES (?, ?)",
+                         [(feature, str(s).strip().upper()) for s in schools])
+        conn.commit()
+
+def feature_enabled_for(feature: str, school: str) -> bool:
+    return str(school).strip().upper() in get_feature_schools(feature)
+
+def save_fix_claim(module_code: str, field_id: str, claimed_by: str, claimed_on: str,
+                   note: str = "", submitter_name: str = ""):
+    """Records (or replaces) a module lead's "this is fixed" claim for one
+    audit field. Never touches audit_responses. Returns False, saving nothing,
+    when the module's school is not switched on for fix claims."""
+    if not feature_enabled_for('fix_claims', school_of(module_code)):
+        return False
+    with get_db_connection() as conn:
+        conn.execute("""
+            INSERT INTO fix_claims (module_code, field_id, claimed_by, claimed_on, note,
+                                    submitter_name)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(module_code, field_id) DO UPDATE SET
+                claimed_by=excluded.claimed_by, claimed_on=excluded.claimed_on,
+                note=excluded.note, submitter_name=excluded.submitter_name
+        """, (module_code.strip().upper(), field_id, claimed_by, claimed_on,
+              (note or "").strip(), (submitter_name or "").strip()))
+        conn.commit()
+    return True
+
+def get_active_fix_claims(module_code: str):
+    """{field_id: {'claimed_by', 'claimed_on', 'note'}} for claims the DLA has
+    not yet answered. A claim is resolved by the DLA saving that field again,
+    which moves audit_responses.timestamp past claimed_on - so nothing is ever
+    deleted, and a later claim after that save is live again."""
+    with get_db_connection() as conn:
+        rows = conn.execute("""
+            SELECT c.field_id, c.claimed_by, c.claimed_on, c.note, c.submitter_name
+            FROM fix_claims c
+            LEFT JOIN audit_responses r
+              ON r.module_code = c.module_code AND r.field_id = c.field_id
+            WHERE c.module_code = ?
+              AND (r.timestamp IS NULL OR r.timestamp < c.claimed_on)
+        """, (module_code.strip().upper(),)).fetchall()
+    return {r['field_id']: {'claimed_by': r['claimed_by'], 'claimed_on': r['claimed_on'],
+                            'note': r['note'] or '', 'submitter_name': r['submitter_name'] or ''}
+            for r in rows}
+
+def get_all_active_fix_claims():
+    """{module_code: {field_id: claim}} for every live claim, for the school
+    matrices that show the reported-fixed icon. Same liveness test as
+    get_active_fix_claims()."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'fix_claims'):
+            return {}
+        rows = conn.execute("""
+            SELECT c.module_code, c.field_id, c.claimed_by, c.claimed_on, c.note,
+                   c.submitter_name
+            FROM fix_claims c
+            LEFT JOIN audit_responses r
+              ON r.module_code = c.module_code AND r.field_id = c.field_id
+            WHERE r.timestamp IS NULL OR r.timestamp < c.claimed_on
+        """).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(str(r['module_code']).strip().upper(), {})[r['field_id']] = {
+            'claimed_by': r['claimed_by'], 'claimed_on': r['claimed_on'],
+            'note': r['note'] or '', 'submitter_name': r['submitter_name'] or ''}
+    return out
+
+def get_fix_claims_for_school(school: str):
+    """Every module lead "fixed" claim for modules in one school, with whether
+    a DLA has saved that field since (audit_responses.timestamp at or after the
+    claim - the same test get_active_fix_claims() uses, inverted). Feeds the
+    School Dashboard's Reported Fixes view."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'fix_claims'):
+            return pd.DataFrame()
+        df = pd.read_sql_query("""
+            SELECT c.module_code, c.field_id, c.claimed_by, c.claimed_on, c.note,
+                   c.submitter_name, r.timestamp AS checked_on, r.auditor_username AS checked_by
+            FROM fix_claims c
+            LEFT JOIN audit_responses r
+              ON r.module_code = c.module_code AND r.field_id = c.field_id
+            WHERE c.module_code LIKE ?
+            ORDER BY c.claimed_on DESC
+        """, conn, params=(f"{school.strip().upper()}%",))
+    df['checked'] = df['checked_on'].notna() & (df['checked_on'] >= df['claimed_on'])
+    return df
 
 def get_all_audit_responses():
     """Returns all audit responses as a DataFrame."""
@@ -1300,6 +1432,38 @@ def save_readiness_snapshot(df_courses, df_sections, force_all=False):
             b = merged[f'{col}_prev'].astype(str).fillna('')
             same &= (a == b)
         same &= merged['alignment_status_prev'].notna()
+
+        # The course-level numbers above only move when a section's visibility
+        # does. Editing a section that is already visible (or still hidden)
+        # changes nothing there, only its last_modified, and that date is the
+        # whole edit evidence. So a course also counts as changed when any
+        # section's status or date differs from its previous snapshot.
+        if df_sections is not None and not df_sections.empty and same.any():
+            with get_db_connection() as conn:
+                prev_sections = pd.read_sql_query("""
+                    SELECT s.course_number, s.academic_year, s.section_key, s.status,
+                           s.last_modified
+                    FROM readiness_sections s
+                    JOIN (SELECT course_number, academic_year, MAX(snapshot_date) AS ms
+                          FROM readiness_courses GROUP BY course_number, academic_year) m
+                      ON s.course_number = m.course_number
+                     AND s.academic_year = m.academic_year AND s.snapshot_date = m.ms
+                """, conn) if table_exists(conn, 'readiness_sections') else pd.DataFrame()
+
+            def _section_sets(frame):
+                out = {}
+                for r in frame.itertuples(index=False):
+                    out.setdefault((r.course_number, r.academic_year), set()).add(
+                        (r.section_key, str(r.status), str(r.last_modified or '')))
+                return out
+
+            new_sets, old_sets = _section_sets(df_sections), _section_sets(prev_sections)
+            sections_same = pd.Series(
+                [new_sets.get((c, y), set()) == old_sets.get((c, y), set())
+                 for c, y in zip(merged['course_number'], merged['academic_year'])],
+                index=merged.index)
+            same &= sections_same
+
         unchanged = int(same.sum())
         df_courses = df_courses[~same.values].copy()
 

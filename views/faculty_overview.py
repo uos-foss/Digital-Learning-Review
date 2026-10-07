@@ -9,7 +9,8 @@ from processing import (aggregate_faculty_stats, calculate_module_compliance,
                         can_view_sga, parse_user_schools,
                         module_alignment_status, format_comment_markdown, fmt_report_date, school_series)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
-                      get_ally_history, get_spot_checks_for_schools, get_spot_check_comments)
+                      get_ally_history, get_spot_checks_for_schools, get_spot_check_comments,
+                      get_all_active_fix_claims)
 from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_maturity_breakdown,
     render_issue_profile, build_accessibility_risk_list,
@@ -650,9 +651,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
         else:
             st.caption(
                 "A detailed view of the status of Blackboard template items "
-                "across the selected schools' modules. ✅ done · ❌ outstanding · "
+                "across the selected schools' modules. ✅ done · ❌ outstanding · 🔧 reported fixed, awaiting check · "
                 "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
             )
+            all_fix_claims = get_all_active_fix_claims()
             matrix_rows = []
             for _, r in matrix_scope_df.iterrows():
                 code = r['New module code']
@@ -664,7 +666,9 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     'Module Name': r.get('Module name', ''),
                     'Module Lead': to_title_case(r.get('Mod. lead', '')),
                 }
-                row.update(module_alignment_status(active_row, responses, active_fields))
+                row.update(module_alignment_status(
+                    active_row, responses, active_fields,
+                    all_fix_claims.get(str(code).strip().upper())))
                 matrix_rows.append(row)
 
             matrix_df = pd.DataFrame(matrix_rows).sort_values(
