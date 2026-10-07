@@ -1463,6 +1463,10 @@ SGA_MODULE_MANY_ATTRIBUTES = 4
 # tab to widen access.
 SGA_CAPABILITY = "view_sga_analytics"
 FIX_CLAIM_CAPABILITY = "report_fixed"
+# Checklist fields with no template section that can still be reported fixed.
+# Learning Materials has no Template Alignment counterpart, so its pending
+# state comes from the ordinary checklist finding rather than a readiness one.
+FIX_CLAIM_EXTRA_FIELD_IDS = frozenset({'learning_materials'})
 FIX_CLAIM_FEATURE = "fix_claims"  # feature_schools.feature: schools it is rolled out to
 
 def can_view_sga(user_caps):
@@ -3087,14 +3091,26 @@ def derive_module_findings(active_row, responses, active_fields, fix_claims=None
                     continue
                 is_compliant = (str(val).upper() == 'TRUE' if ftype == 'boolean'
                                else str(val).upper() == 'YES')
-                findings.append({
+                finding = {
                     'source': 'checklist',
                     'state': 'completed' if is_compliant else 'pending',
                     'type': 'boolean',
                     'label': label if is_compliant else action_label,
                     'description': desc,
                     'field_id': fid,
-                })
+                }
+                if fid in FIX_CLAIM_EXTRA_FIELD_IDS and not is_compliant:
+                    # Same shape the readiness findings carry, so the claim
+                    # form, the Reported fixed panel and the dashboard treat
+                    # both alike. The claim only changes wording, not state.
+                    finding.update({'section_label': label, 'audit_field_id': fid,
+                                    'fix_claimed': None})
+                    claim = (fix_claims or {}).get(fid)
+                    if claim:
+                        finding.update({'label': f"{label}: Reported fixed",
+                                        'description': fix_claim_words(claim),
+                                        'fix_claimed': claim.get('claimed_on')})
+                findings.append(finding)
             elif ftype == 'text' and val and fid not in INERT_TEXT_FIELD_IDS:
                 custom_val = val
                 try:
@@ -3501,7 +3517,7 @@ def module_alignment_status(active_row, responses, active_fields, fix_claims=Non
     leganto_state = 'completed'
     for f in findings:
         if f['source'] == 'checklist' and 'field_id' in f:
-            by_field[f['field_id']] = f['state']
+            by_field[f['field_id']] = 'reported' if f.get('fix_claimed') else f['state']
         elif f['source'] == 'readiness' and f.get('audit_field_id'):
             by_field[f['audit_field_id']] = 'reported' if f.get('fix_claimed') else f['state']
         elif f['source'] == 'leganto':

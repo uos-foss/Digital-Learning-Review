@@ -593,7 +593,9 @@ it, in the Report Summary, the PDF, and School Dashboard's and Faculty
 Overview's matrices (`module_alignment_status(..., fix_claims)`, fed by
 `database.get_all_active_fix_claims()`). School Dashboard's "✅ Reported Fixes" view
 (`database.get_fix_claims_for_school()`) lists every claim with checked or
-awaiting status. **Rolled out school by school** via the `feature_schools` table
+awaiting status. Learning Materials (`FIX_CLAIM_EXTRA_FIELD_IDS`) can be reported fixed too
+although it has no template section: its ordinary checklist finding carries the
+same `fix_claimed` / `section_label` / `audit_field_id` keys when pending. **Rolled out school by school** via the `feature_schools` table
 (`FIX_CLAIM_FEATURE`, set in Admin Panel > Role Capabilities > "Reported Fixes
 rollout"; no rows means off for everyone). A school that is off gets no "Fixed
 something?" box, no Reported Fixes view, and `save_fix_claim()` refuses (returns

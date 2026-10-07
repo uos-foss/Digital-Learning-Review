@@ -18,6 +18,8 @@ Recent updates and releases for the Digital Learning Review portal.
   Capabilities; schools that are off see neither the box nor the Reported
   Fixes view.
 
+* **Learning Materials can be reported fixed too,** alongside the template
+  sections, and appears in Reported Fixes.
 * **The "Fixed something?" form records who reported and takes a comment.**
   The reporter is the signed-in user's email address. Tick the sections that
   are fixed, add one optional comment, and send them together. Both appear

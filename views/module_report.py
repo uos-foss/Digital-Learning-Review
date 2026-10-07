@@ -23,6 +23,7 @@ from processing import (
     fix_claim_words,
     FIX_CLAIM_CAPABILITY,
     FIX_CLAIM_FEATURE,
+    FIX_CLAIM_EXTRA_FIELD_IDS,
     school_of,
     SECTION_KEY_BY_AUDIT_FIELD,
     SGA_SECTION,
@@ -711,8 +712,7 @@ def _section_order():
     order = []
     def walk(nodes):
         for node_type, value, children in nodes:
-            if node_type == 'section':
-                order.append(value)
+            order.append(value)  # a label (Learning Materials) has a place too
             walk(children)
     walk(TEMPLATE_SECTION_TREE)
     return {k: i for i, k in enumerate(order)}
@@ -760,14 +760,17 @@ def _render_fix_claim_buttons(open_actions, module_code):
     if not feature_enabled_for(FIX_CLAIM_FEATURE, school_of(module_code)):
         return
     claimable = [a for a in open_actions
-                 if a.get('source') == 'readiness' and a.get('manual_override') is False
-                 and a.get('audit_field_id')]
+                 if a.get('audit_field_id') and (
+                     (a.get('source') == 'readiness' and a.get('manual_override') is False)
+                     or (a.get('source') == 'checklist'
+                         and a['audit_field_id'] in FIX_CLAIM_EXTRA_FIELD_IDS))]
     if not claimable:
         return
     # Same order as the Blackboard Template cards on the left.
     position = _section_order()
     claimable.sort(key=lambda a: position.get(
-        SECTION_KEY_BY_AUDIT_FIELD.get(a['audit_field_id']), len(position)))
+        SECTION_KEY_BY_AUDIT_FIELD.get(a['audit_field_id'], a.get('section_label')),
+        len(position)))
 
     st.markdown(_FIX_BOX_CSS, unsafe_allow_html=True)
     with st.container(key="mr_fix_box"):

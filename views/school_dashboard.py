@@ -1331,9 +1331,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     fixes = fixes.copy()
                     fixes['Module'] = fixes['module_code'].astype(str).str.strip().str.upper()
                     fixes['Name'] = fixes['Module'].map(year_names).fillna('')
+                    field_labels = {f['id']: f['label'] for f in get_active_audit_fields()}
                     fixes['Section'] = fixes['field_id'].map(
                         lambda f: TEMPLATE_SECTIONS[SECTION_KEY_BY_AUDIT_FIELD[f]][0]
-                        if f in SECTION_KEY_BY_AUDIT_FIELD else f)
+                        if f in SECTION_KEY_BY_AUDIT_FIELD else field_labels.get(f, f))
                     fixes['Reporter email'] = [
                         ('' if pd.isna(n) else str(n).strip()) or ('' if pd.isna(l) else str(l))
                         for n, l in zip(fixes['submitter_name'], fixes['claimed_by'])]
