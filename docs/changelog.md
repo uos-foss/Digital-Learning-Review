@@ -1,6 +1,22 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.31.0 (Current): *New AI in the Curriculum Questions*
+### 🚀 Version 1.32.0 (Current): *AI Module Status on Faculty Overview*
+*7 October 2026*
+
+**Faculty Overview**
+
+* **AI in the Curriculum is back on Faculty Overview.** The view had been
+  switched off. It now includes a Module Status section, matching the one in
+  the AI in the Curriculum Audit's own admin view.
+* **Pending and Completed lists.** Pending shows modules still waiting for a
+  declaration, with their lead. Completed shows one row per module: the
+  highest answer given for AI capability, standard of work and change needed,
+  the share of assessment weighting where AI could do most or all of the work,
+  and any flags (Policy gap, No clear position, Unsure, Support wanted,
+  Redesign underway). It can be filtered by flag or school and downloaded as a
+  CSV.
+
+### 🚀 Version 1.31.0: *New AI in the Curriculum Questions*
 *7 October 2026*
 
 **AI in the Curriculum**
