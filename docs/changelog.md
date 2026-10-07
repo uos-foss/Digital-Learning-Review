@@ -1,6 +1,50 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.32.0 (Current): *AI Module Status on Faculty Overview*
+### 🚀 Version 1.33.0 (Current): *Reported Fixes and Import Fix*
+*7 October 2026*
+
+**Module Report**
+
+* **Module leads can report a section as fixed.** Where a Digital Learning
+  Advisor has recorded a template section as not complete, a "Fixed
+  something?" box in the Actions column offers "Mark ... as fixed". The
+  section's card turns green ("Reported fixed") and the item moves out of
+  Actions into a green "Reported fixed" panel, with an advisor still to take
+  another look. The audit itself and the school-wide counts are unchanged. The
+  Audit Portal shows the same note beside that checklist item, and it clears
+  when the advisor next saves the audit. Needs the new `report_fixed`
+  capability, which an admin ticks per role in Role Capabilities (new
+  installs give it to module leads)). An admin switches it on school by school under Role
+  Capabilities; schools that are off see neither the box nor the Reported
+  Fixes view.
+
+* **The "Fixed something?" form records who reported and takes a comment.**
+  The reporter is the signed-in user's email address. Tick the sections that
+  are fixed, add one optional comment, and send them together. Both appear
+  beside each reported fix on the module report, in the Audit Portal and in
+  the School Dashboard's Reported Fixes view. Sections are listed in the same
+  order as the template cards.
+* **Reported fixes show a 🔧 in the alignment rows.** In the Report Summary,
+  the PDF, and the Template Alignment matrices on School Dashboard and Faculty
+  Overview, a section reported as fixed shows 🔧 instead of ❌ until an advisor
+  checks it.
+
+**School Dashboard**
+
+* **New "Reported Fixes" view** lists every reported fix for the school, with
+  the module, section, the reporter's email address and when, and whether an advisor
+  has checked it since. It can be filtered and exported as CSV.
+
+**Template Alignment import**
+
+* **Section edits now count as a change.** The import used to skip a course
+  whose visible, hidden, deleted and missing counts and score matched its last
+  snapshot, even when a section had been edited in the meantime, so those
+  edits and their dates were never saved. A course is now also written when
+  any section's status or last-modified date differs. Re-import your latest
+  export once with "Store every course" ticked to catch up.
+
+### 🚀 Version 1.32.0: *AI Module Status on Faculty Overview*
 *7 October 2026*
 
 **Faculty Overview**

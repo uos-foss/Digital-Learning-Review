@@ -7,6 +7,8 @@ import logging
 import datetime
 from database import (
     get_db_connection,
+    get_feature_schools,
+    set_feature_schools,
     get_audit_fields,
     save_audit_field,
     delete_audit_field,
@@ -54,6 +56,8 @@ from processing import (
     explode_sga_mappings,
     aggregate_sga_to_modules,
     SGA_CAPABILITY,
+    FIX_CLAIM_CAPABILITY,
+    FIX_CLAIM_FEATURE,
     ally_term_to_academic_year,
     TEMPLATE_SECTIONS,
     LEAD_OWNED_SECTIONS,
@@ -1255,7 +1259,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 roles_list = sorted(df_roles["Role"].unique().tolist())
                 schools_list = ["All"] + list(FACULTY_SCHOOLS)
-                available_caps = ["view_all", "view_school", "view_school_dashboard", "edit_checklist", "access_admin_panel", "access_admin_limited", SGA_CAPABILITY]
+                available_caps = ["view_all", "view_school", "view_school_dashboard", "edit_checklist", "access_admin_panel", "access_admin_limited", SGA_CAPABILITY, FIX_CLAIM_CAPABILITY]
 
                 # Roles that carry either admin capability - excluded from the
                 # role-assignment dropdowns below when acting as a limited admin,
@@ -1702,7 +1706,26 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                     with sub_tabs[1]:
                         st.markdown("##### **Role Capabilities Directory**")
                         st.dataframe(df_roles, use_container_width=True, hide_index=True)
-                    
+
+                        st.divider()
+                        st.markdown("##### **Reported Fixes rollout**")
+                        st.caption(
+                            "Schools where module leads can report a section as fixed, and "
+                            "where School Dashboard shows the Reported Fixes view. Leads also "
+                            "need a role with the report_fixed capability. Reports already "
+                            "made stay in the data if a school is switched off.")
+                        fix_schools_on = st.multiselect(
+                            "Schools switched on:", list(FACULTY_SCHOOLS),
+                            default=[s for s in FACULTY_SCHOOLS
+                                     if s in get_feature_schools(FIX_CLAIM_FEATURE)],
+                            key="fix_claim_schools_select")
+                        if st.button("Save rollout", key="btn_save_fix_schools"):
+                            set_feature_schools(FIX_CLAIM_FEATURE, fix_schools_on)
+                            logging.info("Reported Fixes switched on for: %s",
+                                         ", ".join(fix_schools_on) or "no schools")
+                            st.success("Rollout saved.")
+                            st.rerun()
+
                         st.divider()
                         st.markdown("##### **Role Configuration Actions**")
                         rc1, rc2 = st.columns(2)

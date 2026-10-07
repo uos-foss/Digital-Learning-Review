@@ -249,7 +249,7 @@ def initialize_roles_sheet(spreadsheet_id):
             ["admin", "view_all, edit_checklist, access_admin_panel, view_school_dashboard"],
             ["DLA", "view_all, edit_checklist, view_school_dashboard"],
             ["FOSS", "view_all, view_school_dashboard"],
-            ["ML", "view_school"],
+            ["ML", "view_school, report_fixed"],
             ["SA", "view_school, view_school_dashboard"],
             ["SL", "view_school, view_school_dashboard"]
         ]

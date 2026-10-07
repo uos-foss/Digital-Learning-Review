@@ -410,6 +410,14 @@ in `views/admin_panel.py` via `processing.parse_readiness_export()` and
   unchanged. It is also a different question from *edited at all* - a
   Visible section with no date evidence whatsoever (`visible_unedited`) is
   not suggested ticked; see the `visible_unedited` bullet above.
+- **`save_readiness_snapshot()` skips a course only if its section rows are
+  unchanged too.** Fixed 07-10-2026. It used to compare just the six
+  course-level columns (`_READINESS_CHANGE_COLS`), which only move when
+  visibility does, so edits to an already-visible or still-hidden section, and
+  their `last_modified` dates, were silently dropped. Section status and date
+  are now compared against the course's previous snapshot as well. Imports run
+  before this date may hold stale edit evidence; one "store every course"
+  re-import of the latest export repairs it.
 - **Both primary keys include `academic_year`** (`leganto_lists`'s reasoning,
   not `ally_courses`'s) so a reference import of a prior year cannot collide
   with the real one on a shared snapshot date.
@@ -573,6 +581,43 @@ owner is now `'lead'`. This changes, all via the existing owner-driven logic
   state, not template drift. If `TEMPLATE_SECTIONS` is ever restructured
   again, keep these two constants intentionally distinct rather than
   re-merging them.
+
+**A module lead can report a section fixed, which never changes the
+verdict.** Added 08-10-2026; the module report's display was made positive the
+same day: the card turns green ("Reported fixed") and the finding (`fix_claimed`
+set) leaves the Actions list and its count for a green "Reported fixed" panel.
+That is display-only - `Actionable Items` still counts it until a DLA
+re-checks, so the page and the badge can differ by exactly these items,
+deliberately. The alignment row shows '🔧' (unique to this) instead of '❌' for
+it, in the Report Summary, the PDF, and School Dashboard's and Faculty
+Overview's matrices (`module_alignment_status(..., fix_claims)`, fed by
+`database.get_all_active_fix_claims()`). School Dashboard's "✅ Reported Fixes" view
+(`database.get_fix_claims_for_school()`) lists every claim with checked or
+awaiting status. **Rolled out school by school** via the `feature_schools` table
+(`FIX_CLAIM_FEATURE`, set in Admin Panel > Role Capabilities > "Reported Fixes
+rollout"; no rows means off for everyone). A school that is off gets no "Fixed
+something?" box, no Reported Fixes view, and `save_fix_claim()` refuses (returns
+False); claims already made keep showing on the module report. Both gates need
+the role's `report_fixed` capability for the box. The claim form records the signed-in user's email (session
+username, upper-case, stored lower-cased in `submitter_name`; `claimed_by` keeps
+the raw login) and takes one free-text `note` saved on every section ticked: `fix_claim_words()` returns plain text and anything
+putting it in HTML must `html.escape()` it, as the module report's card and
+Reported fixed panel do. The form lists sections in report order
+(`_section_order()` over `TEMPLATE_SECTION_TREE`). A DLA's recorded answer outranks the data
+indefinitely, so a lead who fixed a section afterwards had no way to say so.
+`fix_claims` (one row per module and field) holds a lead's claim, written from
+the module report's Actions column by `_render_fix_claim_buttons()` under the
+`report_fixed` capability (refused while masquerading). It is offered only for
+a template-mapped field the DLA recorded as not complete: everything else
+resolves from data on its own. A claim only adds wording
+(`processing.fix_claim_words()`, passed to `derive_module_findings()` and the
+section card, plus a caption in the Audit Portal); pending/completed, every
+count and the matrix are untouched, and `app.py` passes no claims. It is live
+only while `audit_responses.timestamp` for that field is older than the claim,
+so the DLA saving that field resolves it with no queue and nothing is deleted.
+Do not let a claim flip a verdict or count: a lead clearing their own items is
+exactly what this avoids. A live roles table needs `report_fixed` ticked for ML
+in Role Capabilities, as with other new capabilities.
 
 **A recorded `reading_list` answer overrides Leganto as well as the
 template data.** Added 23-09-2026 when `reading_list` was linked to

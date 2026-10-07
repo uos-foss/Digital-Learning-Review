@@ -196,7 +196,7 @@ class EnvAuthProvider(BaseAuthProvider):
         elif role == "FOSS":
             return ["view_all", "view_school_dashboard"]
         elif role == "ML":
-            return ["view_school"]
+            return ["view_school", "report_fixed"]
         elif role == "SA":
             return ["view_school", "view_school_dashboard"]
         elif role == "SL":
@@ -360,7 +360,7 @@ class ActiveDirectoryAuthProvider(BaseAuthProvider):
         return "ML"
 
     def get_user_capabilities(self, username: str) -> list:
-        return ["view_school"]
+        return ["view_school", "report_fixed"]
 
 class GoogleOAuthProvider(BaseAuthProvider):
     """
