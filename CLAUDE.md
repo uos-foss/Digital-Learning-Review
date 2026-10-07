@@ -1216,7 +1216,14 @@ and this app no longer creates or reads them. Migrated 06-10-2026.
   `AI Could Do Most/All`, the count of a module's assessments where Q1 says
   current AI could undertake most or all of the work (matched on the stem
   "most or all", not the full option text). Shown in the School Dashboard's
-  Declared tab and as the Faculty Overview caption. Q2 to Q4 are loaded but not
-  yet displayed.
+  Declared tab.
+- **Faculty Overview's "🤖 AI in the Curriculum" view is back in the nav** (it
+  had been switched off) and carries a Module Status section copied from the
+  satellite admin view's Module Status tab: Pending / Completed toggle, flag
+  filter, CSV download. `processing.summarise_ai_modules()` is the port of
+  AI-Audit's `stats.module_summary()`, and the `AI_Q*` option constants beside
+  it are copies of `../AI-Audit/questions.py`. Answers are stored as the
+  option's full text, so a reworded option there stops matching until they are
+  updated here. Q2 to Q4 now feed this table's flags and "highest" columns.
 - Keep it read-only: this portal must never write `assessment_responses`.
   Wording and options are in `../AI-Audit/questions.py`.

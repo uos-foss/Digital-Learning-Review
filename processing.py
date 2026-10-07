@@ -663,6 +663,136 @@ def summarise_ai_declarations(df_declarations, module_codes=None, known_codes=No
     result['declared'] = len(per_module)
     return result
 
+# --- AI in the Curriculum: per-module status -------------------------------
+#
+# Option wording below is copied from the satellite AI-Audit app's
+# questions.py, which is the source of truth: answers are stored as the
+# option's full text, so a reworded option there stops matching here until
+# these are updated. Option order is severity order, which "highest" relies on.
+AI_Q1_OPTIONS = [
+    "AI could undertake little or none of the work required",
+    "AI could undertake some elements of the work required",
+    "AI could undertake significant elements of the work required",
+    "AI could undertake most or all of the work required",
+    "Unsure / not yet evaluated",
+]
+AI_Q2_NOT_PERMITTED = "AI use is not permitted for this assessment"
+AI_Q2_NO_POSITION = "No clear position has currently been established"
+AI_Q3_OPTIONS = [
+    "Unlikely to produce work at a passing standard",
+    "Could produce work at approximately a pass standard",
+    "Could produce work at a moderate/good standard",
+    "Could produce work at a high standard",
+    "Could produce work at an excellent/distinction-level standard",
+    "Unsure / not yet evaluated",
+]
+AI_Q4_OPTIONS = [
+    "No change is needed",
+    "Clearer guidance on AI use is needed",
+    "Minor changes or clarification would be beneficial",
+    "Some elements of the assessment should be reconsidered",
+    "Significant changes to the assessment are needed",
+    "The assessment is already being redesigned in response to AI",
+    "Unsure / would value support in evaluating this",
+]
+AI_Q1_HIGH = AI_Q1_OPTIONS[3]
+AI_Q1_UNSURE = AI_Q1_OPTIONS[4]
+AI_Q3_UNSURE = AI_Q3_OPTIONS[5]
+AI_Q4_REDESIGN = AI_Q4_OPTIONS[5]
+AI_Q4_SUPPORT = AI_Q4_OPTIONS[6]
+AI_FLAG_OPTIONS = ["Policy gap", "No clear position", "Unsure", "Support wanted", "Redesign underway"]
+
+
+def parse_ai_permitted(value):
+    """Q2 is stored as a JSON list of ticked options."""
+    import json
+    try:
+        return json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+
+
+def _ai_highest(options, unsure_option, series):
+    """The most severe answer in a series (by option order); 'Unsure' only if everything was unsure."""
+    ranks = series.map(lambda v: options.index(v) if v in options and v != unsure_option else -1)
+    best = ranks.max()
+    return unsure_option if best < 0 else options[best]
+
+
+def _ai_weights(df, df_sits):
+    """Adds a numeric 'Weight' (assessment weighting from SITS, matched on module code and assessment title)."""
+    out = df.copy()
+    needed = {'CIS unit code', 'Assessment title', 'Assessment weighting'}
+    if df_sits is None or df_sits.empty or not needed.issubset(df_sits.columns):
+        out['Weight'] = float('nan')
+        return out
+    w = df_sits[['CIS unit code', 'Assessment title', 'Assessment weighting']].copy()
+    w['Weight'] = pd.to_numeric(
+        w['Assessment weighting'].astype(str).str.replace('%', '', regex=False).str.strip(), errors='coerce')
+    w = w.groupby(['CIS unit code', 'Assessment title'], as_index=False)['Weight'].sum()
+    w = w.rename(columns={'CIS unit code': 'module_code', 'Assessment title': 'assessment_title'})
+    return out.merge(w, on=['module_code', 'assessment_title'], how='left')
+
+
+def _ai_weighted_share(group, mask):
+    """Percentage of the group's assessment weight where mask is true (head count if any weight is missing)."""
+    weights = group['Weight']
+    if weights.notna().all() and weights.sum() > 0:
+        return float((weights * mask).sum() / weights.sum() * 100)
+    return float(mask.mean() * 100)
+
+
+def ai_flags_for(group):
+    """Follow-up flags for one module's assessments."""
+    permitted = group['ai_permitted_use'].map(parse_ai_permitted)
+    flags = []
+    gap = (group['ai_capability'] == AI_Q1_HIGH) & permitted.map(
+        lambda p: AI_Q2_NOT_PERMITTED in p or AI_Q2_NO_POSITION in p)
+    if gap.any():
+        flags.append("Policy gap")
+    if permitted.map(lambda p: AI_Q2_NO_POSITION in p).any():
+        flags.append("No clear position")
+    if (group['ai_capability'] == AI_Q1_UNSURE).any() or (group['ai_standard'] == AI_Q3_UNSURE).any():
+        flags.append("Unsure")
+    if (group['change_needed'] == AI_Q4_SUPPORT).any():
+        flags.append("Support wanted")
+    if (group['change_needed'] == AI_Q4_REDESIGN).any():
+        flags.append("Redesign underway")
+    return flags
+
+
+def summarise_ai_modules(df_declarations, df_sits=None):
+    """
+    One row per declared module, summarising its latest submission - the
+    satellite AI-Audit admin view's Module Status table.
+
+    Expects database.get_ai_declarations() output (already latest-per-module).
+    `df_sits` supplies assessment weightings for the exposure figure.
+    """
+    columns = ['Module Code', 'Module Title', 'School', 'Submitted By', 'Submitted', 'Assessments',
+               'AI Capability (highest)', 'Standard (highest)', 'Change Needed (highest)',
+               'Weighted Exposure %', 'Flags']
+    if df_declarations is None or df_declarations.empty:
+        return pd.DataFrame(columns=columns)
+    df = _ai_weights(df_declarations, df_sits)
+    rows = []
+    for code, g in df.groupby('module_code', sort=True):
+        rows.append({
+            'Module Code': code,
+            'Module Title': g['module_title'].iloc[0],
+            'School': school_of(code),
+            'Submitted By': g['user_id'].iloc[0],
+            'Submitted': g['timestamp'].iloc[0],
+            'Assessments': len(g),
+            'AI Capability (highest)': _ai_highest(AI_Q1_OPTIONS, AI_Q1_UNSURE, g['ai_capability']),
+            'Standard (highest)': _ai_highest(AI_Q3_OPTIONS, AI_Q3_UNSURE, g['ai_standard']),
+            'Change Needed (highest)': _ai_highest(AI_Q4_OPTIONS, AI_Q4_SUPPORT, g['change_needed']),
+            'Weighted Exposure %': round(_ai_weighted_share(g, g['ai_capability'] == AI_Q1_HIGH)),
+            'Flags': ", ".join(ai_flags_for(g)),
+        })
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _drop_outside_faculty(df, result, code_col='module_code'):
     """Filters df to rows whose code_col prefix is a faculty school, recording
     how many were dropped into result['dropped_out_of_faculty'] - the shared

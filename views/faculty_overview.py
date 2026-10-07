@@ -3,7 +3,8 @@ import pandas as pd
 import altair as alt
 from processing import (aggregate_faculty_stats, calculate_module_compliance,
                         calculate_dynamic_compliance_gap, get_school_comparison,
-                        resolve_semester_df, summarise_ai_declarations,
+                        resolve_semester_df, summarise_ai_declarations, summarise_ai_modules,
+                        AI_FLAG_OPTIONS, school_of,
                         FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR, reading_list_verdict,
                         can_view_sga, parse_user_schools,
                         module_alignment_status, format_comment_markdown, fmt_report_date, school_series)
@@ -121,12 +122,12 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
 
     # ABSOLUTE LOCKDOWN ROUTER: Uses robust native widget for 100% reliable state linkage across reloads.
     # Also enables true lazy-loading, increasing app speed by not calculating inactive views!
-    # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
-    # disabled - add them back to this list to restore. Their view code below
-    # is untouched.
+    # "📝 Assessment Types" is temporarily disabled - add it back to this list
+    # to restore. Its view code below is untouched.
     view_options = ["📋 All Modules", "🏫 School Comparison", "✅ Template Alignment",
                      "📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List",
-                     "🎯 Spot-Checks", "💬 Spot-Check Comments"]
+                     "🎯 Spot-Checks", "💬 Spot-Check Comments",
+                     "🤖 AI in the Curriculum"]
     if not is_admin:
         view_options = [v for v in view_options
                          if v not in ("📊 Ally Analytics", "📈 Trends", "⚠️ Priority Action List")]
@@ -1337,15 +1338,55 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         width="stretch",
                     )
 
-                high_exposure = int((per_module['AI Could Do Most/All'] > 0).sum())
-                st.caption(
-                    f"{high_exposure} of {len(per_module)} declared modules have at least one "
-                    "assessment where current AI could undertake most or all of the work."
-                )
+            st.divider()
+            st.markdown("##### **Module Status**")
+            status_school = st.selectbox(
+                "School:", ["All Schools"] + list(FACULTY_SCHOOLS), key="ai_status_school")
+            in_school = (lambda code: status_school == "All Schools" or school_of(code) == status_school)
+            declared_codes = set(per_module['module_code']) if not per_module.empty else set()
 
-                with st.expander("Declared modules", expanded=False):
+            status_view = st.radio(
+                "View:", ["Pending (Incomplete)", "Completed"], horizontal=True,
+                label_visibility="collapsed", key="ai_status_view")
+
+            if status_view == "Pending (Incomplete)":
+                pending = active_df.dropna(subset=['New module code']).copy()
+                pending['New module code'] = pending['New module code'].astype(str).str.strip().str.upper()
+                pending = pending.drop_duplicates(subset=['New module code'])
+                pending = pending[~pending['New module code'].isin(declared_codes)]
+                pending = pending[pending['New module code'].map(in_school)]
+                if pending.empty:
+                    st.success("All modules have a declaration.")
+                else:
+                    st.caption(f"{len(pending)} module(s) awaiting a declaration.")
                     st.dataframe(
-                        per_module.rename(columns={'module_code': 'Module Code'}),
+                        pending[['New module code', 'Module name', 'Mod. lead']].rename(
+                            columns={'New module code': 'Module Code', 'Module name': 'Module Title',
+                                     'Mod. lead': 'Lead'}),
                         hide_index=True,
                         width="stretch",
                     )
+            else:
+                completed = declarations[
+                    declarations['module_code'].isin(active_codes)
+                    & declarations['module_code'].map(in_school)]
+                module_status = summarise_ai_modules(completed, df_assess)
+                if module_status.empty:
+                    st.info("No completed modules for this selection.")
+                else:
+                    picked = st.multiselect(
+                        "Only show modules flagged with:", AI_FLAG_OPTIONS, key="ai_status_flags",
+                        help="Policy gap: AI could do most or all of an assessment but its stated "
+                             "position is 'not permitted' or 'no clear position'.")
+                    if picked:
+                        module_status = module_status[
+                            module_status['Flags'].apply(lambda f: any(p in f for p in picked))]
+                    st.caption(
+                        f"{len(module_status)} module(s). Highest = the most severe answer across the "
+                        "module's assessments. Weighted exposure = share of the module's assessment "
+                        "weighting where AI could undertake most or all of the work.")
+                    st.dataframe(module_status, hide_index=True, width="stretch")
+                    st.download_button(
+                        "⬇️ Download summary (CSV)",
+                        module_status.to_csv(index=False).encode("utf-8"),
+                        file_name="ai_curriculum_module_summary.csv", mime="text/csv")
