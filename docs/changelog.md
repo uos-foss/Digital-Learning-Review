@@ -1,6 +1,23 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.30.0 (Current): *SGAs Count as an Action*
+### 🚀 Version 1.31.0 (Current): *New AI in the Curriculum Questions*
+*7 October 2026*
+
+**AI in the Curriculum**
+
+* **Declarations now come from the updated AI in the Curriculum Audit.** The
+  audit has new questions and stores its answers in a new place, so the
+  School Dashboard and Faculty Overview read from there. A module that has
+  been resubmitted counts once, using its latest submission.
+* **"Gen AI Activity" is replaced by "AI Could Do Most/All".** The old Yes/No
+  question no longer exists. The new column counts a module's assessments
+  where the lead said current AI could undertake most or all of the work, and
+  the Faculty Overview summary line says how many declared modules have at
+  least one.
+* **Declarations made under the old questions no longer appear.** The earlier
+  entries were test submissions only.
+
+### 🚀 Version 1.30.0: *SGAs Count as an Action*
 *30 September 2026*
 
 **Sheffield Graduate Attributes (SGAs)**
