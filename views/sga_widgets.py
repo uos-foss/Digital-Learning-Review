@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from processing import (SGA_SUB_ATTRIBUTE_ROWS, SGA_THEMES, SGA_CONCENTRATION_SHARE,
-                        SGA_MODULE_MANY_ATTRIBUTES, FACULTY_SCHOOLS, summarise_sga_usage)
+                        SGA_MODULE_MANY_ATTRIBUTES, FACULTY_SCHOOLS, summarise_sga_usage, school_series)
 
 # Categorical slots 1-3 of the reference data-viz palette, which stay
 # distinguishable for colour-blind readers as a set of three.
@@ -201,7 +201,7 @@ def render_faculty_sga(active_df):
         return
     df = active_df.copy()
     df['SGA Attributes'] = pd.to_numeric(df['SGA Attributes'], errors='coerce').fillna(0).astype(int)
-    df['School'] = df['New module code'].astype(str).str[:3]
+    df['School'] = school_series(df['New module code'])
     df = df[df['School'].isin(FACULTY_SCHOOLS)]
     df_sga = _sga_frame()
 

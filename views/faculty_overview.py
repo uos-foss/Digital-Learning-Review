@@ -6,7 +6,7 @@ from processing import (aggregate_faculty_stats, calculate_module_compliance,
                         resolve_semester_df, summarise_ai_declarations,
                         FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR, reading_list_verdict,
                         can_view_sga, parse_user_schools,
-                        module_alignment_status, format_comment_markdown, fmt_report_date)
+                        module_alignment_status, format_comment_markdown, fmt_report_date, school_series)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, get_spot_checks_for_schools, get_spot_check_comments)
 from views.ally_widgets import (
@@ -22,7 +22,7 @@ def _with_school_column(df):
     if df is None or df.empty or 'New module code' not in df.columns:
         return df if df is not None else pd.DataFrame()
     out = df.copy()
-    out['School'] = out['New module code'].astype(str).str.strip().str.upper().str[:3]
+    out['School'] = school_series(out['New module code'])
     return out[out['School'].isin(FACULTY_SCHOOLS)]
 
 
@@ -449,7 +449,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             render_maturity_breakdown(active_df)
             if not active_df.empty and 'Content Maturity' in active_df.columns:
                 by_school = active_df.copy()
-                by_school['School'] = by_school['New module code'].astype(str).str[:3]
+                by_school['School'] = school_series(by_school['New module code'])
                 pivot = (by_school.pivot_table(index='School', columns='Content Maturity',
                                                values='New module code', aggfunc='count',
                                                fill_value=0))
@@ -467,7 +467,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.info("No data for this semester.")
             else:
                 per_school = active_df.copy()
-                per_school['School'] = per_school['New module code'].astype(str).str[:3]
+                per_school['School'] = school_series(per_school['New module code'])
                 built_only = scoreable(per_school)
                 if built_only.empty:
                     st.info("No courses with content yet, so there is no severity load to show.")
@@ -702,7 +702,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             if faculty_history.empty:
                 st.info("No historical Ally data for the faculty's modules.")
             else:
-                faculty_history['School'] = faculty_history['module_code'].astype(str).str[:3]
+                faculty_history['School'] = school_series(faculty_history['module_code'])
                 faculty_history['items'] = (faculty_history['total_files']
                                             + faculty_history['total_wysiwyg'])
 
@@ -936,7 +936,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.info("No modules flagged yet this year for the selected school(s).")
             else:
                 sc_df = sc_df.copy()
-                sc_df['School'] = sc_df['module_code'].astype(str).str[:3]
+                sc_df['School'] = school_series(sc_df['module_code'])
 
                 pending_n = int((sc_df['status'] == 'pending').sum())
                 checked_n = int((sc_df['status'] == 'checked').sum())
@@ -1064,7 +1064,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                 st.info("No modules flagged yet this year for the selected school(s).")
             else:
                 sc_comments = sc_comments.copy()
-                sc_comments['School'] = sc_comments['module_code'].astype(str).str[:3]
+                sc_comments['School'] = school_series(sc_comments['module_code'])
                 sc_comments['comment'] = (sc_comments['comment'].fillna('')
                                           .astype(str).str.strip())
                 # One row per module - see School Dashboard's identical
@@ -1189,7 +1189,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
             if not matching_assess.empty:
                 # Add School column based on CIS unit code prefix
                 schools_list = set(FACULTY_SCHOOLS)
-                matching_assess['School'] = matching_assess['CIS unit code'].astype(str).str[:3].str.upper()
+                matching_assess['School'] = school_series(matching_assess['CIS unit code'])
                 matching_assess = matching_assess[matching_assess['School'].isin(schools_list)]
 
                 if sub_view == "🌐 Overall Distribution":
@@ -1337,10 +1337,10 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                         width="stretch",
                     )
 
-                gen_ai_yes = int((per_module['Gen AI Activity'] == "Yes").sum())
+                high_exposure = int((per_module['AI Could Do Most/All'] > 0).sum())
                 st.caption(
-                    f"{gen_ai_yes} of {len(per_module)} declared modules report a Gen AI "
-                    "engaged learning activity."
+                    f"{high_exposure} of {len(per_module)} declared modules have at least one "
+                    "assessment where current AI could undertake most or all of the work."
                 )
 
                 with st.expander("Declared modules", expanded=False):

@@ -340,12 +340,9 @@ def run_synchronization():
         # here would replace that import with the stale sheet copy.
         sync_users_and_roles()
         sync_checklists()
-        # ai_audit_responses is not ours to sync. The satellite AI-Audit app
-        # writes that table itself from its own AI_RESPONSES_SPREADSHEET_ID, into
-        # this same shared database, and nothing in this app reads it. Pulling it
-        # here duplicated that work - and, because the two apps can be pointed at
-        # different copies of the responses sheet, could replace their cache with
-        # rows from another sheet. Read the table if you need it; do not refresh it.
+        # AI declarations are not ours to sync. The satellite AI-Audit app writes
+        # assessment_responses straight to the shared database (no Sheets), and
+        # this portal only reads it.
         try:
             sync_checklist_fields()
         except Exception as e:

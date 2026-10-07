@@ -45,6 +45,30 @@ SITS in particular no longer comes from Sheets at all (see "SITS data" below).
 - The database lives on a host volume (`/opt/shared-audit-data` → `/app/data`),
   shared with sibling apps. It is not in git and is not in the image.
 
+**`loaders.py` assembles the module list, and has no Streamlit in it.** It is
+the layer between `database.py` (SQL) and `processing.py` (I/O-free pandas):
+it runs the queries, hands the frames to the `aggregate_*_to_modules()`
+functions and builds one record per module in the shape the views and
+`derive_module_findings()` read. `app.py::load_audit_data()` is now a thin
+`@st.cache_data` wrapper around `loaders.load_audit_frames()` - the caching
+stays in `app.py` because that is Streamlit's concern. Extracted 05-10-2026
+from ~320 lines inline in that cached function, which meant nothing but a
+running Streamlit script could build a module row: it could not be tested,
+and the Django spike under `web/` had to duplicate the mapping to render one
+module. Verified by fingerprinting all seven returned frames plus the derived
+findings for all 766 modules before and after - byte-identical.
+`diagnostics/check_module_loader.py` re-checks it against the live database
+(whole faculty, or one module code), which was impossible before.
+Do not put `st.*` in `loaders.py`, and do not rebuild a module row anywhere
+else - `build_module_record()` is the one mapping, `load_module_record(code)`
+the single-module path.
+
+  Still outstanding: `load_checklist_data()` builds its own leaner row in
+  `module_row()`, re-querying and re-aggregating Ally/Leganto/readiness for
+  the badge. It agrees with `loaders.py` today, but it is a second copy of
+  the same idea and should move onto `load_module_sources()` once there is
+  appetite to re-verify the badge counts.
+
 **The `users` table is authoritative in SQLite.** The Admin Panel writes there
 and never back to Sheets, so the Users sheet is always stale. Sync must only
 insert genuinely new accounts - `sync_new_users_only()`. Anything that rebuilds
@@ -995,8 +1019,24 @@ snapshot/diff logic is I/O-free in `processing.py`
   it needs an upstream Streamlit fix.
 - **School list**: use `FACULTY_SCHOOLS` from `processing.py`. There were once
   five hardcoded copies. Do not add a sixth.
+- **A module code's school**: `processing.school_of(code)` for one code,
+  `school_series(codes)` for a Series, `is_faculty_code(codes)` for the
+  in-faculty test. Do not write `[:3]` again. The rule was spelled out ~20
+  times across `processing.py`, `database.py`, three views and four
+  diagnostics, in three different forms - `.str[:3]`,
+  `.astype(str).str[:3]` and `.astype(str).str.strip().str.upper().str[:3]` -
+  so whether a padded or lowercase code counted as in-faculty depended on
+  which copy read it. The helpers always normalise first. Proven a no-op when
+  introduced (05-10-2026): every one of the 20,688 codes across 13 tables is
+  already stripped and uppercase, and all seven `load_audit_data()` frames
+  plus the findings for 766 modules fingerprinted identical before and after.
+  `diagnostics/check_school_codes.py` re-asserts both, so an import that
+  starts writing ` edc004 ` is caught there rather than by a school quietly
+  losing modules from its totals. `SCHOOL_CODE_LENGTH` is the one place the
+  three is written down, for whenever another faculty's code format differs.
 - **`processing.py` is I/O-free** - pandas transformations only. SQL belongs in
-  `database.py`, Sheets access in `data_manager.py`, ETL in `sync_data.py`.
+  `database.py`, Sheets access in `data_manager.py`, ETL in `sync_data.py`,
+  module-row assembly in `loaders.py` (see "Data architecture" above).
 - **Semester selection**: always go through `resolve_semester_df()`. "All year"
   used to mean different things on different pages. Year-long modules appear in
   *both* Autumn and Spring frames; "All year" narrows to just those.
@@ -1160,3 +1200,23 @@ Admin Panel or the School Dashboard's spot-check actions, despite
 `masquerade.py`'s docstring and the sidebar banner both saying it is
 view-only. Read it before starting work in those areas, and mark an item
 `[RESOLVED]` there rather than deleting it when you fix one.
+
+## AI declarations (read from the satellite AI-Audit app)
+
+The satellite AI-Audit app (`../AI-Audit`) writes one row per assessment per
+submission to `assessment_responses` in the shared database. Its old
+`ai_audit_queue` / `ai_audit_responses` tables are dead (owner's test rows only)
+and this app no longer creates or reads them. Migrated 06-10-2026.
+
+- `database.get_ai_declarations()` reads `assessment_responses` and keeps only
+  each module's latest `timestamp`. A resubmission adds rows and never
+  overwrites, so without that filter resubmitted modules are double counted.
+- `processing.summarise_ai_declarations()` rolls up to module grain. The old
+  "Gen AI Activity" Yes/No question no longer exists; its replacement is
+  `AI Could Do Most/All`, the count of a module's assessments where Q1 says
+  current AI could undertake most or all of the work (matched on the stem
+  "most or all", not the full option text). Shown in the School Dashboard's
+  Declared tab and as the Faculty Overview caption. Q2 to Q4 are loaded but not
+  yet displayed.
+- Keep it read-only: this portal must never write `assessment_responses`.
+  Wording and options are in `../AI-Audit/questions.py`.
