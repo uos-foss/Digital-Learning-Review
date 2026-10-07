@@ -1,6 +1,16 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.33.0 (Current): *Reported Fixes and Import Fix*
+### 🚀 Version 1.33.1 (Current): *Learning Materials Can Be Reported Fixed*
+*7 October 2026*
+
+**Module Report**
+
+* **Learning Materials can be reported fixed too,** alongside the template
+  sections. It appears in the "Fixed something?" form in report order, moves
+  to the green "Reported fixed" panel, shows 🔧 in the alignment row, and is
+  listed in the School Dashboard's Reported Fixes view.
+
+### 🚀 Version 1.33.0: *Reported Fixes and Import Fix*
 *7 October 2026*
 
 **Module Report**
@@ -18,8 +28,6 @@ Recent updates and releases for the Digital Learning Review portal.
   Capabilities; schools that are off see neither the box nor the Reported
   Fixes view.
 
-* **Learning Materials can be reported fixed too,** alongside the template
-  sections, and appears in Reported Fixes.
 * **The "Fixed something?" form records who reported and takes a comment.**
   The reporter is the signed-in user's email address. Tick the sections that
   are fixed, add one optional comment, and send them together. Both appear
