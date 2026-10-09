@@ -76,6 +76,53 @@ the table (`if_exists='replace'`) silently reverts role and status edits, and
 would undo the scrypt password migration. Roles do sync wholesale; those are
 genuinely sheet-managed.
 
+## Django platform (web/)
+
+`web/` holds a Django project that renders the same data through a second
+front end. Merged to `main` 09-10-2026 as **non-deployed** code: no compose
+service, no Caddy route, no Dockerfile, and nothing in the Streamlit app
+imports it. It sits on `main` rather than a branch deliberately - a long-lived
+branch needs every `loaders.py`/`processing.py` change merged into it by hand,
+which is the one failure mode this arrangement exists to avoid.
+`web/README.md` records what the spike proved and what it deliberately skips.
+
+Streamlit stays the DLA tool. The reason for a second front end is the
+read-heavy audience: Streamlit reruns the whole script per interaction and
+holds each session's frames in memory (hence `mem_limit: 1g`), so cost scales
+with concurrent users, and a module held in session state has no URL to send a
+module lead. `/modules/ALA102/` does.
+
+The boundary, all of it already true in the spike:
+
+- **Django never owns the shared schema.** `web/dlr/routers.py` sends the
+  `auditdata` app to the shared database and refuses to migrate it in either
+  direction; `web/auditdata/models.py` is `managed = False` throughout.
+  `manage.py makemigrations --check` must keep reporting no changes. Django's
+  own tables (auth, sessions) live in `web/dlr_platform.sqlite3`, gitignored,
+  created by `manage.py migrate`.
+- **No rule is reimplemented in a view or a template.** `loaders.py` is the one
+  module-row mapping (`load_module_record(code)` for a single module) and
+  `processing.py` holds the verdicts - `derive_module_findings()`,
+  `module_alignment_status()`, `readiness_section_is_ready()`. The spike's
+  first version had to duplicate the mapping because nothing outside Streamlit
+  could build a module row; see "Data architecture" above for why that is no
+  longer true. A template working a rule out for itself is the one thing that
+  makes the two front ends disagree.
+- **Writes go through `database.py`** when they come. Nothing in `web/` saves
+  anything today, which is also why two SQLite writers are not yet a question.
+- **Separate environments.** `.venv-django` and `web/requirements.txt`; neither
+  app installs the other's dependencies, and the Streamlit app must keep
+  booting with no Django installed.
+- `web/smoke.py` renders real pages against the real local database and is the
+  check that the shared core still satisfies both front ends - run it after
+  changing `loaders.py` or `processing.py`. The pure logic tests under
+  `web/tests/` need neither Django nor a database.
+
+Next, in order: tests on the shared layer at the repo root (the pure functions
+both front ends read), `django-allauth` with Google plus an account-to-school
+model, then one read-only page behind its own Caddy path for a pilot school.
+Writes, and anything resembling the Audit Portal, stay in Streamlit.
+
 ## SITS data
 
 `sits_assessment_2026_27` (one row per assessment component) is the module
@@ -1224,7 +1271,9 @@ Edit the markdown, not the Python.
 
 ## Verifying changes
 
-There is **no test suite**. To check work:
+There is **no test suite for the Streamlit app** - `web/tests/` covers the
+shared pure functions only (see "Django platform (web/)" above), and nothing
+covers the views. To check work:
 
 ```bash
 python -m streamlit run app.py --server.port=8599 --server.headless=true
