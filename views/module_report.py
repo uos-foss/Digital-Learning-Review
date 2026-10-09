@@ -7,6 +7,7 @@ import html
 from datetime import datetime
 from report_pdf import build_module_report_pdf
 from masquerade import is_masquerading
+from views.nav import render_back_to_school_dashboard
 from processing import (
     get_module_mapping,
     resolve_semester_df,
@@ -1261,6 +1262,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
     user_caps = st.session_state.get("capabilities", [])
     only_own_school = any(c.lower() == "view_school" for c in user_caps) and not any(c.lower() == "view_all" for c in user_caps)
+
+    render_back_to_school_dashboard("mr_back_to_school_dashboard")
 
     # Laptop screens showed little but controls above the fold, so the page
     # title is a compact heading, the top padding is trimmed, and the school

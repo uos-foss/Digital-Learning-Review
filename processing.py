@@ -480,6 +480,32 @@ def calculate_module_compliance(df_responses, active_fields):
     counts.columns = ['module_code', 'Compliant Items']
     return counts, max_items
 
+def module_gap_areas(df_responses, active_fields):
+    """
+    The named counterpart to calculate_module_compliance: for each audited
+    module, the scored fields not ticked (unanswered included), as a comma-joined
+    string of short labels (field order). Same scoring rules and same input,
+    so a module's list always matches its Compliant Items count.
+
+    Returns DataFrame[module_code, Areas].
+    """
+    scored = [f for f in (active_fields or []) if f.get('field_type') in ['boolean', 'yes/no']]
+    empty = pd.DataFrame(columns=['module_code', 'Areas'])
+    if not scored or df_responses is None or df_responses.empty:
+        return empty
+    order = {f['id']: i for i, f in enumerate(scored)}
+    labels = {f['id']: short_field_label(f['id'], f['label']) for f in scored}
+    df = df_responses[df_responses['field_id'].isin(order)].copy()
+    if df.empty:
+        return empty
+    df['module_code'] = df['module_code'].astype(str).str.strip().str.upper()
+    ticked = df[df['value'].apply(lambda v: str(v).strip().upper() in ['TRUE', 'YES', '1'])]
+    done = ticked.groupby('module_code')['field_id'].apply(set)
+    # Unanswered fields count as outstanding too, matching Compliant Items.
+    rows = [(code, ', '.join(labels[fid] for fid in order if fid not in done.get(code, set())))
+            for code in df['module_code'].unique()]
+    return pd.DataFrame(rows, columns=['module_code', 'Areas'])
+
 def parse_custom_observations(custom):
     """
     Parses a 'text'-type audit field's stored value, which can be:
