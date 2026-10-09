@@ -1,0 +1,33 @@
+{% comment %}
+HTMX fragment: no base template, no <html>. Returned into #tab-panel when the
+Accessibility tab is clicked, so the gauge is not built on every page load.
+{% endcomment %}
+<section class="panel" style="margin-bottom:1.25rem;">
+  <h2>Accessibility report</h2>
+  {% if chart %}
+    <div id="ally-gauge" style="max-width:420px;"></div>
+    <script>
+      (function () {
+        var figure = {{ chart|safe }};
+        Plotly.newPlot("ally-gauge", figure.data, figure.layout,
+                       {displayModeBar: false, responsive: true});
+      })();
+    </script>
+  {% else %}
+    <p class="muted">No Ally score for this module in the current year.</p>
+  {% endif %}
+
+  {% if not module.ally_enabled %}
+    <p><strong>Ally scanning is off for this course.</strong>
+       Nothing can be reported until it is enabled.</p>
+  {% elif module.ally_severe or module.ally_major %}
+    <p>{{ module.ally_severe }} severe and {{ module.ally_major }} major issue
+       types. The module's own Ally Course Report in Blackboard links each one
+       to its file.</p>
+  {% else %}
+    <p class="muted">No severe or major issue types reported.</p>
+  {% endif %}
+  <p class="muted" style="margin-bottom:0;">
+    Loaded on demand through HTMX, which is the spike's third check.
+  </p>
+</section>

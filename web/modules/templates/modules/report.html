@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} report{% endblock %}
+
+{% block content %}
+<h1>{{ code }} <span class="muted">{{ module.name }}</span></h1>
+<p class="muted">
+  School {{ module.school }}{% if module.lead %} &middot; {{ module.lead }}{% endif %}
+</p>
+
+<div class="tabs">
+  <button hx-get="{% url 'modules:accessibility' code %}"
+          hx-target="#tab-panel" hx-swap="innerHTML">Accessibility report</button>
+  <button onclick="document.getElementById('tab-panel').innerHTML='';">
+    Module checks
+  </button>
+</div>
+
+<div id="tab-panel"></div>
+
+<div class="layout">
+  <section class="panel">
+    <h2>Module data</h2>
+    <table class="kv">
+      <tr><th>Ally overall</th>
+          <td>{% if module.ally_overall_pct is not None %}{{ module.ally_overall_pct }}%{% else %}no data{% endif %}</td></tr>
+      <tr><th>Ally severe / major issue types</th>
+          <td>{{ module.ally_severe }} / {{ module.ally_major }}</td></tr>
+      <tr><th>Ally scanning</th>
+          <td>{% if module.ally_enabled %}on{% else %}off{% endif %}</td></tr>
+      <tr><th>Reading list</th>
+          <td>{% if module.leganto_missing %}none recorded in Leganto
+              {% elif module.leganto_status %}{{ module.leganto_status }}
+                ({{ module.leganto_items }} citations)
+              {% else %}not in either Leganto export{% endif %}</td></tr>
+      <tr><th>Template sections</th><td>{{ module.section_count }} recorded</td></tr>
+      <tr><th>SGA attributes</th>
+          <td>{% if module.sga_attributes is None %}not imported
+              {% else %}{{ module.sga_attributes }}{% endif %}</td></tr>
+    </table>
+
+    <h2 style="margin-top:1.25rem;">Findings by source</h2>
+    <table class="kv">
+      <tr><th>Source</th><th>Pending</th><th>Completed</th></tr>
+      {% for source, counts in by_source.items %}
+        <tr><td>{{ source }}</td><td>{{ counts.pending }}</td><td>{{ counts.completed }}</td></tr>
+      {% empty %}
+        <tr><td colspan="3" class="muted">No findings for this module.</td></tr>
+      {% endfor %}
+    </table>
+    <p class="muted">
+      Every row above comes from <code>processing.derive_module_findings()</code>,
+      the same function the Streamlit app's badge and module report both read.
+    </p>
+  </section>
+
+  <aside class="panel actions">
+    <h2>Actions</h2>
+    {% if actions %}
+      <ul>
+        {% for action in actions %}
+          <li><strong>{{ action.label }}</strong><br>
+              <span class="muted">{{ action.description }}</span></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">Nothing outstanding right now.</p>
+    {% endif %}
+    {% if done %}
+      <p class="muted" style="margin-bottom:0;">{{ done|length }} item(s) complete.</p>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

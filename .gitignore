@@ -6,6 +6,12 @@ __pycache__/
 .streamlit/
 app.log
 .venv/
+# The Django spike (web/) has its own environment and its own small SQLite
+# file for Django's tables. Neither belongs in git; the shared audit database
+# is untouched by both.
+.venv-django/
+web/dlr_platform.sqlite3
+web/staticfiles/
 audit_cache.db
 .DS_Store
 data/

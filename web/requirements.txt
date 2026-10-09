@@ -1,0 +1,10 @@
+# Django spike only. The Streamlit app's own dependencies stay in
+# REQUIREMENTS.txt at the repo root - neither container installs the other's.
+# Pinned deliberately: the root file is unpinned and every rebuild there takes
+# whatever is newest, which is a separate problem not worth copying here.
+Django==5.2.6
+django-htmx==1.23.0
+pandas==2.3.2
+plotly==6.3.0
+pytest==8.4.2
+pytest-django==4.11.1

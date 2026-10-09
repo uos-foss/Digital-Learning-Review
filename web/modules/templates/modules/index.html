@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Modules{% endblock %}
+
+{% block content %}
+<h1>Platform spike</h1>
+<p>
+  Open a module report by URL, for example
+  <a href="/modules/EDC004/">/modules/EDC004/</a>. The code is part of the
+  address, so the page is linkable and the back button works.
+</p>
+
+<section class="panel">
+  <h2>Active checklist questions</h2>
+  <p class="muted">
+    Read from <code>audit_fields</code> in the shared database, through an
+    unmanaged model and the database router. If this list is populated, the
+    read path works end to end.
+  </p>
+  <table class="kv">
+    <tr><th>Field</th><th>Type</th></tr>
+    {% for field in fields %}
+      <tr><td>{{ field.label|default:field.id }}</td><td>{{ field.field_type }}</td></tr>
+    {% empty %}
+      <tr><td colspan="2" class="muted">
+        No active fields found. Check that the audit database path in
+        settings resolves to the real file.
+      </td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}
