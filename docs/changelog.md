@@ -1,6 +1,17 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.34.0 (Current): *Lenses in the Item-by-item Table*
+### 🚀 Version 1.34.1 (Current): *Auditor Comments in the Item-by-item Table*
+*9 October 2026*
+
+**School Dashboard**
+
+* **The item-by-item table shows each module's auditor comments.** A new
+  "Auditor Comments" column carries the Additional Comments from the audit,
+  the same text as the Spot-Check Comments view and the module report. It
+  appears only when at least one module in the current view has a comment,
+  and is included in the CSV export.
+
+### 🚀 Version 1.34.0: *Lenses in the Item-by-item Table*
 *9 October 2026*
 
 **School Dashboard**
