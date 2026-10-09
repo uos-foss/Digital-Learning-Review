@@ -20,6 +20,7 @@ from database import (
     record_unflagged_spot_check,
 )
 from masquerade import is_masquerading
+from views.nav import render_back_to_school_dashboard
 
 def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_checklist_data_cache=None):
     user_caps = st.session_state.get("capabilities", [])
@@ -29,6 +30,8 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
 
     user_role = str(st.session_state.get("user_role", "")).strip().upper()
     is_dla_or_admin = user_role in ("ADMIN", "DLA")
+
+    render_back_to_school_dashboard("ap_back_to_school_dashboard")
 
     module_mapping = get_module_mapping(df_aut, df_spr)
     combined_options = sorted([f"{code} - {name}" for code, name in module_mapping.items()])

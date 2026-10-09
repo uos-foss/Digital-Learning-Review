@@ -237,10 +237,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             selected_view = st.segmented_control(
                 "Navigate School View:", 
                 options=view_options, 
-                default=view_options[0], 
+                default=(st.session_state.get("sd_view")
+                         if st.session_state.get("sd_view") in view_options else view_options[0]),
                 key="school_nav_segmented_control",
                 label_visibility="collapsed"
             )
+            # Plain value, not the widget key: the key is cleared when this
+            # page stops rendering (see CLAUDE.md, School context locking).
+            if selected_view:
+                st.session_state.sd_view = selected_view
             st.divider()
             
             if selected_view == "📋 Modules Overview":
@@ -692,9 +697,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         selected_lenses = st.multiselect(
                             "Filter by lens (leave empty to show every module):",
                             lens_options,
-                            default=[],
+                            default=[l for l in st.session_state.get("sd_lenses", []) if l in lens_options],
                             key="school_priority_lens_selector"
                         )
+                        st.session_state.sd_lenses = selected_lenses
                         if len(selected_lenses) > 1:
                             st.caption("Modules flagged by at least one selected lens, most flags first.")
 
