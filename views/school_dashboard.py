@@ -933,7 +933,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                          f"({n_all} by all {n_sel}).")
                         render_status_type = "warning"
                         cols = [key_col, 'Module name', 'Mod. lead'] + list(lens_cols)
-                        render_df = combined[cols].fillna("").reset_index(drop=True)
+                        render_df = combined[cols].fillna("").reset_index(drop=True).rename(
+                            columns={"🔍 Critical Checklist Gaps": "Areas Needing Attention"})
                         render_configs = {
                             key_col: "Code", "Module name": "Module Name", "Mod. lead": "Lead",
                         }
