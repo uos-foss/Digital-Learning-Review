@@ -908,11 +908,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         render_status = (f"🎯 {len(combined)} modules flagged by at least one of {n_sel} lenses "
                                          f"({n_all} by all {n_sel}).")
                         render_status_type = "warning"
-                        cols = [key_col, 'Module name', 'Mod. lead', 'Lenses Flagged'] + list(lens_cols)
+                        cols = [key_col, 'Module name', 'Mod. lead'] + list(lens_cols)
                         render_df = combined[cols].fillna("").reset_index(drop=True)
                         render_configs = {
                             key_col: "Code", "Module name": "Module Name", "Mod. lead": "Lead",
-                            "Lenses Flagged": st.column_config.NumberColumn("Lenses Flagged", format="%d"),
                         }
                     with st.expander("Per-lens notes"):
                         for lens_name in selected_lenses:
