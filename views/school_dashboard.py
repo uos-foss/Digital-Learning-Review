@@ -733,120 +733,191 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 st.subheader("🎯 Focus Priority Lenses")
                 st.caption("A different way to look at risk across the school's modules.")
                 
-                lens = st.radio(
+                lens_options = ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps",
+                                "📋 Missing Audits", "📚 Missing Reading Lists"]
+                selected_lenses = st.multiselect(
                     "Choose inspection criteria:",
-                    ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps", "📋 Missing Audits", "📚 Missing Reading Lists"],
-                    horizontal=True,
+                    lens_options,
+                    default=lens_options[:1],
                     label_visibility="collapsed",
                     key="school_priority_lens_selector"
                 )
+                if len(selected_lenses) > 1:
+                    st.caption("Combined report: every module flagged by at least one selected lens.")
                 st.divider()
 
                 render_df = None
                 render_configs = {}
                 render_status = None
                 render_status_type = "info"
+                if not selected_lenses:
+                    st.info("Pick at least one lens.")
 
-                source_data = school_df.copy()
+                lens_results = {}
+                for lens in selected_lenses:
+                    render_df = None
+                    render_configs = {}
+                    render_status = None
+                    render_status_type = "info"
 
-                if lens == "⚠️ Accessibility Risk":
-                    render_df, render_configs, render_status, render_status_type = \
-                        build_accessibility_risk_list(source_data)
+                    source_data = school_df.copy()
 
-                elif lens == "🔍 Critical Checklist Gaps":
-                    counts, max_items = calculate_module_compliance(
-                        get_all_audit_responses(), get_active_audit_fields()
-                    )
+                    if lens == "⚠️ Accessibility Risk":
+                        render_df, render_configs, render_status, render_status_type = \
+                            build_accessibility_risk_list(source_data)
 
-                    if max_items == 0:
-                        render_status = "No scorable audit fields are configured."
-                        render_status_type = "error"
-                    elif counts.empty:
-                        render_status = "No audits submitted yet, so there are no checklist gaps to show."
-                        render_status_type = "info"
-                    else:
-                        source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
-                        scored_df = source_data.merge(
-                            counts, left_on='MatchCode', right_on='module_code', how='inner'
+                    elif lens == "🔍 Critical Checklist Gaps":
+                        counts, max_items = calculate_module_compliance(
+                            get_all_audit_responses(), get_active_audit_fields()
                         )
 
-                        threshold = max_items - 2
-                        gap_df = scored_df[scored_df['Compliant Items'] < threshold].sort_values('Compliant Items')
-
-                        if not gap_df.empty:
-                            render_status = (
-                                f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
-                                "missing several key checklist items."
-                            )
-                            render_status_type = "warning"
-                            gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
-
-                            display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                            render_df = gap_df[display_cols].copy()
-                            render_configs = {
-                                "New module code": "Code", "Module name": "Module Name",
-                                "Mod. lead": "Lead", "DisplayValue": "Items Complete"
-                            }
-                        elif scored_df.empty:
-                            render_status = "No modules in this school have been audited yet."
+                        if max_items == 0:
+                            render_status = "No scorable audit fields are configured."
+                            render_status_type = "error"
+                        elif counts.empty:
+                            render_status = "No audits submitted yet, so there are no checklist gaps to show."
                             render_status_type = "info"
                         else:
-                            render_status = f"All {len(scored_df)} audited modules meet the required baseline checklist items!"
-                            render_status_type = "success"
+                            source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
+                            scored_df = source_data.merge(
+                                counts, left_on='MatchCode', right_on='module_code', how='inner'
+                            )
 
-                elif lens == "📋 Missing Audits":
-                    def get_status(code):
-                        c_str = str(code).strip()
-                        return checklist_sums[c_str].get('Status', "❌ Not Audited") if c_str in checklist_sums else "❌ Not Audited"
-                    def get_actions(code):
-                        c_str = str(code).strip()
-                        return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
-                    
-                    source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
-                    source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
-                    
-                    missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
-                    
-                    if not missing_df.empty:
-                        render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
-                        render_status_type = "warning"
-                        
-                        display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                        render_df = missing_df[display_cols].copy()
-                        render_configs = {
-                            "New module code": "Code", "Module name": "Module Name",
-                            "Mod. lead": "Lead", "DisplayValue": "Submission Status"
-                        }
-                    else:
-                        render_status = "All currently listed modules have completed their audits! 🌟"
-                        render_status_type = "success"
+                            threshold = max_items - 2
+                            gap_df = scored_df[scored_df['Compliant Items'] < threshold].sort_values('Compliant Items')
 
-                elif lens == "📚 Missing Reading Lists":
-                    if 'Leganto Missing' not in source_data.columns:
-                        render_status = "Leganto reading-list data hasn't been imported for this school yet."
-                        render_status_type = "error"
-                    else:
-                        missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
-                        # A DLA's tick overrides Leganto - not an action any more.
-                        missing_leganto_df = missing_leganto_df[[
-                            reading_list_verdict(checklist_sums, c) is not True
-                            for c in missing_leganto_df['New module code']]]
-                        
-                        if not missing_leganto_df.empty:
-                            render_status = f"🎯 Found {len(missing_leganto_df)} modules explicitly flagged as missing a Leganto list."
+                            if not gap_df.empty:
+                                render_status = (
+                                    f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
+                                    "missing several key checklist items."
+                                )
+                                render_status_type = "warning"
+                                gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
+
+                                display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
+                                render_df = gap_df[display_cols].copy()
+                                render_configs = {
+                                    "New module code": "Code", "Module name": "Module Name",
+                                    "Mod. lead": "Lead", "DisplayValue": "Items Complete"
+                                }
+                            elif scored_df.empty:
+                                render_status = "No modules in this school have been audited yet."
+                                render_status_type = "info"
+                            else:
+                                render_status = f"All {len(scored_df)} audited modules meet the required baseline checklist items!"
+                                render_status_type = "success"
+
+                    elif lens == "📋 Missing Audits":
+                        def get_status(code):
+                            c_str = str(code).strip()
+                            return checklist_sums[c_str].get('Status', "❌ Not Audited") if c_str in checklist_sums else "❌ Not Audited"
+                        def get_actions(code):
+                            c_str = str(code).strip()
+                            return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
+                    
+                        source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
+                        source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
+                    
+                        missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
+                    
+                        if not missing_df.empty:
+                            render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
                             render_status_type = "warning"
-                            
-                            missing_leganto_df['DisplayValue'] = "Missing"
+                        
                             display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                            render_df = missing_leganto_df[display_cols].copy()
+                            render_df = missing_df[display_cols].copy()
                             render_configs = {
                                 "New module code": "Code", "Module name": "Module Name",
-                                "Mod. lead": "Lead", "DisplayValue": "Status"
+                                "Mod. lead": "Lead", "DisplayValue": "Submission Status"
                             }
                         else:
-                            render_status = "Zero modules are flagged as missing Leganto reading lists in the current view! 🎉"
+                            render_status = "All currently listed modules have completed their audits! 🌟"
                             render_status_type = "success"
+
+                    elif lens == "📚 Missing Reading Lists":
+                        if 'Leganto Missing' not in source_data.columns:
+                            render_status = "Leganto reading-list data hasn't been imported for this school yet."
+                            render_status_type = "error"
+                        else:
+                            missing_leganto_df = source_data[source_data['Leganto Missing'] == True].copy()
+                            # A DLA's tick overrides Leganto - not an action any more.
+                            missing_leganto_df = missing_leganto_df[[
+                                reading_list_verdict(checklist_sums, c) is not True
+                                for c in missing_leganto_df['New module code']]]
+                        
+                            if not missing_leganto_df.empty:
+                                render_status = f"🎯 Found {len(missing_leganto_df)} modules explicitly flagged as missing a Leganto list."
+                                render_status_type = "warning"
+                            
+                                missing_leganto_df['DisplayValue'] = "Missing"
+                                display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
+                                render_df = missing_leganto_df[display_cols].copy()
+                                render_configs = {
+                                    "New module code": "Code", "Module name": "Module Name",
+                                    "Mod. lead": "Lead", "DisplayValue": "Status"
+                                }
+                            else:
+                                render_status = "Zero modules are flagged as missing Leganto reading lists in the current view! 🎉"
+                                render_status_type = "success"
                 
+                    lens_results[lens] = (render_df, render_configs, render_status, render_status_type)
+
+                if len(selected_lenses) == 1:
+                    render_df, render_configs, render_status, render_status_type = lens_results[selected_lenses[0]]
+                elif len(selected_lenses) > 1:
+                    key_col = 'New module code'
+                    lens_cols = {}
+                    combined = None
+                    for lens_name in selected_lenses:
+                        l_df = lens_results[lens_name][0]
+                        if l_df is None or l_df.empty:
+                            continue
+                        part = l_df[[c for c in (key_col, 'Module name', 'Mod. lead') if c in l_df.columns]].copy()
+                        if 'Severe' in l_df.columns:
+                            part[lens_name] = (l_df['Severe'].astype(int).astype(str) + " severe, "
+                                               + l_df['Major'].astype(int).astype(str) + " major, "
+                                               + l_df['Score'].map(lambda v: f"{v:.1f}%" if pd.notna(v) else "n/a"))
+                            part['_severe'] = l_df['Severe'].astype(int)
+                        else:
+                            part[lens_name] = l_df['DisplayValue'].astype(str)
+                        lens_cols[lens_name] = lens_name
+                        if combined is None:
+                            combined = part
+                        else:
+                            combined = combined.merge(part, on=key_col, how='outer', suffixes=('', '_n'))
+                            for c in ('Module name', 'Mod. lead'):
+                                if c + '_n' in combined.columns:
+                                    combined[c] = combined[c].fillna(combined[c + '_n'])
+                                    combined = combined.drop(columns=[c + '_n'])
+                            if '_severe_n' in combined.columns:
+                                combined['_severe'] = combined['_severe'].fillna(combined['_severe_n'])
+                                combined = combined.drop(columns=['_severe_n'])
+
+                    n_sel = len(selected_lenses)
+                    if combined is None or combined.empty:
+                        render_status = "No modules are flagged by any of the selected lenses."
+                        render_status_type = "success"
+                    else:
+                        combined['Lenses Flagged'] = combined[list(lens_cols)].notna().sum(axis=1).astype(int)
+                        if '_severe' not in combined.columns:
+                            combined['_severe'] = 0
+                        combined['_severe'] = combined['_severe'].fillna(0)
+                        combined = combined.sort_values(
+                            ['Lenses Flagged', '_severe', key_col], ascending=[False, False, True])
+                        n_all = int((combined['Lenses Flagged'] == n_sel).sum())
+                        render_status = (f"🎯 {len(combined)} modules flagged by at least one of {n_sel} lenses "
+                                         f"({n_all} by all {n_sel}).")
+                        render_status_type = "warning"
+                        cols = [key_col, 'Module name', 'Mod. lead', 'Lenses Flagged'] + list(lens_cols)
+                        render_df = combined[cols].fillna("").reset_index(drop=True)
+                        render_configs = {
+                            key_col: "Code", "Module name": "Module Name", "Mod. lead": "Lead",
+                            "Lenses Flagged": st.column_config.NumberColumn("Lenses Flagged", format="%d"),
+                        }
+                    with st.expander("Per-lens notes"):
+                        for lens_name in selected_lenses:
+                            st.markdown(f"**{lens_name}**: {lens_results[lens_name][2] or 'No result.'}")
+
                 if render_status:
                     if render_status_type == "success": st.success(render_status)
                     elif render_status_type == "error": st.error(render_status)
@@ -864,6 +935,11 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         on_select="rerun",
                         selection_mode="single-row"
                     )
+                    st.download_button(
+                        f"📥 Export {school} Priority Actions",
+                        clean_render_df.to_csv(index=False).encode('utf-8'),
+                        f"{school}_priority_actions.csv", "text/csv",
+                        key="btn_sd_priority_export")
                     
                     if selection_priority.selection.rows:
                         row_idx = selection_priority.selection.rows[0]
