@@ -684,7 +684,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
                     )
                     lens_options = ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps",
-                                    "📋 Missing Audits", "📚 Missing Reading Lists"]
+                                    "📚 Missing Reading Lists"]
                     if show_sga:
                         lens_options.append("🎓 No SGAs Mapped")
                     selected_lenses = []
@@ -763,33 +763,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 else:
                                     render_status = f"All {len(scored_df)} audited modules meet the required baseline checklist items!"
                                     render_status_type = "success"
-
-                        elif lens == "📋 Missing Audits":
-                            def get_status(code):
-                                c_str = str(code).strip()
-                                return checklist_sums[c_str].get('Status', "❌ Not Audited") if c_str in checklist_sums else "❌ Not Audited"
-                            def get_actions(code):
-                                c_str = str(code).strip()
-                                return checklist_sums[c_str].get('Actionable Items', 0) if c_str in checklist_sums else 0
-                    
-                            source_data['DisplayValue'] = source_data['New module code'].apply(get_status)
-                            source_data['Actionable Items'] = source_data['New module code'].apply(get_actions)
-                    
-                            missing_df = source_data[source_data['DisplayValue'] != "✅ Audited"].sort_values('DisplayValue', ascending=False)
-                    
-                            if not missing_df.empty:
-                                render_status = f"🎯 Found {len(missing_df)} modules either pending audit or with partial submissions."
-                                render_status_type = "warning"
-                        
-                                display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                                render_df = missing_df[display_cols].copy()
-                                render_configs = {
-                                    "New module code": "Code", "Module name": "Module Name",
-                                    "Mod. lead": "Lead", "DisplayValue": "Submission Status"
-                                }
-                            else:
-                                render_status = "All currently listed modules have completed their audits! 🌟"
-                                render_status_type = "success"
 
                         elif lens == "📚 Missing Reading Lists":
                             if 'Leganto Missing' not in source_data.columns:
@@ -911,9 +884,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 'Module name': active_row.get('Module name', ''),
                                 'Mod. lead': to_title_case(active_row.get('Mod. lead', '')),
                             }
-                            if "📋 Missing Audits" in selected_lenses:
-                                row['Audit Status'] = (checklist_sums[c_str].get('Status', "❌ Not Audited")
-                                                       if c_str in checklist_sums else "❌ Not Audited")
                             row.update(module_alignment_status(
                                 active_row, checklist_sums.get(c_str, {}).get('Responses', {}),
                                 pl_fields, pl_claims.get(c_str.upper())))
