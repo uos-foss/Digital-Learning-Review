@@ -114,9 +114,10 @@ The boundary, all of it already true in the spike:
   app installs the other's dependencies, and the Streamlit app must keep
   booting with no Django installed.
 - `web/smoke.py` renders real pages against the real local database and is the
-  check that the shared core still satisfies both front ends - run it after
-  changing `loaders.py` or `processing.py`. The pure logic tests under
-  `web/tests/` need neither Django nor a database.
+  check that the Django side still works - run it after changing `loaders.py`
+  or `processing.py`, along with `pytest` at the repo root, which covers the
+  shared rules themselves. The tests moved out of `web/tests/` to `tests/` on
+  09-10-2026: they test `processing.py`, so they were never the spike's.
 
 Next, in order: tests on the shared layer at the repo root (the pure functions
 both front ends read), `django-allauth` with Google plus an account-to-school
@@ -1271,9 +1272,12 @@ Edit the markdown, not the Python.
 
 ## Verifying changes
 
-There is **no test suite for the Streamlit app** - `web/tests/` covers the
-shared pure functions only (see "Django platform (web/)" above), and nothing
-covers the views. To check work:
+`tests/` at the repo root covers the shared pure functions in
+`processing.py` - the rules both front ends read (see "Django platform
+(web/)" below). 46 tests, under a second, no database and no Streamlit:
+`.venv/Scripts/python -m pytest`. `pytest` is in `requirements-dev.txt`,
+deliberately not in `REQUIREMENTS.txt`, so it never reaches the image.
+Nothing covers the views or the pages. To check those:
 
 ```bash
 python -m streamlit run app.py --server.port=8599 --server.headless=true

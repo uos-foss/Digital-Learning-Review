@@ -63,10 +63,12 @@ pages:
 cd web && ../.venv-django/Scripts/python smoke.py
 ```
 
-The logic tests need neither Django nor a database:
+The shared-rule tests live at the repo root now, not here, because they test
+`processing.py` rather than anything in `web/`. They need neither Django nor a
+database, so either environment runs them:
 
 ```bash
-cd web && ../.venv-django/Scripts/python -m pytest
+.venv/Scripts/python -m pytest
 ```
 
 To click around, create yourself a local account and start the dev server:
@@ -92,7 +94,6 @@ web/
   auditdata/models.py Unmanaged models over audit_fields, audit_responses
   modules/data.py     Calls loaders.py at the repo root for a module's row
   modules/views.py    Report page, HTMX fragment, Plotly chart
-  tests/              Pure logic tests, no database
   smoke.py            End-to-end check against the real database
 ```
 

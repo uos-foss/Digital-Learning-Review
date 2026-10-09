@@ -1,14 +1,17 @@
 """
-The tests the Streamlit app never had, starting where they are most useful:
-the pure logic in processing.py.
+The findings rules, pinned down.
 
-These need no database and no Django. They run against processing.py directly,
-which is why they belong here first - if the port stalls, these still earn
-their place in the existing app.
+processing.derive_module_findings() decides what a module has outstanding, and
+both front ends read it: the Streamlit badge via app.py::load_checklist_data()
+and the Django module report via web/modules/. A change here changes both, so
+these tests exist to make that change visible rather than silent.
 
-Run from the web/ directory:
+No database, no Streamlit, no Django. Written for the Django spike and moved
+to the repo root 09-10-2026, because they were never the spike's tests.
 
-    pytest
+Run from the repo root:
+
+    .venv/Scripts/python -m pytest
 """
 
 import processing

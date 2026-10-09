@@ -1,0 +1,3 @@
+# Test tooling only. The Dockerfile installs REQUIREMENTS.txt, not this file,
+# so pytest never reaches the production image.
+pytest==8.4.2
