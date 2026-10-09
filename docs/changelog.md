@@ -1,6 +1,26 @@
 Recent updates and releases for the Digital Learning Review portal.
 
-### 🚀 Version 1.33.1 (Current): *Learning Materials Can Be Reported Fixed*
+### 🚀 Version 1.34.0 (Current): *Lenses in the Item-by-item Table*
+*9 October 2026*
+
+**School Dashboard**
+
+* **The Priority Action List now lives in the Template Alignment item-by-item
+  table.** With no lens selected the table shows every module with its ticks,
+  crosses and accessibility traffic light. Selecting one or more lenses filters
+  it to modules flagged by at least one, most flags first. The separate
+  Priority Action List tab is gone. Lenses are for admins: Accessibility Risk,
+  Template Alignment, Missing Reading Lists and, with SGA access, No SGAs
+  Mapped. A "Per-lens notes" expander explains each one.
+* **The Template Alignment lens names the areas needing attention** instead of
+  an "N / 9" score, using the same short labels as the charts.
+* **Export** downloads the table as shown, as a CSV.
+* **The view and lens selection are remembered** when you jump to a module
+  report or the Audit Portal and come back. The Module Report and Audit Portal
+  have a "Back to School Dashboard" button for roles that can open the
+  dashboard.
+
+### 🚀 Version 1.33.1: *Learning Materials Can Be Reported Fixed*
 *7 October 2026*
 
 **Module Report**
