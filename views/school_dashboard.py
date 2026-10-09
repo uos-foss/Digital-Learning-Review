@@ -942,6 +942,36 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         for lens_name in selected_lenses:
                             st.markdown(f"**{lens_name}**: {lens_results[lens_name][2] or 'No result.'}")
 
+                if render_df is not None and selected_lenses:
+                    # Lay the flagged modules out like the Template Alignment
+                    # item-by-item table: one tick/cross column per item.
+                    pl_fields = get_active_audit_fields()
+                    pl_claims = get_all_active_fix_claims()
+                    pl_rows_by_code = {}
+                    for _, r in school_df.iterrows():
+                        pl_rows_by_code.setdefault(str(r['New module code']).strip(), r.to_dict())
+                    pl_rows = []
+                    for code in render_df['New module code']:
+                        c_str = str(code).strip()
+                        active_row = pl_rows_by_code.get(c_str, {})
+                        row = {
+                            'New module code': code,
+                            'Module name': active_row.get('Module name', ''),
+                            'Mod. lead': to_title_case(active_row.get('Mod. lead', '')),
+                        }
+                        if "📋 Missing Audits" in selected_lenses:
+                            row['Audit Status'] = (checklist_sums[c_str].get('Status', "❌ Not Audited")
+                                                   if c_str in checklist_sums else "❌ Not Audited")
+                        row.update(module_alignment_status(
+                            active_row, checklist_sums.get(c_str, {}).get('Responses', {}),
+                            pl_fields, pl_claims.get(c_str.upper())))
+                        pl_rows.append(row)
+                    render_df = pd.DataFrame(pl_rows)
+                    render_configs = {"New module code": "Code", "Module name": "Module Name",
+                                      "Mod. lead": "Lead"}
+                    st.caption("✅ done · ❌ outstanding · 🔧 reported fixed, awaiting check · "
+                               "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet.")
+
                 if render_status:
                     if render_status_type == "success": st.success(render_status)
                     elif render_status_type == "error": st.error(render_status)
