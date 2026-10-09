@@ -7,7 +7,7 @@ from processing import (calculate_module_compliance, resolve_semester_df,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
                         module_alignment_status,
                         format_comment_markdown, fmt_report_date,
-                        reading_list_verdict, can_view_sga, FIX_CLAIM_FEATURE,
+                        reading_list_verdict, can_view_sga, sga_blocks_sga_field, FIX_CLAIM_FEATURE,
                         TEMPLATE_SECTIONS, SECTION_KEY_BY_AUDIT_FIELD)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
@@ -735,6 +735,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 
                 lens_options = ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps",
                                 "📋 Missing Audits", "📚 Missing Reading Lists"]
+                if show_sga:
+                    lens_options.append("🎓 No SGAs Mapped")
                 selected_lenses = st.multiselect(
                     "Choose inspection criteria:",
                     lens_options,
@@ -860,6 +862,25 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 render_status = "Zero modules are flagged as missing Leganto reading lists in the current view! 🎉"
                                 render_status_type = "success"
                 
+                    elif lens == "🎓 No SGAs Mapped":
+                        if 'SGA Attributes' not in source_data.columns                                 or not source_data['SGA Attributes'].notna().any():
+                            render_status = "SGA data hasn't been imported yet."
+                            render_status_type = "error"
+                        else:
+                            no_sga_df = source_data[[sga_blocks_sga_field(v) for v in source_data['SGA Attributes']]].copy()
+                            if not no_sga_df.empty:
+                                render_status = f"🎯 Found {len(no_sga_df)} modules listed in the SGA tool with no attributes mapped."
+                                render_status_type = "warning"
+                                no_sga_df['DisplayValue'] = "None mapped"
+                                render_df = no_sga_df[['New module code', 'Module name', 'Mod. lead', 'DisplayValue']].copy()
+                                render_configs = {
+                                    "New module code": "Code", "Module name": "Module Name",
+                                    "Mod. lead": "Lead", "DisplayValue": "SGAs"
+                                }
+                            else:
+                                render_status = "Every module listed in the SGA tool has attributes mapped. 🎉"
+                                render_status_type = "success"
+
                     lens_results[lens] = (render_df, render_configs, render_status, render_status_type)
 
                 if len(selected_lenses) == 1:
