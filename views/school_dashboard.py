@@ -890,13 +890,20 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 'Module name': active_row.get('Module name', ''),
                                 'Mod. lead': to_title_case(active_row.get('Mod. lead', '')),
                             }
+                            row['Auditor Comments'] = " ".join(format_comment_markdown(
+                                checklist_sums.get(c_str, {}).get('Responses', {}).get('comments')
+                            ).replace("**", "").split())
                             row.update(module_alignment_status(
                                 active_row, checklist_sums.get(c_str, {}).get('Responses', {}),
                                 pl_fields, pl_claims.get(c_str.upper())))
                             pl_rows.append(row)
                         render_df = pd.DataFrame(pl_rows)
+                        if not render_df['Auditor Comments'].astype(bool).any():
+                            render_df = render_df.drop(columns=['Auditor Comments'])
                         render_configs = {"New module code": "Code", "Module name": "Module Name",
-                                          "Mod. lead": "Lead"}
+                                          "Mod. lead": "Lead",
+                                          "Auditor Comments": st.column_config.TextColumn(
+                                              "Auditor Comments", width="large")}
 
                     if render_status:
                         if render_status_type == "success": st.success(render_status)
