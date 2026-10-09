@@ -683,7 +683,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         "across the School's modules. ✅ done · ❌ outstanding · 🔧 reported fixed, awaiting check · "
                         "accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet."
                     )
-                    lens_options = ["⚠️ Accessibility Risk", "🔍 Critical Checklist Gaps",
+                    lens_options = ["⚠️ Accessibility Risk", "🔍 Template Alignment",
                                     "📚 Missing Reading Lists"]
                     if show_sga:
                         lens_options.append("🎓 No SGAs Mapped")
@@ -720,7 +720,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             render_df, render_configs, render_status, render_status_type = \
                                 build_accessibility_risk_list(source_data)
 
-                        elif lens == "🔍 Critical Checklist Gaps":
+                        elif lens == "🔍 Template Alignment":
                             counts, max_items = calculate_module_compliance(
                                 get_all_audit_responses(), get_active_audit_fields()
                             )
@@ -859,7 +859,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             render_status_type = "warning"
                             cols = [key_col, 'Module name', 'Mod. lead'] + list(lens_cols)
                             render_df = combined[cols].fillna("").reset_index(drop=True).rename(
-                                columns={"🔍 Critical Checklist Gaps": "Areas Needing Attention"})
+                                columns={"🔍 Template Alignment": "Areas Needing Attention"})
                             render_configs = {
                                 key_col: "Code", "Module name": "Module Name", "Mod. lead": "Lead",
                             }
