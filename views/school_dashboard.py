@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from processing import (calculate_module_compliance, resolve_semester_df,
+from processing import (calculate_module_compliance, module_gap_areas, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
@@ -794,13 +794,16 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                     "missing several key checklist items."
                                 )
                                 render_status_type = "warning"
-                                gap_df['DisplayValue'] = gap_df['Compliant Items'].apply(lambda x: f"{int(x)} / {max_items}")
+                                gap_df = gap_df.merge(
+                                    module_gap_areas(get_all_audit_responses(), get_active_audit_fields()),
+                                    left_on='MatchCode', right_on='module_code', how='left', suffixes=('', '_a'))
+                                gap_df['DisplayValue'] = gap_df['Areas'].fillna("")
 
                                 display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
                                 render_df = gap_df[display_cols].copy()
                                 render_configs = {
                                     "New module code": "Code", "Module name": "Module Name",
-                                    "Mod. lead": "Lead", "DisplayValue": "Items Complete"
+                                    "Mod. lead": "Lead", "DisplayValue": "Areas Needing Attention"
                                 }
                             elif scored_df.empty:
                                 render_status = "No modules in this school have been audited yet."
