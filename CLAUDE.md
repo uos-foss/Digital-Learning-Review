@@ -65,9 +65,13 @@ the single-module path.
 
   **`load_checklist_data()` now uses it too** (12-10-2026): `app.py` caches
   `loaders.load_checklist_summaries()`, so the badge, the module report and the
-  Django School Dashboard all count a module's outstanding items from the same
-  full record (`loaders.audit_summary()`). It used to build its own leaner row
-  in `module_row()`, which carried no SGA data. Do not add a lean row back.
+  Django School Dashboard all work out a module's outstanding items from the
+  same full record (`loaders.audit_summary()`). They agree for every audited
+  module. For a never-audited module the badge deliberately reads lower than its
+  own report page, by the checklist items only (see "A never-audited module's
+  checklist fields" under "Unified module findings"). It used to build its own
+  leaner row in `module_row()`, which carried no SGA data. Do not add a lean row
+  back.
 
 **The `users` table is authoritative in SQLite.** The Admin Panel writes there
 and never back to Sheets, so the Users sheet is always stale. Sync must only
@@ -227,6 +231,15 @@ Fixes.
   change, because "Audits Completed" on Faculty Overview is its `len()` and
   other pages test `code in checklist_sums`: every module with a saved answer,
   plus every module the data alone flags with at least one pending item.
+
+  **Badge and module page still differ for never-audited modules, on purpose.**
+  Checked 12-10-2026: 0 of the audited modules disagree, and 558 never-audited
+  ones do, always by one: Learning Materials, the one checklist question with no
+  template section behind it. The page shows it; the badge leaves it out until
+  someone has audited the module. Leaving it out is the decision (counting it
+  would add a constant 1 to ~560 modules and stop the badge telling them apart),
+  so do not "fix" the gap by counting it. When someone reports a badge lower
+  than the page by exactly one, check whether the module has been audited first.
 
 Next: which of the remaining School Dashboard views, if any, are worth porting.
 Writes, and anything resembling the Audit Portal, stay in Streamlit.
@@ -884,8 +897,8 @@ what to do regardless of which tier triggered it.
 
 **A never-audited module's checklist fields do not count toward
 `Actionable Items`** until the module has at least one row in
-`audit_responses` - `load_checklist_data()` calls
-`derive_module_findings(row, {}, active_fields=[], comment_bank)` (empty
+`audit_responses` - `loaders.audit_summary()` (behind `load_checklist_data()`) calls
+`derive_module_findings(row, {}, active_fields=[])` (empty
 `active_fields`) for modules with no audit trail, so only Leganto/Ally/
 readiness findings reach the badge for them. This preserves the badge's prior
 behaviour deliberately: ~1,560 of ~1,570 modules have never been audited, and
