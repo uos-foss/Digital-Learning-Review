@@ -79,9 +79,11 @@ genuinely sheet-managed.
 ## Django platform (web/)
 
 `web/` holds a Django project that renders the same data through a second
-front end. Merged to `main` 09-10-2026 as **non-deployed** code: no compose
-service, no Caddy route, no Dockerfile, and nothing in the Streamlit app
-imports it. It sits on `main` rather than a branch deliberately - a long-lived
+front end. Merged to `main` 09-10-2026 as non-deployed code. Since
+12-10-2026 it is **deployable but not yet deployed**: `Dockerfile.django`, a
+`dlr-platform` compose service on 127.0.0.1:8600 and a Caddy block
+(`deploy/caddy-django.example`) serve it at `/module-reports`, with steps in
+`deploy/README.md`. Nothing in the Streamlit app imports it. It sits on `main` rather than a branch deliberately - a long-lived
 branch needs every `loaders.py`/`processing.py` change merged into it by hand,
 which is the one failure mode this arrangement exists to avoid.
 `web/README.md` records what the spike proved and what it deliberately skips.
@@ -99,7 +101,9 @@ The boundary, all of it already true in the spike:
   direction; `web/auditdata/models.py` is `managed = False` throughout.
   `manage.py makemigrations --check` must keep reporting no changes. Django's
   own tables (auth, sessions) live in `web/dlr_platform.sqlite3`, gitignored,
-  created by `manage.py migrate`.
+  created by `manage.py migrate`. In the container `DJANGO_DB_PATH` moves it to
+  `/app/data/dlr_platform.sqlite3`, on the backed-up host volume, because it holds
+  every account, role and school alignment and a rebuild must not erase them.
 - **No rule is reimplemented in a view or a template.** `loaders.py` is the one
   module-row mapping (`load_module_record(code)` for a single module) and
   `processing.py` holds the verdicts - `derive_module_findings()`,
@@ -197,7 +201,7 @@ template; add it to `report_model.py` or `processing.py` and read it.
   export. A claim already made does display, as "Reported fixed". The capability
   tokens for `can_view_sga()` come from `accounts.models.capabilities_of()`.
 
-Next, in order: serve it on its own Caddy path for a pilot school, then School
+Next, in order: deploy it for a pilot school (see `deploy/README.md`), then School
 Dashboard. Writes, and anything resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data

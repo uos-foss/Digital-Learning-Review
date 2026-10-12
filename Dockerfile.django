@@ -1,0 +1,36 @@
+# The Django platform (web/). Separate from the Streamlit image on purpose:
+# neither installs the other's dependencies, and the Streamlit app must keep
+# booting with no Django present.
+#
+# Build context is the REPO ROOT, not web/, because the platform imports
+# processing.py, database.py, loaders.py and report_model.py from there.
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+# UK local time for stored timestamps, as the Streamlit image. Needs tzdata.
+ENV TZ=Europe/London
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY web/requirements.txt web/requirements.txt
+RUN pip install --no-cache-dir -r web/requirements.txt
+
+COPY . .
+
+# Gather the admin's and allauth's static files for WhiteNoise. DEBUG is on for
+# this one command only, so it does not need a secret key at build time.
+RUN cd web && DJANGO_DEBUG=1 python manage.py collectstatic --noinput
+
+WORKDIR /app/web
+EXPOSE 8600
+
+# Migrations touch only Django's own database (the router refuses the shared
+# one). seed_roles only ever grants, so re-running it on every start is safe and
+# never undoes an admin's changes. Two workers: each caches the module sources
+# for five minutes, so memory is the limit, not CPU.
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py seed_roles && exec gunicorn dlr.wsgi:application --bind 0.0.0.0:8600 --workers 2 --access-logfile -"]

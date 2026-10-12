@@ -33,11 +33,46 @@ if str(REPO_ROOT) not in sys.path:
 # up, which is a confusing way to be unconfigured.
 load_dotenv(REPO_ROOT / ".env")
 
-# Spike only. A real deployment reads this from the environment and refuses to
-# start without it.
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "spike-only-not-for-deployment")
+# DEBUG defaults on so a local `runserver` works with no setup; the container
+# sets DJANGO_DEBUG=0. With it off, the settings below stop being forgiving: a
+# missing secret key is an error rather than a published default, cookies are
+# marked Secure, and the proxy's X-Forwarded-Proto is trusted.
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if not DEBUG:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY is not set. See .env.example.")
+    SECRET_KEY = "local-development-only"
+
+ALLOWED_HOSTS = [h.strip() for h in
+                 os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+                 if h.strip()]
+
+# Served under a path of its own (e.g. /module-reports) beside the Streamlit
+# app. Caddy strips the prefix before proxying (handle_path); this tells Django
+# to put it back on every URL it builds - links, redirects, the sign-in return
+# address, static files - and to scope its cookies to it. Empty locally.
+_PREFIX = os.getenv("DJANGO_SCRIPT_NAME", "").strip().rstrip("/")
+if _PREFIX:
+    FORCE_SCRIPT_NAME = _PREFIX
+    STATIC_URL = f"{_PREFIX}/static/"
+    SESSION_COOKIE_PATH = CSRF_COOKIE_PATH = _PREFIX + "/"
+
+# Origins allowed to POST, e.g. https://example.sheffield.ac.uk
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in
+                        os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+
+if not DEBUG:
+    # Caddy terminates TLS and tells us so. Trusting the header is safe only
+    # because the container is bound to the VM's loopback and nothing else can
+    # reach it; do not publish its port.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    ACCOUNT_DEFAULT_HTTP_PROTOCOL = "https"   # the Google callback URL allauth builds
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -61,6 +96,9 @@ SITE_ID = 1
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves the admin's and allauth's static files from the container, so no
+    # separate file server is needed. Must sit directly after SecurityMiddleware.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -105,9 +143,14 @@ def _shared_audit_db_path():
 
 DATABASES = {
     # Django's own tables. Small, and ours alone.
+    #
+    # In the container this must live on a host volume or every rebuild would
+    # erase accounts, role assignments and each person's school alignment.
+    # DJANGO_DB_PATH points it at /app/data, the directory the nightly backup
+    # already covers.
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "dlr_platform.sqlite3",
+        "NAME": os.getenv("DJANGO_DB_PATH") or BASE_DIR / "dlr_platform.sqlite3",
     },
     # The shared audit database. Every model reading it is managed = False.
     "audit": {
@@ -202,7 +245,8 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
-LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/modules/"
-ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
+# URL names, not paths, so the script prefix is applied wherever they resolve.
+LOGIN_URL = "account_login"
+LOGIN_REDIRECT_URL = "modules:index"
+ACCOUNT_LOGOUT_REDIRECT_URL = "account_login"
 ACCOUNT_LOGOUT_ON_GET = False            # logging out is a POST, so a link cannot do it
