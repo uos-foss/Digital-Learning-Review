@@ -175,6 +175,43 @@ def main():
     check("faculty-wide account still sees it",
           client.get(f"/modules/{code}/").status_code == 200, "view_all via the DLA group")
 
+    # 7b. The School Dashboard, with the same scoping as the module report.
+    sd = client.get(f"/schools/{school}/")
+    sd_body = sd.content.decode("utf-8", "replace")
+    check("school dashboard renders", sd.status_code == 200, f"HTTP {sd.status_code}")
+    listed = data.load_school(school, "Autumn", user)["modules"]
+    check("school dashboard lists modules and links to their reports",
+          "Outstanding actionable items" in sd_body and bool(listed)
+          and f"/modules/{listed[0]['code']}/" in sd_body, f"{len(listed)} modules")
+    check("template alignment view renders",
+          "Accessibility" in client.get(f"/schools/{school}/?view=alignment")
+          .content.decode("utf-8", "replace"))
+    check("an unknown semester falls back instead of failing",
+          client.get(f"/schools/{school}/?semester=Winter").status_code == 200)
+    check("own school sees its dashboard",
+          aligned_client.get(f"/schools/{school}/").status_code == 200)
+    check("other school is refused its dashboard",
+          outsider_client.get(f"/schools/{school}/").status_code == 403)
+    check("an unknown school is a 404 once access is granted",
+          client.get("/schools/ZZZ/").status_code == 404)
+    check("the school list shows only permitted schools",
+          f"/schools/{school}/" in aligned_client.get("/schools/").content.decode("utf-8", "replace")
+          and (other is None or f"/schools/{other}/" not in
+               aligned_client.get("/schools/").content.decode("utf-8", "replace")))
+
+    # The headline figures must agree with the Streamlit page's own rules,
+    # worked out here from the raw frames rather than through the dashboard.
+    df_aut, df_spr = data._frames()
+    target = processing.resolve_semester_df(df_aut, df_spr, "Autumn")
+    mine = target[processing.school_series(target["New module code"]) == school]
+    shown = {label: value for label, value, _ in data.load_school(school, "Autumn", user)["headline"]}
+    average = processing.mean_score(mine)
+    check("headline figures match processing's own rules",
+          shown["Total modules"] == str(len(mine))
+          and shown["Modules with no activity"] == str(len(mine) - len(processing.scoreable(mine)))
+          and shown["Average Ally score"] == (f"{average:.1%}" if average is not None else "—"),
+          f"{school}: {len(mine)} modules")
+
     # 8. The domain rule, at the point it is actually enforced: a personal
     # Google account reaching the callback must be refused, not just
     # discouraged by the hd parameter.

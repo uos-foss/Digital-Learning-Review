@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ school }} dashboard{% endblock %}
+
+{% block content %}
+{% with d=dashboard %}
+<h1>{{ school }} <span class="muted">School Dashboard</span></h1>
+
+<p>
+  {% for s in semesters %}
+    {% if s == semester %}<strong>{{ s }}</strong>{% else %}<a href="?semester={{ s|urlencode }}&view={{ view }}">{{ s }}</a>{% endif %}{% if not forloop.last %} &middot; {% endif %}
+  {% endfor %}
+  <span class="muted">&nbsp;semester</span>
+</p>
+
+<table class="kv" style="margin-bottom:1rem;">
+  {% for label, value, help in d.headline %}
+    <tr><th title="{{ help }}" style="width:16rem;">{{ label }}</th><td>{{ value }}</td></tr>
+  {% endfor %}
+</table>
+
+<p class="tabs-links">
+  {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
+  {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
+</p>
+
+<section class="panel">
+{% if not d.modules %}
+  <p class="muted" style="margin:0;">No modules for {{ school }} in the {{ semester }} semester.</p>
+{% elif view == "modules" %}
+  <div class="scroll">
+    <table class="grid">
+      <tr><th>Code</th><th>Module</th><th>Lead</th><th>Level</th><th>Ally score</th><th>Items</th><th>Reading list</th>{% if d.show_sga %}<th>SGAs</th>{% endif %}<th>Spot-check</th></tr>
+      {% for m in d.modules %}
+        <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>
+            <td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td><td>{{ m.level }}</td>
+            <td>{{ m.score }}</td><td>{{ m.items }}</td><td class="nw">{{ m.reading_list }}</td>
+            {% if d.show_sga %}<td>{{ m.sgas }}</td>{% endif %}<td class="nw">{{ m.spot_check }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <p class="muted" style="margin-bottom:0;">Items are the module's outstanding actionable items. Ally score shows the build stage instead until a course has content beyond its template.</p>
+{% else %}
+  <p class="muted">{{ text.ALIGNMENT_LEGEND }}</p>
+  <div class="scroll">
+    <table class="grid">
+      <tr><th>Code</th><th>Module</th>{% for c in d.matrix.columns %}<th>{{ c }}</th>{% endfor %}</tr>
+      {% for r in d.matrix.rows %}
+        <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td>
+            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endif %}
+</section>
+{% endwith %}
+{% endblock %}

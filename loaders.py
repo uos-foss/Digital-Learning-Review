@@ -441,6 +441,24 @@ def load_module_record(code, sources=None):
     return build_module_record(df_sits.iloc[0], sources)
 
 
+def _trail_from_rows(rows):
+    """
+    One module's saved audit from its audit_responses rows, as (field_id,
+    value, auditor, timestamp) tuples in table order. Shared by the single
+    module and whole-faculty paths so they cannot disagree.
+    """
+    if not rows:
+        return {'responses': {}, 'last_saved': None, 'auditor': 'System',
+                'has_audit': False}
+    stamps = [t for _, _, _, t in rows if t]
+    auditors = [a for _, _, a, _ in rows if a]
+    auditor = auditors[-1] if auditors else 'Unknown'
+    return {'responses': {fid: value for fid, value, _, _ in rows},
+            'last_saved': max(stamps) if stamps else 'Unknown',
+            'auditor': auditor,
+            'has_audit': auditor not in (None, '', 'System')}
+
+
 def load_audit_trail(code):
     """
     One module's saved audit, in the shapes the report reads:
@@ -456,13 +474,68 @@ def load_audit_trail(code):
     as there.
     """
     rows = database.get_audit_responses(code)
-    if not rows:
-        return {'responses': {}, 'last_saved': None, 'auditor': 'System',
-                'has_audit': False}
-    stamps = [r['timestamp'] for r in rows.values() if r['timestamp']]
-    auditors = [r['auditor'] for r in rows.values() if r['auditor']]
-    auditor = auditors[-1] if auditors else 'Unknown'
-    return {'responses': {fid: r['value'] for fid, r in rows.items()},
-            'last_saved': max(stamps) if stamps else 'Unknown',
-            'auditor': auditor,
-            'has_audit': auditor not in (None, '', 'System')}
+    return _trail_from_rows([(fid, r['value'], r['auditor'], r['timestamp'])
+                             for fid, r in rows.items()])
+
+
+def load_audit_trails():
+    """{module_code: trail} for every module that has any saved answer, from
+    one query rather than one per module."""
+    df = database.get_all_audit_responses()
+    if df.empty:
+        return {}
+    grouped = {}
+    for rec in df[['module_code', 'field_id', 'value', 'auditor_username',
+                   'timestamp']].itertuples(index=False):
+        grouped.setdefault(str(rec[0]).strip().upper(), []).append(
+            (rec[1], rec[2], rec[3], rec[4]))
+    return {code: _trail_from_rows(rows) for code, rows in grouped.items()}
+
+
+def audit_summary(row, trail, active_fields):
+    """
+    One module's audit status and outstanding-item count: the shape
+    app.py::load_checklist_data() builds as `checklist_sums`, from the same
+    full module row the module report reads.
+
+    'Actionable Items' is the number of pending findings from
+    processing.derive_module_findings(), so it agrees with the module report
+    by construction. A module with no saved answers is counted on data alone
+    (Leganto, Ally, readiness), with its checklist fields left out: about 1,560
+    of ~1,570 modules have never been audited, and counting all eight checklist
+    fields as pending for each would turn the figure into a constant. See
+    "A never-audited module's checklist fields" in CLAUDE.md.
+    """
+    responses = trail['responses']
+    audited = bool(responses)
+    findings = processing.derive_module_findings(
+        row, responses, active_fields if audited else [])
+    pending = [f for f in findings if f['state'] == 'pending']
+
+    audit_status = responses.get('audit_status', '')
+    status = ("✅ Submitted" if audit_status == 'submitted'
+              else "📝 Draft" if audit_status == 'draft' else "❌ Not Started")
+    return {
+        'Status': status,
+        'Actionable Items': len(pending),
+        'Derived Findings': [f['label'] for f in pending if f['source'] != 'checklist'],
+        'Timestamp': (trail['last_saved'] if audited else "Never"),
+        'Auditor': (trail['auditor'] if audited else "System"),
+        'Responses': responses,
+        'Comments': responses.get('comments', ''),
+    }
+
+
+def load_audit_summaries(rows_by_code, active_fields=None):
+    """
+    {module_code: audit_summary} for the module rows given
+    ({code: module record}), with one audit query for the lot. The
+    whole-school counterpart of app.py::load_checklist_data(), with no
+    Streamlit in it.
+    """
+    active_fields = (active_fields if active_fields is not None
+                     else database.get_active_audit_fields())
+    trails = load_audit_trails()
+    empty = _trail_from_rows([])
+    return {code: audit_summary(row, trails.get(code, empty), active_fields)
+            for code, row in rows_by_code.items()}

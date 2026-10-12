@@ -21,7 +21,12 @@ from processing import (
     CURRENT_ACADEMIC_YEAR,
     derive_module_findings,
     format_comment_markdown,
+    mean_score,
+    module_alignment_status,
     readiness_created_date,
+    reading_list_verdict,
+    school_of,
+    scoreable,
     summarise_ally_issue_categories,
     summarise_ally_issues,
     SECTION_STATES,
@@ -672,6 +677,7 @@ def build_report(code, row, *, responses, has_audit, last_saved, auditor, fix_cl
 
     return {
         'code': code,
+        'school': school_of(code),
         'name': row.get('Module name', '') or code,
         'lead': title_case_name(lead) if lead else '',
         'level': _clean(row.get('UG/ PG/ Other')),
@@ -736,3 +742,133 @@ def ally_intro_lines(snapshot_date):
     ]
 
 
+
+
+# ---------------------------------------------------------------------------
+# School Dashboard
+# ---------------------------------------------------------------------------
+
+SEMESTERS = ("Autumn", "Spring", "All year")
+
+# Abbreviated in tables only; the full text is what is stored and shown
+# elsewhere. Matches the Streamlit School Dashboard.
+LEVEL_ABBREVIATIONS = {'Foundation': 'FY', 'UG Level 1': 'UG1',
+                       'UG Level 2': 'UG2', 'UG Level 3': 'UG3'}
+
+
+def score_or_stage(row):
+    """
+    The Ally score once a course is 'In progress', otherwise its build stage.
+
+    One column rather than two: an untouched template scores near 100% and
+    would otherwise read as the best module in the school, so the score only
+    means something once there is content beyond it. Wording matches the
+    module report's own banner ("Not started" for 'Not yet built').
+    """
+    maturity = row.get('Content Maturity')
+    if maturity == 'In progress':
+        value = row.get('Ally Overall')
+        if value is not None and not pd.isna(value):
+            return f"{value * 100:.1f}%"
+    if not maturity:
+        return "—"
+    return "Not started" if maturity == "Not yet built" else maturity
+
+
+def reading_list_display(row, verdict):
+    """
+    The reading-list cell. A DLA's recorded answer (`verdict`, from
+    processing.reading_list_verdict()) overrides Leganto, which is exported
+    rarely and often lags Blackboard; otherwise the Leganto status. A blank
+    status means the module is in neither Leganto export: no signal either
+    way, but a DLA scanning the column still has to act, so it reads as
+    Missing, as it does on the Streamlit page.
+    """
+    if verdict is True:
+        return "✅ DLA confirmed"
+    if verdict is False:
+        return "❌ DLA: not done"
+    if row.get('Leganto Missing') == True:  # noqa: E712 - numpy.bool_ is never `is True`
+        return "❌ Missing"
+    status = row.get('Leganto List Status', '')
+    if status == 'Published':
+        return "✅ Published"
+    if status in ('Draft', 'Mixed'):
+        return "📝 Draft"
+    if status == 'No List Expected':
+        return "➖ Not needed"
+    return "❌ Missing"
+
+
+def spot_check_display(status):
+    return {'pending': "⏳ Pending", 'checked': "✅ Checked"}.get(status, "")
+
+
+def build_school(school, semester, school_df, summaries, *, spot_check_status,
+                 fix_claims_by_module, active_fields, can_view_sga):
+    """
+    One school's dashboard as plain data: four headline figures, a table of
+    its modules, and the Template Alignment matrix.
+
+    `school_df` is the school's module records for the semester (frames from
+    loaders.assemble_module_frames(), narrowed with
+    processing.resolve_semester_df()); `summaries` is
+    loaders.load_audit_summaries() for those modules. Nothing is decided here
+    that processing.py does not already decide: the item counts come from
+    derive_module_findings(), the matrix rows from module_alignment_status(),
+    the averages from the same scoreable()/mean_score() the Streamlit page
+    reads. Read-only: the flagging and removal actions stay in Streamlit.
+    """
+    school_df = school_df.sort_values('New module code').reset_index(drop=True)
+
+    codes = [str(c).strip().upper() for c in school_df['New module code']]
+    outstanding = sum(summaries.get(c, {}).get('Actionable Items', 0) for c in codes)
+    average = mean_score(school_df)
+    headline = [
+        ("Total modules", f"{len(school_df)}",
+         f"Modules for {school} in the {semester} semester."),
+        ("Modules with no activity", f"{len(school_df) - len(scoreable(school_df))}",
+         "Modules that still only have the default template: no content added yet."),
+        ("Average Ally score", f"{average:.1%}" if average is not None else "—",
+         "Ally's overall score, averaged across modules with content beyond their template only."),
+        ("Outstanding actionable items", f"{outstanding}",
+         "Outstanding items across these modules: checklist, Leganto reading lists, "
+         "Ally accessibility and template readiness findings combined."),
+    ]
+
+    show_sga = bool(can_view_sga and 'SGA Attributes' in school_df.columns
+                    and school_df['SGA Attributes'].notna().any())
+
+    modules, matrix_rows, columns = [], [], []
+    for record in school_df.to_dict('records'):
+        code = str(record['New module code']).strip().upper()
+        summary = summaries.get(code, {})
+        responses = summary.get('Responses', {})
+        lead = _clean(record.get('Mod. lead'))
+        level = _clean(record.get('UG/ PG/ Other'))
+        sga = record.get('SGA Attributes')
+        modules.append({
+            'code': code,
+            'name': _clean(record.get('Module name')),
+            'lead': title_case_name(lead) if lead else '',
+            'level': LEVEL_ABBREVIATIONS.get(level, level),
+            'score': score_or_stage(record),
+            'items': summary.get('Actionable Items', 0),
+            'reading_list': reading_list_display(
+                record, reading_list_verdict(summaries, code)),
+            'spot_check': spot_check_display(spot_check_status.get(code)),
+            'sgas': '' if sga is None or pd.isna(sga) else int(sga),
+        })
+        cells = dict(module_alignment_status(
+            record, responses, active_fields, fix_claims_by_module.get(code)))
+        for label in cells:
+            if label not in columns:
+                columns.append(label)
+        matrix_rows.append({'code': code, 'name': modules[-1]['name'],
+                            'lead': modules[-1]['lead'], 'cells': cells})
+    for row in matrix_rows:
+        row['cells'] = [row['cells'].get(label, '') for label in columns]
+
+    return {'school': school, 'semester': semester, 'headline': headline,
+            'modules': modules, 'show_sga': show_sga,
+            'matrix': {'columns': columns, 'rows': matrix_rows}}

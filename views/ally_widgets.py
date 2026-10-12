@@ -16,13 +16,8 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from processing import summarise_ally_issues
-
-# Maturity classes whose scores are worth reporting. See
-# processing.classify_content_maturity for how a course lands in one - there
-# is no "Built" class to include here, because a file count can only ever
-# show a course has started, never that it is finished.
-SCOREABLE_MATURITY = ("In progress",)
+from processing import (  # noqa: F401 - the first three re-exported for the views
+    SCOREABLE_MATURITY, mean_score, scoreable, summarise_ally_issues)
 
 MATURITY_ORDER = ["In progress", "Not yet built", "Empty", "No data"]
 SURFACE_LABELS = {
@@ -30,22 +25,6 @@ SURFACE_LABELS = {
     'image': "Fix in the browser via Ally feedback",
     'file': "Re-author and re-upload the file",
 }
-
-
-def scoreable(df):
-    """The rows whose Ally score means something. Empty frame in, empty out."""
-    if df is None or df.empty or 'Content Maturity' not in df.columns:
-        return pd.DataFrame()
-    return df[df['Content Maturity'].isin(SCOREABLE_MATURITY)]
-
-
-def mean_score(df, column='Ally Overall'):
-    """Mean of a score column across built courses only, or None."""
-    subset = scoreable(df)
-    if subset.empty or column not in subset.columns:
-        return None
-    values = pd.to_numeric(subset[column], errors='coerce').dropna()
-    return float(values.mean()) if not values.empty else None
 
 
 def render_maturity_banner(df):

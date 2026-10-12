@@ -201,8 +201,35 @@ template; add it to `report_model.py` or `processing.py` and read it.
   export. A claim already made does display, as "Reported fixed". The capability
   tokens for `can_view_sga()` come from `accounts.models.capabilities_of()`.
 
-Next, in order: deploy it for a pilot school (see `deploy/README.md`), then School
-Dashboard. Writes, and anything resembling the Audit Portal, stay in Streamlit.
+**The School Dashboard is ported, read-only** (12-10-2026): `/schools/<code>/`,
+with `?semester=Autumn|Spring|All year` and `?view=modules|alignment`. Four
+headline figures, a table of the school's modules (each linking to its report),
+and the Template Alignment matrix. `report_model.build_school()` assembles it
+from `processing.py`'s own rules (`scoreable()`/`mean_score()`, which moved
+there from `views/ally_widgets.py`, `module_alignment_status()`,
+`reading_list_verdict()`). Scoping is the module report's: a school outside an
+account's alignment is a 403, checked before the code is validated. Not ported:
+spot-check flagging, removal and checking (writes), the Audit Portal jumps,
+Ally Analytics, Trends, the per-lens filters, Spot-Check Comments and Reported
+Fixes.
+
+- **`loaders.load_audit_summaries()` is the Streamlit-free whole-school
+  "Actionable Items"**, from the full module record, so it agrees with the module
+  report by construction. **It does not agree with the Streamlit badge for 153 of
+  766 modules, by exactly one each, and every one is the SGA rule** (a module
+  listed in the SGA tool with no attributes mapped is a pending
+  "Visible, no SGAs mapped" finding). `app.py::load_checklist_data()` builds a
+  lean row with no SGA data, so the badge never counts it, despite the SGA
+  section above saying the gate applies to Actionable Items. The Django School
+  Dashboard therefore shows one more item than Streamlit's for those modules.
+  `diagnostics/check_actionable_parity.py` re-runs the comparison and fails on
+  any difference the SGA rule does not explain. Not yet changed in Streamlit, as
+  it would move user-visible numbers: the fix is to have `load_checklist_data()`
+  call the shared loader, which also retires the "second copy" noted under
+  "Data architecture".
+
+Next: decide whether Streamlit's badge adopts the shared loader, then which of the
+remaining School Dashboard views, if any, are worth porting. Writes, and anything resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data
 

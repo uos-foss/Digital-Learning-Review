@@ -301,6 +301,31 @@ def ally_term_to_academic_year(term_name):
     start, end = m.group(1), m.group(2)
     return f"{start}-{end[-2:]}"
 
+# Ally scores, averaged only over built courses. Moved here from
+# views/ally_widgets.py (12-10-2026) so the Django School Dashboard reads the
+# same rule; the widgets module re-exports them.
+# Maturity classes whose scores are worth reporting. See
+# processing.classify_content_maturity for how a course lands in one - there
+# is no "Built" class to include here, because a file count can only ever
+# show a course has started, never that it is finished.
+SCOREABLE_MATURITY = ("In progress",)
+
+def scoreable(df):
+    """The rows whose Ally score means something. Empty frame in, empty out."""
+    if df is None or df.empty or 'Content Maturity' not in df.columns:
+        return pd.DataFrame()
+    return df[df['Content Maturity'].isin(SCOREABLE_MATURITY)]
+
+
+def mean_score(df, column='Ally Overall'):
+    """Mean of a score column across built courses only, or None."""
+    subset = scoreable(df)
+    if subset.empty or column not in subset.columns:
+        return None
+    values = pd.to_numeric(subset[column], errors='coerce').dropna()
+    return float(values.mean()) if not values.empty else None
+
+
 def resolve_semester_df(df_aut, df_spr, semester):
     """
     Picks the DataFrame a view should render for the selected semester.
