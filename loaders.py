@@ -539,3 +539,50 @@ def load_audit_summaries(rows_by_code, active_fields=None):
     empty = _trail_from_rows([])
     return {code: audit_summary(row, trails.get(code, empty), active_fields)
             for code, row in rows_by_code.items()}
+
+
+def load_checklist_summaries(sources=None):
+    """
+    The `checklist_sums` dictionary the Streamlit pages read, from the shared
+    module records: {module_code: audit_summary}.
+
+    Replaces the body of app.py::load_checklist_data(), which built its own
+    lean module row (no SGA data, no Leganto draft count) and so counted a
+    module's outstanding items differently from the module report. Same
+    membership as before, deliberately, because some pages count the
+    dictionary ("Audits Completed" is its length) or ask whether a code is in
+    it: every module with any saved answer, plus every module the data alone
+    flags (in the Leganto, Ally or readiness data) with at least one pending
+    item. A code outside SITS still gets an entry if the data mentions it,
+    built from the same sources with a bare record.
+    """
+    sources = sources if sources is not None else load_module_sources()
+    with database.get_db_connection() as conn:
+        df_sits = (pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
+                   if database.table_exists(conn, "sits_assessment_2026_27")
+                   else pd.DataFrame())
+
+    sits_rows = {}
+    if not df_sits.empty and 'CIS unit code' in df_sits.columns:
+        df_sits = df_sits.copy()
+        df_sits['CIS unit code'] = df_sits['CIS unit code'].astype(str).str.strip().str.upper()
+        sits_rows = {r['CIS unit code']: r for r in
+                     df_sits.drop_duplicates(subset=['CIS unit code']).to_dict('records')}
+
+    trails = load_audit_trails()
+    empty = _trail_from_rows([])
+    active_fields = database.get_active_audit_fields()
+
+    # Modules the data alone can flag, so a finding is not invisible until
+    # someone opens the module.
+    data_codes = (sources.leganto_missing_set | set(sources.leganto_lists_map)
+                  | set(sources.ally_issue_map) | set(sources.ally_map)
+                  | set(sources.readiness_map))
+
+    summaries = {}
+    for code in set(trails) | data_codes:
+        row = build_module_record(sits_rows.get(code, {'CIS unit code': code}), sources)
+        summary = audit_summary(row, trails.get(code, empty), active_fields)
+        if code in trails or summary['Actionable Items'] > 0:
+            summaries[code] = summary
+    return summaries

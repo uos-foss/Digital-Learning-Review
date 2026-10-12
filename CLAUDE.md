@@ -63,11 +63,11 @@ Do not put `st.*` in `loaders.py`, and do not rebuild a module row anywhere
 else - `build_module_record()` is the one mapping, `load_module_record(code)`
 the single-module path.
 
-  Still outstanding: `load_checklist_data()` builds its own leaner row in
-  `module_row()`, re-querying and re-aggregating Ally/Leganto/readiness for
-  the badge. It agrees with `loaders.py` today, but it is a second copy of
-  the same idea and should move onto `load_module_sources()` once there is
-  appetite to re-verify the badge counts.
+  **`load_checklist_data()` now uses it too** (12-10-2026): `app.py` caches
+  `loaders.load_checklist_summaries()`, so the badge, the module report and the
+  Django School Dashboard all count a module's outstanding items from the same
+  full record (`loaders.audit_summary()`). It used to build its own leaner row
+  in `module_row()`, which carried no SGA data. Do not add a lean row back.
 
 **The `users` table is authoritative in SQLite.** The Admin Panel writes there
 and never back to Sheets, so the Users sheet is always stale. Sync must only
@@ -213,23 +213,23 @@ spot-check flagging, removal and checking (writes), the Audit Portal jumps,
 Ally Analytics, Trends, the per-lens filters, Spot-Check Comments and Reported
 Fixes.
 
-- **`loaders.load_audit_summaries()` is the Streamlit-free whole-school
-  "Actionable Items"**, from the full module record, so it agrees with the module
-  report by construction. **It does not agree with the Streamlit badge for 153 of
-  766 modules, by exactly one each, and every one is the SGA rule** (a module
-  listed in the SGA tool with no attributes mapped is a pending
-  "Visible, no SGAs mapped" finding). `app.py::load_checklist_data()` builds a
-  lean row with no SGA data, so the badge never counts it, despite the SGA
-  section above saying the gate applies to Actionable Items. The Django School
-  Dashboard therefore shows one more item than Streamlit's for those modules.
-  `diagnostics/check_actionable_parity.py` re-runs the comparison and fails on
-  any difference the SGA rule does not explain. Not yet changed in Streamlit, as
-  it would move user-visible numbers: the fix is to have `load_checklist_data()`
-  call the shared loader, which also retires the "second copy" noted under
-  "Data architecture".
+- **One count of outstanding items, in `loaders.audit_summary()`.**
+  `load_audit_summaries()` serves the Django School Dashboard and
+  `load_checklist_summaries()` the Streamlit badge (`app.py::load_checklist_data()`
+  is a cache wrapper around it). Switched 12-10-2026, when they were found to
+  disagree: the badge's old lean row had no SGA data, so it never counted a
+  module the SGA tool lists with no attributes mapped ("Visible, no SGAs
+  mapped"), although the module report did and this file says the gate applies
+  to Actionable Items. 278 of 947 entries read one higher afterwards, every one
+  by exactly one and every one that finding (153 of them modules the app shows;
+  the rest are codes in the Leganto, Ally or readiness data that SITS does not
+  list, which no page displays). Which modules are in the dictionary did not
+  change, because "Audits Completed" on Faculty Overview is its `len()` and
+  other pages test `code in checklist_sums`: every module with a saved answer,
+  plus every module the data alone flags with at least one pending item.
 
-Next: decide whether Streamlit's badge adopts the shared loader, then which of the
-remaining School Dashboard views, if any, are worth porting. Writes, and anything resembling the Audit Portal, stay in Streamlit.
+Next: which of the remaining School Dashboard views, if any, are worth porting.
+Writes, and anything resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data
 

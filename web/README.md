@@ -155,11 +155,10 @@ the derived findings for all 766 modules were fingerprinted before and after,
 and every hash matched. `diagnostics/check_module_loader.py` re-checks it
 against the live database, which was impossible before.
 
-**Still duplicated:** `load_checklist_data()` builds its own leaner row in
-`module_row()`, re-querying and re-aggregating for the Actionable Items badge.
-It agrees with `loaders.py` today, but it should move onto
-`loaders.load_module_sources()` when there is appetite to re-verify the badge
-counts.
+**No longer duplicated** (12-10-2026): `load_checklist_data()` now caches
+`loaders.load_checklist_summaries()`, so the Actionable Items badge counts from the
+same full module record as everything else. It used to build a leaner row with no
+SGA data and so read one lower than the module report for 153 modules.
 
 ## Smaller things noticed
 
