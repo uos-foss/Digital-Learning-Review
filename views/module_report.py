@@ -16,24 +16,17 @@ from processing import (
     CURRENT_ACADEMIC_YEAR,
     summarise_ally_issues,
     summarise_ally_issue_categories,
-    TEMPLATE_SECTIONS,
     TEMPLATE_SECTION_TREE,
-    SECTION_STATES,
     derive_module_findings,
-    readiness_manual_override,
-    fix_claim_words,
     FIX_CLAIM_CAPABILITY,
     FIX_CLAIM_FEATURE,
     FIX_CLAIM_EXTRA_FIELD_IDS,
     school_of,
     SECTION_KEY_BY_AUDIT_FIELD,
-    SGA_SECTION,
-    sga_blocks_sga_field,
     format_comment_markdown,
     compute_audit_verdict,
     fmt_report_date,
     fmt_report_datetime,
-    readiness_evidence_words,
     readiness_created_date,
     resolve_active_row,
     parse_user_schools,
@@ -51,57 +44,38 @@ from database import (
     get_pending_spot_check,
     get_last_import_dates,
 )
+from report_model import (
+    ALIGNMENT_LEGEND,
+    ALLY_HELP_LINKS,
+    ALLY_MATURITY_NOTE,
+    ALLY_NO_ISSUES,
+    ALLY_OFF_WARNING,
+    ALLY_TEMPLATE_ONLY,
+    NOTHING_OUTSTANDING,
+    TEMPLATE_INTRO,
+    CONTENT_TYPE_ICONS,
+    SECTION_CONTENT_TYPE,
+    SURFACE_WORDS,
+    TIER_COLOUR,
+    action_items,
+    ally_intro_lines,
+    ally_snapshot_date,
+    ally_summary,
+    sga_note,
+    title_case_name,
+    ally_band as _ally_band,
+    audit_status_label as _audit_status_label,
+    refreshed_line as _refreshed_line,
+    section_card_content as _section_card_content,
+    section_order as _section_order,
+    summary_intro as _summary_intro,
+    template_rows as _pdf_template_rows,
+)
 
 
 @st.cache_data(ttl=300)
 def _load_last_import_dates():
     return get_last_import_dates()
-
-# How each Ally score band reads to an auditor. Ally's own wording, so the
-# portal and the course report agree.
-ALLY_BANDS = [
-    (1.0, "#047857", "Perfect", "No accessibility issues were found by the tool."),
-    (0.67, "#10B981", "High", "Mostly accessible, but minor improvements are still possible."),
-    (0.34, "#F59E0B", "Medium", "Somewhat accessible. Needs improvement."),
-    (0.0, "#EF4444", "Low", "Severe or multiple accessibility issues."),
-]
-
-# What each maturity class means for reading the score beside it. There is no
-# "Built"/"Complete" state: module leads add content just-in-time throughout
-# the course, often up to the final assessment, so a content count can only
-# ever show a course has started - never that it is finished.
-ALLY_MATURITY_NOTE = {
-    "Not yet built": ("#6B7280", "ℹ️", "This course still holds only its rolled-over template. "
-                      "The accessibility score describes the template, not teaching materials."),
-    "Empty": ("#6B7280", "ℹ️", "Ally has found no content in this course at all."),
-    "In progress": ("#F59E0B", "🚧", "The course has content beyond its template, so the score "
-                    "reflects real material - but module leads build throughout the year, "
-                    "so expect it to keep moving as more goes up."),
-    "No data": ("#6B7280", "—", "This module has no Ally record for the current year."),
-}
-
-# Colour used for each Ally severity tier on the accessibility issue cards.
-TIER_COLOUR = {"Severe": "#EF4444", "Major": "#F59E0B", "Minor": "#6B7280"}
-
-SURFACE_WORDS = {
-    'editor': ("✏️", "Fix in the Blackboard editor"),
-    'image': ("🖼️", "Fix in the browser via Ally feedback"),
-    'file': ("📄", "Re-author and re-upload the file"),
-}
-
-# Template section states by tier. 'action' and 'attention' both render amber
-# rather than red or grey: a section drafted and left hidden ('action') means
-# somebody has done the work, and one with no edit evidence yet ('attention',
-# e.g. "Not started", "Visible, unedited") is still just outstanding work, not
-# a failing - only 'fault' (Deleted/Missing - actual course-creation faults)
-# stays red. Only two colours are used for badges: green for genuinely done,
-# amber for everything still needing a look.
-STATE_TIER_COLOUR = {
-    'ok': "#10B981",
-    'action': "#F59E0B",
-    'attention': "#F59E0B",
-    'fault': "#EF4444",
-}
 
 # Neutral text in the hand-built HTML cards. These inherit the theme's own text
 # colour and step down with opacity, rather than hardcoding a grey: fixed
@@ -120,121 +94,6 @@ FS_TITLE = 15
 FS_BODY = 14
 FS_SECONDARY = 13
 FS_BADGE = 11
-
-# Card copy for sections nobody expects a module lead to edit - every section
-# except the ones in LEAD_OWNED_SECTIONS. For these, edited-or-not is noise (see
-# readiness_section_is_ready()): only whether it's Visible or Hidden is
-# actionable, so both "edited" and "unedited" collapse to one Visible message
-# and both "drafted" and "not started" collapse to one Hidden message, unlike
-# lead-owned sections where that distinction is the whole point. Each entry is
-# (visible_text, hidden_text); sections without an entry yet fall back to
-# _INSTITUTION_DEFAULT_COPY. Filled in one section at a time as wording is
-# agreed, not guessed wholesale.
-INSTITUTION_SECTION_COPY = {
-    'MODULE_INFORMATION': (
-        "Visible to students.",
-        "Hidden from students. The Learning Module should not be hidden - "
-        "check and make sure it's visible."),
-    'MODULE_READING_LIST': (
-        "Visible to students. This is set centrally rather than written by "
-        "the module lead, so being visible is all that's needed here.",
-        "Hidden from students. The reading list needs to be visible to "
-        "students or, if a reading list is not used, marked accordingly."),
-}
-_INSTITUTION_DEFAULT_COPY = (
-    "Visible to students. This is set centrally rather than written by the "
-    "module lead, so being visible is all that's needed here.",
-    "Hidden from students. This is set centrally rather than written by the "
-    "module lead, but it still needs to be visible to students.")
-
-# Icons matching Blackboard Ultra's own course content list, so a card reads
-# as "this is a folder" / "this is a link" at a glance the same way Ultra's
-# own content list does. The plain outline ones (learning_module, folder,
-# document, link) are fixed neutral grey regardless of the card's status
-# colour - these indicate what the section *is*, not its current state. The
-# LTI tools each carry their own brand mark in Blackboard rather than a
-# shared generic icon, so those are approximations of the actual badges
-# (colour and glyph) from the module lead's own screenshots, not literal
-# traces of the originals.
-_ICON_STROKE = (
-    'fill="none" stroke="#6B7280" stroke-width="1.8" '
-    'stroke-linecap="round" stroke-linejoin="round"')
-CONTENT_TYPE_ICONS = {
-    'learning_module': (
-        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
-        '<rect x="3" y="3" width="18" height="18" rx="2"/>'
-        '<line x1="7" y1="8" x2="17" y2="8"/>'
-        '<line x1="7" y1="12" x2="17" y2="12"/>'
-        '<line x1="7" y1="16" x2="17" y2="16"/></svg>'),
-    'folder': (
-        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
-        '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 '
-        '1H4a1 1 0 0 1-1-1V6z"/></svg>'),
-    'document': (
-        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
-        '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 '
-        '1-1V8z"/><path d="M14 3v5h5"/>'
-        '<line x1="8" y1="13" x2="16" y2="13"/>'
-        '<line x1="8" y1="17" x2="16" y2="17"/></svg>'),
-    'link': (
-        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
-        '<path d="M9 15l6-6"/>'
-        '<path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/>'
-        '<path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg>'),
-    # Purple "S" badge - Skills Development (SGAs) tool.
-    'sga': (
-        '<svg width="16" height="16" viewBox="0 0 24 24">'
-        '<rect x="1" y="1" width="22" height="22" rx="5" fill="#6D28D9"/>'
-        '<text x="12" y="17" text-anchor="middle" font-family="Arial, sans-serif" '
-        'font-size="14" font-weight="700" fill="#ffffff">S</text></svg>'),
-    # Green list badge - Module Reading List tool.
-    'reading_list': (
-        '<svg width="16" height="16" viewBox="0 0 24 24">'
-        '<rect x="1" y="1" width="22" height="22" rx="5" fill="#127A52"/>'
-        '<line x1="6" y1="8" x2="18" y2="8" stroke="#fff" stroke-width="2" stroke-linecap="round"/>'
-        '<line x1="6" y1="12" x2="18" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>'
-        '<line x1="6" y1="16" x2="14" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>'),
-    # Pink circle "e" badge - Encore Lecture Capture.
-    'encore': (
-        '<svg width="16" height="16" viewBox="0 0 24 24">'
-        '<circle cx="12" cy="12" r="11" fill="#D6006F"/>'
-        '<text x="12" y="17" text-anchor="middle" font-family="Georgia, serif" '
-        'font-size="15" font-weight="700" font-style="italic" fill="#ffffff">e</text></svg>'),
-    # Graduation cap outline - Assessment Overview.
-    'assessment_cap': (
-        f'<svg width="16" height="16" viewBox="0 0 24 24" {_ICON_STROKE}>'
-        '<path d="M12 4 2 9l10 5 10-5-10-5z"/>'
-        '<path d="M6 11.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-4.5"/>'
-        '<path d="M22 9v6"/></svg>'),
-}
-
-# Which Blackboard Ultra content type each section is, purely for the card
-# icon - confirmed against the module lead's own screenshots where noted,
-# best guess everywhere else pending confirmation.
-SECTION_CONTENT_TYPE = {
-    'MODULE_INFORMATION': 'learning_module',       # confirmed
-    'WELCOME_MODULE_OUTLINE': 'document',          # guess
-    'KEY_STAFF_CONTACTS': 'document',              # guess
-    'SKILLS_DEVELOPMENT_SGAS': 'sga',              # confirmed
-    'STUDENT_VOICE': 'folder',                     # confirmed
-    'HOW_YOUR_FEEDBACK_SHAPES': 'document',        # guess
-    'ACCESSIBILITY_STATEMENT': 'link',             # confirmed
-    'SCHOOL_HANDBOOK': 'link',                     # confirmed
-    'ASSESSMENT_OVERVIEW': 'assessment_cap',       # confirmed
-    'ASSESSMENT_DETAIL': 'document',               # guess
-    'ASSESSMENT_SUPPORT_GUIDANCE': 'folder',        # confirmed
-    'MODULE_READING_LIST': 'reading_list',         # confirmed
-    'ENCORE_LECTURE_CAPTURE': 'encore',            # confirmed
-    'UNIVERSITY_HELP_SUPPORT': 'folder',           # guess
-}
-
-
-def _ally_band(score):
-    for threshold, colour, level, description in ALLY_BANDS:
-        if score >= threshold:
-            return colour, level, description
-    return ALLY_BANDS[-1][1:]
-
 
 # Fixed pixel width for the three accessibility gauges - see the sizing note
 # in _score_gauge's docstring for why this is fixed rather than responsive.
@@ -390,8 +249,7 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
                     unsafe_allow_html=True)
 
         if not active_row.get('Ally Enabled', True):
-            st.warning("⚠️ Ally is switched off for this course, so students get no "
-                       "alternative formats and the module lead sees no feedback.")
+            st.warning(f"⚠️ {ALLY_OFF_WARNING}")
 
         _render_ally_issues(ally_categories, ally_profile, is_template)
 
@@ -487,30 +345,9 @@ def _render_report_summary(alignment, active_row, has_audit=False):
                 f"{symbol} {html.escape(label)}</span>"
                 for label, symbol in alignment)
             st.markdown(f"<div style='line-height:1.9;'>{chips}</div>", unsafe_allow_html=True)
-            st.caption("✅ done · ❌ outstanding · 🔧 reported fixed, awaiting check · accessibility: 🟢 good · 🟠 major issues · 🔴 severe issues · ⚪ nothing to judge yet")
+            st.caption(ALIGNMENT_LEGEND)
 
         st.caption(_refreshed_line(active_row))
-
-
-def _summary_intro(has_audit):
-    """The Report Summary's opening sentence - shared with the PDF export."""
-    if has_audit:
-        return ("This report has been generated using data evidence and also "
-                "manually spot-checked by a Digital Learning Advisor.")
-    return ("This module report has been generated using data evidence and "
-            "hasn't been verified yet by your Digital Learning Advisor. The "
-            "combination of data from different sources gives us a "
-            "reasonably good picture of the readiness of this module.")
-
-
-def _refreshed_line(active_row):
-    """When each data source was last refreshed - shared with the PDF export."""
-    ally_date = fmt_report_date(active_row.get('Ally Last Checked')) if active_row is not None else ""
-    readiness_date = fmt_report_date(active_row.get('Readiness Snapshot')) if active_row is not None else ""
-    leganto_date = fmt_report_date(active_row.get('Leganto Snapshot')) if active_row is not None else ""
-    return (f"Data last refreshed: Ally {ally_date or '—'} · "
-            f"Template Alignment {readiness_date or '—'} · "
-            f"Reading list {leganto_date or '—'}")
 
 
 def _render_ally_issue_card(row):
@@ -558,7 +395,7 @@ def _render_actions_panel(actions):
     st.markdown() calls that cannot actually nest inside one styled panel.
     """
     if not actions:
-        st.success("✅ Nothing outstanding right now.")
+        st.success(f"✅ {NOTHING_OUTSTANDING}")
         return
 
     items_html = []
@@ -627,25 +464,11 @@ def _render_ally_intro(url, snapshot_date):
     moved up here so every "where do I go for more" pointer for this
     column lives in one place, in the same caption styling."""
     st.markdown("#### How to use this Accessibility Report")
-    st.caption(
-        f"This report is based on an institutional data snapshot from {snapshot_date}. "
-        "It shows the Ally accessibility report for this module at the time of the "
-        "snapshot; it is not live.")
-    st.caption(
-        "The scores below are the familiar RAG-rated scores for Files (material "
-        "you've uploaded), Page Content (Blackboard Ultra documents) and the Overall "
-        "score, along with a summary of the kinds of accessibility issues found.")
-    st.caption(
-        "This is simply a summary, not a replacement for your Ally course report - "
-        "for a more detailed and up-to-date view of accessibility in your module, and "
-        "to see which files are affected, always use the Ally Accessibility Report in "
-        "Blackboard (Books & Course Tools > Ally Accessibility Report).")
+    for line in ally_intro_lines(snapshot_date):
+        st.caption(line)
     if url:
         st.caption(f"[Open this course in Blackboard]({url})")
-    st.caption(
-        "Need help? "
-        "[Digital accessibility guidance](https://staff.sheffield.ac.uk/digital-accessibility) · "
-        "[Making content accessible with Ally](https://staff.sheffield.ac.uk/blackboard/ally)")
+    st.caption("Need help? " + " · ".join(f"[{text}]({link})" for text, link in ALLY_HELP_LINKS))
 
 
 def _render_issue_cards(rows):
@@ -689,10 +512,9 @@ def _render_ally_issues(ally_categories, ally_profile, is_template=False):
     total_items = int(ally_categories['items'].sum()) if not ally_categories.empty else 0
     if total_items == 0:
         if is_template:
-            st.caption("This course still holds only its rolled-over template, so there's "
-                       "nothing to report yet.")
+            st.caption(ALLY_TEMPLATE_ONLY)
         else:
-            st.success("✅ No accessibility issues reported.")
+            st.success(f"✅ {ALLY_NO_ISSUES}")
         return
 
     n_categories = len(ally_categories)
@@ -706,17 +528,6 @@ def _render_ally_issues(ally_categories, ally_profile, is_template=False):
         st.markdown("")
         with st.expander(f"Full technical detail ({len(ally_profile)} issue types, for auditors)"):
             _render_issue_cards(ally_profile)
-
-
-def _section_order():
-    """TEMPLATE_SECTION_TREE section keys in the order the report shows them."""
-    order = []
-    def walk(nodes):
-        for node_type, value, children in nodes:
-            order.append(value)  # a label (Learning Materials) has a place too
-            walk(children)
-    walk(TEMPLATE_SECTION_TREE)
-    return {k: i for i, k in enumerate(order)}
 
 
 _FIX_BOX_CSS = """<style>
@@ -846,101 +657,6 @@ def _render_module_checks(actions, has_audit, active_row=None, responses=None,
         _render_fix_claim_buttons(open_actions, module_code)
 
 
-def _section_card_content(key, state, responses, has_audit, created, leganto=None,
-                          sga_attrs=None, fix_claims=None):
-    """
-    What one template section's card says - label, badge, colour, action
-    and footer text - without rendering it. Shared by _render_section_card()
-    and the PDF export, so the two can never describe a section differently.
-    See _render_section_card() for the reasoning behind each branch.
-    """
-    # Unrecognised keys default to lead-owned, the stricter read, rather than
-    # silently getting the lenient institution treatment below.
-    label, owner, audit_field_id = TEMPLATE_SECTIONS.get(key, (key, 'lead', None))
-    state_key = state.get('state', 'unknown')
-    badge, tier, action = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])
-    footer = readiness_evidence_words(state, created)
-    # Whether the action/footer lines earn their vertical space. False only
-    # for the plain institution "visible, nothing more to say" case - every
-    # other path below that produces real information (a caution, a fault, a
-    # DLA's manual verification, Reading List's Leganto note) sets this back
-    # to True, since collapsing those would hide the one thing worth reading.
-    show_detail = True
-
-    if owner != 'lead':
-        visible_copy, hidden_copy = INSTITUTION_SECTION_COPY.get(key, _INSTITUTION_DEFAULT_COPY)
-        if state_key in ('visible_edited', 'visible_unedited'):
-            badge, tier, action = "Visible to students", 'ok', visible_copy
-            show_detail = False
-        elif state_key in ('drafted_hidden', 'not_started'):
-            badge, tier, action = "Hidden from students", 'action', hidden_copy
-
-    colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
-
-    if key == 'MODULE_READING_LIST' and leganto is not None and tier == 'ok':
-        status = leganto.get('status', '')
-        items = int(leganto.get('items', 0) or 0)
-        draft_items = int(leganto.get('draft_items', 0) or 0)
-        if leganto.get('missing'):
-            badge, tier = "Visible, no reading list", 'action'
-            action = ("Visible to students, but Leganto shows no reading list connected to "
-                      "this module. Being visible here isn't the finish line for this "
-                      "section - a reading list still needs to be added and published.")
-        elif status == 'Draft':
-            badge, tier = "Visible, list in Draft", 'action'
-            action = (f"Visible to students, but the connected reading list is still in "
-                      f"Draft in Leganto ({items} item{'s' if items != 1 else ''}). It needs "
-                      f"publishing before students can actually use it.")
-        elif status == 'Mixed':
-            # A module can have more than one Blackboard course shell (see
-            # "Leganto reading-list data" in CLAUDE.md), and this is the
-            # visible result when they disagree - most often one cohort's
-            # shell published while another's is still Draft. Naming both
-            # counts matters here: without it, "Draft" alone would read as
-            # nothing published yet, when what's actually true might be that
-            # nearly everything is - only a handful of items on one shell
-            # still need publishing.
-            badge, tier = "Visible, list partly published", 'action'
-            action = (f"Visible to students. The connected reading list is partly published in "
-                      f"Leganto - {draft_items} of {items} item{'s' if items != 1 else ''} "
-                      f"still in Draft, most likely on a different course shell for this "
-                      f"module. Those still need publishing.")
-        elif status == 'Published':
-            action = "Visible to students, and the connected reading list is Published in Leganto."
-        show_detail = True
-        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
-
-    if key == SGA_SECTION and tier == 'ok' and sga_blocks_sga_field(sga_attrs):
-        badge, tier = "Visible, no SGAs mapped", 'action'
-        action = ("Visible to students, but the SGA tool has no graduate attributes mapped "
-                  "to this module yet.")
-        show_detail = True
-        colour = STATE_TIER_COLOUR.get(tier, "#6B7280")
-
-    claimed = False
-    manual = readiness_manual_override(audit_field_id, responses) if has_audit else None
-    if manual and key == SGA_SECTION and sga_blocks_sga_field(sga_attrs):
-        manual = None  # an empty SGA mapping outranks a 'complete' tick
-    if manual is not None:
-        data_label = SECTION_STATES.get(state_key, SECTION_STATES['unknown'])[0]
-        if manual:
-            badge, colour = "Manually verified complete", STATE_TIER_COLOUR['ok']
-            action = "A Digital Learning Advisor has recorded this as complete in the audit."
-        else:
-            badge, colour = "Manually verified incomplete", STATE_TIER_COLOUR['fault']
-            action = "A Digital Learning Advisor has recorded this as not yet complete in the audit."
-        footer = f"Automatically detected as of the last update: {data_label}. {footer}"
-        show_detail = True
-        claim = (fix_claims or {}).get(audit_field_id)
-        if claim and not manual:
-            badge, colour = "Reported fixed", STATE_TIER_COLOUR['ok']
-            action = fix_claim_words(claim)
-            claimed = True
-
-    return {'label': label, 'badge': badge, 'colour': colour, 'action': action,
-            'footer': footer, 'show_detail': show_detail, 'claimed': claimed}
-
-
 def _render_section_card(key, state, responses, has_audit, created, leganto=None, depth=0,
                          sga_attrs=None, fix_claims=None):
     """
@@ -1045,22 +761,8 @@ def _render_label_node(name, depth, has_children_data):
 
 
 def _sga_note(active_row):
-    """One neutral line for the Skills Development (SGAs) card: whether the
-    SGA tool has any attributes mapped for this module, and how many. None
-    when there is nothing to say - no SGA import yet this year, or the viewer
-    lacks the SGA capability (admins only until it's granted to a role).
-    A plain note, never amber and never in the PDF; the action itself comes
-    from the section card."""
-    if active_row is None or not can_view_sga(st.session_state.get("capabilities", [])):
-        return None
-    attrs = pd.to_numeric(active_row.get('SGA Attributes'), errors='coerce')
-    if pd.isna(attrs):
-        return None
-    if int(attrs) == 0:
-        return "SGA tool: no graduate attributes mapped for this module yet."
-    subs = int(pd.to_numeric(active_row.get('SGA Sub-Attributes'), errors='coerce') or 0)
-    return (f"SGA tool: {int(attrs)} graduate attribute{'s' if attrs != 1 else ''} mapped "
-            f"({subs} sub-attribute{'s' if subs != 1 else ''}).")
+    """report_model.sga_note(), for whoever is signed in."""
+    return sga_note(active_row, can_view_sga(st.session_state.get("capabilities", [])))
 
 
 def _render_section_tree(nodes, states, responses, has_audit, created, leganto, depth=0,
@@ -1133,10 +835,7 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
                'draft_items': leganto_draft_items}
 
     st.markdown("#### Blackboard Template")
-    st.caption(
-        "The following represents the structure of your Blackboard course and "
-        "its measured or observed state - e.g. whether items are visible to "
-        "students, have been edited, etc.")
+    st.caption(TEMPLATE_INTRO)
 
     _render_section_tree(TEMPLATE_SECTION_TREE, states, responses, has_audit, created, leganto,
                          sga_note=_sga_note(active_row),
@@ -1144,102 +843,11 @@ def _render_template_sections(active_row, responses=None, has_audit=False,
                          fix_claims=fix_claims)
 
 
-def _pdf_template_rows(nodes, states, responses, has_audit, created, leganto, depth=0,
-                       sga_attrs=None, fix_claims=None):
-    """TEMPLATE_SECTION_TREE flattened for the PDF, walked exactly as
-    _render_section_tree() walks it, with each card's wording from
-    _section_card_content()."""
-    rows = []
-    for node_type, value, children in nodes:
-        if node_type == 'section':
-            state = states.get(value)
-            if state:
-                card = _section_card_content(
-                    value, state, responses, has_audit, created,
-                    leganto if value == 'MODULE_READING_LIST' else None, sga_attrs, fix_claims)
-                rows.append({'kind': 'section', 'depth': depth, **card})
-        else:
-            rows.append({'kind': 'heading', 'depth': depth, 'label': value,
-                         'note': '' if children else "Not part of the readiness data yet."})
-        if children:
-            rows += _pdf_template_rows(children, states, responses, has_audit, created,
-                                       leganto, depth + 1, sga_attrs, fix_claims)
-    return rows
-
-
 def _pdf_ally(active_row, ally_categories):
-    """The Accessibility tab's content for the PDF, following
-    _render_ally_card()'s own branches."""
-    if active_row is None:
-        return {'message': "No Ally accessibility data is available for this module."}
-    maturity = str(active_row.get('Content Maturity', 'No data') or 'No data')
-    n_files = int(active_row.get('Total Files', 0) or 0)
-    n_wysiwyg = int(active_row.get('Ally WYSIWYG Items', 0) or 0)
-    shells = int(active_row.get('Ally Shells', 0) or 0)
-    if maturity == "No data" or (n_files == 0 and n_wysiwyg == 0 and shells == 0):
-        return {'message': f"No Ally record for this module in {CURRENT_ACADEMIC_YEAR}. That "
-                           "usually means it has no Blackboard course, or its course is filed "
-                           "under a different code."}
+    """The Accessibility tab for the PDF - the wording lives in report_model."""
+    return ally_summary(active_row, ally_categories,
+                        ally_snapshot_date(active_row, _load_last_import_dates()))
 
-    last_checked = str(active_row.get('Ally Last Checked', '') or '')
-    snapshot_date = (fmt_report_date(_load_last_import_dates().get('ally'))
-                     or fmt_report_date(last_checked))
-    is_template = maturity in ("Not yet built", "Empty")
-    maturity_line = ""
-    if maturity != "In progress":
-        _, _, note = ALLY_MATURITY_NOTE.get(maturity, ALLY_MATURITY_NOTE["No data"])
-        shown = "Not started" if maturity == "Not yet built" else maturity
-        maturity_line = f"{shown}: {note}"
-
-    scores = []
-    for label, key, sub in (
-        ("Overall", 'Ally Overall', f"{n_files + n_wysiwyg} items"),
-        ("Files", 'Ally Files', f"{n_files} file{'' if n_files == 1 else 's'}"),
-        ("Page Content", 'Ally WYSIWYG',
-         f"{n_wysiwyg} document{'' if n_wysiwyg == 1 else 's'}"),
-    ):
-        score = active_row.get(key)
-        has_score = score is not None and pd.notna(score)
-        colour = "#6B7280" if (is_template or not has_score) else _ally_band(float(score))[0]
-        scores.append((label, float(score) * 100 if has_score else None, sub, colour))
-
-    categories = []
-    if not ally_categories.empty:
-        for _, row in ally_categories.iterrows():
-            categories.append({'title': row['title'], 'items': row['items'],
-                               'checks': row['checks'], 'why': row['why'],
-                               'colour': TIER_COLOUR.get(row['severity_label'], "#6B7280")})
-
-    return {'snapshot_date': snapshot_date, 'maturity': maturity_line, 'scores': scores,
-            'disabled': not active_row.get('Ally Enabled', True),
-            'categories': categories, 'is_template': is_template}
-
-
-def title_case_name(name: str) -> str:
-    if not name:
-        return name
-    words = name.split()
-    title_words = []
-    for word in words:
-        if '-' in word:
-            parts = word.split('-')
-            processed_parts = []
-            for part in parts:
-                p = part.capitalize()
-                if p.lower().startswith('mc') and len(p) > 2:
-                    p = 'Mc' + p[2:].capitalize()
-                elif len(p) > 2 and p[:2].upper() in ["O'", "D'", "L'"]:
-                    p = p[:2].upper() + p[2:].capitalize()
-                processed_parts.append(p)
-            word = '-'.join(processed_parts)
-        else:
-            word = word.capitalize()
-            if word.lower().startswith('mc') and len(word) > 2:
-                word = 'Mc' + word[2:].capitalize()
-            elif len(word) > 2 and word[:2].upper() in ["O'", "D'", "L'"]:
-                word = word[:2].upper() + word[2:].capitalize()
-        title_words.append(word)
-    return ' '.join(title_words)
 
 def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_checklist_data_cache=None):
     module_mapping = get_module_mapping(df_aut, df_spr)
@@ -1514,14 +1122,9 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             # the bare wording if that value is one of app.py's "Unknown" /
             # "Never" sentinels rather than a real timestamp.
             pending_spot_check = get_pending_spot_check(selected_code, CURRENT_ACADEMIC_YEAR)
-            if has_audit:
-                checked_on = fmt_report_datetime(sum_entry.get('Timestamp'))
-                audit_status_label = (f"Spot checked on {checked_on}" if checked_on
-                                      else "Spot checked")
-            elif pending_spot_check:
-                audit_status_label = "Spot check-pending"
-            else:
-                audit_status_label = "Data-derived"
+            audit_status_label = _audit_status_label(
+                has_audit, sum_entry.get('Timestamp') if sum_entry else None,
+                pending_spot_check)
 
             vle_value = (f"<a href='{url}' target='_blank'>Open Module Site</a>"
                          if url else f"<span style='{TEXT_FAINT};'>--</span>")
@@ -1600,17 +1203,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             raw_lead = str(active_row.get('Mod. lead', '')).strip()
             pdf_lead = '' if raw_lead.lower() in ('', 'nan') else title_case_name(raw_lead)
             pdf_level = str(active_row.get('UG/ PG/ Other', '')).strip()
-        pdf_actions = []
-        for a in actions:
-            # Same label/description split as _render_actions_panel().
-            if a['type'] == 'custom':
-                pdf_actions.append({
-                    'label': a.get('category') or 'Custom Observation',
-                    'description': '\n'.join(p for p in (a.get('label', '').strip(),
-                                                         a.get('description', '').strip()) if p)})
-            elif a['type'] == 'boolean':
-                pdf_actions.append({'label': a.get('label', ''),
-                                    'description': a.get('description', '')})
+        # Same label/description split as _render_actions_panel().
+        pdf_actions = action_items(actions)
         pdf_data = {
             'code': selected_code,
             'name': module_mapping.get(selected_code, selected_code),

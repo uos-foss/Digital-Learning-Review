@@ -1,73 +1,147 @@
 {% extends "base.html" %}
+{% load report_extras %}
 {% block title %}{{ code }} report{% endblock %}
+{% block head %}{% if tab == "accessibility" %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}
-<h1>{{ code }} <span class="muted">{{ module.name }}</span></h1>
-<p class="muted">
-  School {{ module.school }}{% if module.lead %} &middot; {{ module.lead }}{% endif %}
-</p>
+<h1>{{ code }} <span class="muted">{{ report.name }}</span></h1>
+<table class="kv" style="margin-bottom:1rem;">
+  <tr><th style="width:9rem;">Module Lead</th><td>{% if report.lead %}{{ report.lead }}{% else %}--{% endif %}</td></tr>
+  <tr><th>Level</th><td>{% if report.level %}{{ report.level }}{% else %}--{% endif %}</td></tr>
+  <tr><th>Module Site</th><td>{% if report.site_url %}<a href="{{ report.site_url }}" target="_blank" rel="noopener">Open Module Site</a>{% else %}--{% endif %}</td></tr>
+  <tr><th title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor, and when that check was last saved.">Audit Status</th><td>{{ report.audit_status }}</td></tr>
+</table>
 
-<div class="tabs">
-  <button hx-get="{% url 'modules:accessibility' code %}"
-          hx-target="#tab-panel" hx-swap="innerHTML">Accessibility report</button>
-  <button onclick="document.getElementById('tab-panel').innerHTML='';">
-    Module checks
-  </button>
-</div>
+{% if report.comment %}
+  <div class="advisor-comment">
+    <strong>Comments from your Digital Learning Advisor</strong>
+    {{ report.comment|comment_html }}
+  </div>
+{% endif %}
 
-<div id="tab-panel"></div>
-
-<div class="layout">
-  <section class="panel">
-    <h2>Module data</h2>
-    <table class="kv">
-      <tr><th>Ally overall</th>
-          <td>{% if module.ally_overall_pct is not None %}{{ module.ally_overall_pct }}%{% else %}no data{% endif %}</td></tr>
-      <tr><th>Ally severe / major issue types</th>
-          <td>{{ module.ally_severe }} / {{ module.ally_major }}</td></tr>
-      <tr><th>Ally scanning</th>
-          <td>{% if module.ally_enabled %}on{% else %}off{% endif %}</td></tr>
-      <tr><th>Reading list</th>
-          <td>{% if module.leganto_missing %}none recorded in Leganto
-              {% elif module.leganto_status %}{{ module.leganto_status }}
-                ({{ module.leganto_items }} citations)
-              {% else %}not in either Leganto export{% endif %}</td></tr>
-      <tr><th>Template sections</th><td>{{ module.section_count }} recorded</td></tr>
-      <tr><th>SGA attributes</th>
-          <td>{% if module.sga_attributes is None %}not imported
-              {% else %}{{ module.sga_attributes }}{% endif %}</td></tr>
-    </table>
-
-    <h2 style="margin-top:1.25rem;">Findings by source</h2>
-    <table class="kv">
-      <tr><th>Source</th><th>Pending</th><th>Completed</th></tr>
-      {% for source, counts in by_source.items %}
-        <tr><td>{{ source }}</td><td>{{ counts.pending }}</td><td>{{ counts.completed }}</td></tr>
-      {% empty %}
-        <tr><td colspan="3" class="muted">No findings for this module.</td></tr>
-      {% endfor %}
-    </table>
-    <p class="muted">
-      Every row above comes from <code>processing.derive_module_findings()</code>,
-      the same function the Streamlit app's badge and module report both read.
-    </p>
-  </section>
-
-  <aside class="panel actions">
-    <h2>Actions</h2>
-    {% if actions %}
+<aside class="panel actions" style="margin-top:1rem;">
+    <h2>Actions ({{ report.actions|length }})</h2>
+    {% if report.actions %}
       <ul>
-        {% for action in actions %}
-          <li><strong>{{ action.label }}</strong><br>
-              <span class="muted">{{ action.description }}</span></li>
+        {% for item in report.actions %}
+          <li><strong>{{ item.label }}</strong>
+            {% if item.description %}<br><span class="muted">{{ item.description|linebreaksbr }}</span>{% endif %}</li>
         {% endfor %}
       </ul>
     {% else %}
-      <p class="muted">Nothing outstanding right now.</p>
+      <p class="muted" style="margin:0;">{{ text.NOTHING_OUTSTANDING }}</p>
     {% endif %}
-    {% if done %}
-      <p class="muted" style="margin-bottom:0;">{{ done|length }} item(s) complete.</p>
+    {% if report.reported_fixed %}
+      <details class="fold" open>
+        <summary>Reported fixed ({{ report.reported_fixed|length }})</summary>
+        <ul>
+          {% for item in report.reported_fixed %}
+            <li><strong>{{ item.label }}</strong><br><span class="muted">{{ item.description }}</span></li>
+          {% endfor %}
+        </ul>
+      </details>
     {% endif %}
-  </aside>
-</div>
+</aside>
+
+<p class="tabs-links">
+  {% if tab == "template" %}<strong>Module Checks and Readiness</strong>{% else %}<a href="?tab=template">Module Checks and Readiness</a>{% endif %}
+  {% if tab == "accessibility" %}<strong>Accessibility Report</strong>{% else %}<a href="?tab=accessibility">Accessibility Report</a>{% endif %}
+</p>
+
+{% if tab == "template" %}
+  <section class="panel">
+    {% if report.template %}
+      <p class="muted">{{ text.TEMPLATE_INTRO }}</p>
+      <table class="kv">
+        <tr><th style="width:30%;">Blackboard item</th><th style="width:14%;">Type</th><th style="width:22%;">Status</th><th>Details</th></tr>
+        {% for row in report.template %}
+          {% if row.kind == "section" %}
+            <tr><td><span class="ico">{{ row.key|section_icon }}</span>{{ row.label }}</td>
+                <td class="muted">{{ row.type }}</td>
+                <td><span class="dot" style="background:{{ row.colour }};"></span>{{ row.short_status }}</td>
+                <td class="muted">{{ row.short }}</td></tr>
+          {% elif row.kind == "heading" %}
+            <tr><td><span class="ico">{% learning_module_icon %}</span>{{ row.label }}</td>
+                <td class="muted">{{ row.type }}</td><td></td><td class="muted">{{ row.note }}</td></tr>
+          {% elif row.kind == "note" %}
+            <tr><td colspan="4" class="muted">🎓 {{ row.text }}</td></tr>
+          {% endif %}
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted" style="margin:0;">No Template Alignment data for this module yet.</p>
+    {% endif %}
+  </section>
+{% else %}
+  <section class="panel">
+    {% with ally=report.ally %}
+      {% if ally.message %}
+        <p style="margin:0;">{{ ally.message }}</p>
+      {% else %}
+        <details class="fold" style="margin-top:0;">
+          <summary>How to use this Accessibility Report</summary>
+          {% for line in ally.intro %}<p class="muted">{{ line }}</p>{% endfor %}
+          <p class="muted" style="margin-bottom:0;">
+            {% if ally.url %}<a href="{{ ally.url }}" target="_blank" rel="noopener">Open this course in Blackboard</a> &middot; {% endif %}
+            Need help?
+            {% for label, link in text.ALLY_HELP_LINKS %}<a href="{{ link }}" target="_blank" rel="noopener">{{ label }}</a>{% if not forloop.last %} &middot; {% endif %}{% endfor %}
+          </p>
+        </details>
+
+        {% if ally.maturity_banner %}
+          <p><strong>{{ ally.maturity_banner.icon }} {{ ally.maturity_banner.title }}</strong>
+            <span class="muted"> - {{ ally.maturity_banner.note }}</span></p>
+        {% endif %}
+
+        <div class="gauges">
+          {% for g in gauges %}
+            <div class="gauge">
+              <div data-gauge="{{ g.data_id }}" style="width:170px;height:110px;"></div>
+              {{ g.figure|json_script:g.data_id }}
+              <div class="sub">{{ g.sub }}</div>
+            </div>
+          {% endfor %}
+        </div>
+        <script>
+          document.querySelectorAll("[data-gauge]").forEach(function (el) {
+            var figure = JSON.parse(document.getElementById(el.dataset.gauge).textContent);
+            Plotly.newPlot(el, figure.data, figure.layout, {displayModeBar: false});
+          });
+        </script>
+
+        {% if ally.disabled %}<p><strong>⚠️ {{ text.ALLY_OFF_WARNING }}</strong></p>{% endif %}
+
+        {% with issues=ally.issues %}
+          {% if issues.total_items == 0 %}
+            <p class="muted" style="margin-bottom:0;">{% if ally.is_template %}{{ text.ALLY_TEMPLATE_ONLY }}{% else %}✅ {{ text.ALLY_NO_ISSUES }}{% endif %}</p>
+          {% else %}
+            <table class="kv">
+              <tr><th style="width:28%;">Summary of accessibility issues<br><span class="muted">{{ issues.total_items }} items across {{ issues.categories|length }} area{{ issues.categories|length|pluralize }}</span></th><th style="width:18%;">Items</th><th>Why it matters</th></tr>
+              {% for c in issues.categories %}
+                <tr><td><span class="dot" style="background:{{ c.colour }};"></span>{{ c.icon }} {{ c.title }}</td>
+                    <td>{{ c.items }} across {{ c.checks }} {{ c.checks_word }}</td>
+                    <td class="muted">{{ c.why }}</td></tr>
+              {% endfor %}
+            </table>
+            {% if issues.detail %}
+              <details class="fold">
+                <summary>Full technical detail ({{ issues.detail_count }} issue types, for auditors)</summary>
+                <div class="scroll">
+                  <table class="kv">
+                    <tr><th style="width:auto;">Severity</th><th style="width:auto;">Issue</th><th style="width:auto;">Items</th><th style="width:auto;">Where</th><th style="width:auto;">Advice</th></tr>
+                    {% for tier in issues.detail %}{% for r in tier.rows %}
+                      <tr><td><span class="dot" style="background:{{ r.colour }};"></span>{{ tier.name }}</td><td>{{ r.label }}</td><td>{{ r.items }}</td><td>{{ r.icon }} {{ r.where }}</td><td class="muted">{{ r.advice }}</td></tr>
+                    {% endfor %}{% endfor %}
+                  </table>
+                </div>
+              </details>
+            {% endif %}
+          {% endif %}
+        {% endwith %}
+      {% endif %}
+    {% endwith %}
+  </section>
+{% endif %}
+
+<p class="muted">Last updated: {{ report.last_updated }}<br>{{ report.summary.refreshed }}</p>
 {% endblock %}

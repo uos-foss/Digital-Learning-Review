@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Digital Learning Review{% endblock %}</title>
-<script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --ink: #1c1e21; --muted: #5b6370;
@@ -36,7 +34,24 @@
   table.kv th, table.kv td { text-align: left; padding: .35rem .5rem;
                              border-bottom: 1px solid var(--line); }
   table.kv th { color: var(--muted); font-weight: 500; width: 40%; }
+
+
+  /* Report extras, kept deliberately quiet: a dot for status, small tables. */
+  .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
+         margin-right: .4rem; vertical-align: baseline; }
+  .ico { display: inline-flex; vertical-align: middle; margin-right: .45rem; opacity: .8; }
+  details.fold { margin: .75rem 0; }
+  details.fold > summary { cursor: pointer; color: var(--muted); }
+  .scroll { overflow-x: auto; }
+  .gauges { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: .5rem 0; }
+  .gauge { width: 170px; text-align: center; }
+  .gauge .sub { margin-top: -.3rem; font-size: .8rem; color: var(--muted); }
+  .advisor-comment { border-left: 3px solid var(--line); padding-left: .9rem; margin: 1rem 0; }
+  .advisor-comment p { margin: .25rem 0; }
+  .tabs-links { margin: 1.5rem 0 .75rem; }
+  .tabs-links a, .tabs-links strong { margin-right: 1.25rem; }
 </style>
+{% block head %}{% endblock %}
 </head>
 <body>
 <header class="site">

@@ -439,3 +439,30 @@ def load_module_record(code, sources=None):
 
     sources = sources if sources is not None else load_module_sources()
     return build_module_record(df_sits.iloc[0], sources)
+
+
+def load_audit_trail(code):
+    """
+    One module's saved audit, in the shapes the report reads:
+    `{'responses', 'last_saved', 'auditor', 'has_audit'}`.
+
+    `responses` is flat, {field_id: value}, which is what
+    derive_module_findings() takes - not the nested rows
+    database.get_audit_responses() returns. The rest mirrors what
+    app.py::load_checklist_data() puts in `checklist_sums`: the latest
+    timestamp, the last auditor, and `has_audit` meaning a real person saved
+    an answer (a module with no rows is the data-only 'System' case, never
+    audited). With rows but no auditor recorded the auditor reads 'Unknown',
+    as there.
+    """
+    rows = database.get_audit_responses(code)
+    if not rows:
+        return {'responses': {}, 'last_saved': None, 'auditor': 'System',
+                'has_audit': False}
+    stamps = [r['timestamp'] for r in rows.values() if r['timestamp']]
+    auditors = [r['auditor'] for r in rows.values() if r['auditor']]
+    auditor = auditors[-1] if auditors else 'Unknown'
+    return {'responses': {fid: r['value'] for fid, r in rows.items()},
+            'last_saved': max(stamps) if stamps else 'Unknown',
+            'auditor': auditor,
+            'has_audit': auditor not in (None, '', 'System')}

@@ -1,30 +1,34 @@
 """
-The spike's pages. Three things are being proved here:
+The module report, and the pages around it.
 
-1. A module report page built by calling processing.derive_module_findings()
-   unchanged, with no Streamlit anywhere in the request path.
-2. The URL identifies what is on screen (/modules/EDC004/), so links are
-   shareable and the back button works. No session state holds the selection.
-3. A Plotly chart and an HTMX panel both render inside a Django template.
+A port of the Streamlit module report (`views/module_report.py`), read-only.
+Everything the Streamlit report shows, in plain tables: header, a collapsed
+Report Summary, the advisor comment, headline tables and Actions, then two tabs
+(?tab=template, ?tab=accessibility). Icons, gauges and dropdowns are small and
+muted on purpose; the Streamlit page is the loud version.
+What the report says is decided in `report_model.build_report()` and the rules
+under it in `processing.py`; a view here fetches that and renders it, and no
+rule is worked out in a view or a template. The URL identifies the page
+(/modules/EDC004/), so a module has an address a lead can be
+sent. Not here: the "Fixed something?" form and the PDF export, both of which
+write or build files and stay in Streamlit for now.
 
-School scoping is real as of 12-10-2026: `accounts.models.may_view_module()`
-decides, from the signed-in account's `view_all` permission or its
-school alignment. A module outside that is a 403, not a crash and not a
-silently empty page.
+School scoping is real: `accounts.models.may_view_module()` decides, from the
+signed-in account's `view_all` permission or its school alignment. A module
+outside that is a 403, not a crash and not a silently empty page.
 """
 
-import json
+import processing
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import render
 
-import processing
-
 from accounts.models import may_view_module
 from auditdata.models import AuditField
-from modules import data
+import report_model
+from modules import charts, data
 
 
 @login_required
@@ -49,102 +53,20 @@ def _require_access(request, code):
             f"{processing.school_of(code) or 'that school'}.")
 
 
+TABS = ("template", "accessibility")
+
+
 @login_required
 def module_report(request, code):
     _require_access(request, code)
-
-    row, findings = data.load_findings(code)
-    if row is None:
+    report = data.load_report(code, request.user)
+    if report is None:
         raise Http404(f"{code} is not in SITS for the current academic year.")
-
-    actions = [f for f in findings if f.get("state") == "pending"]
-    done = [f for f in findings if f.get("state") == "completed"]
-
-    return render(request, "modules/report.html", {
-        "code": code,
-        "module": _display(row),
-        "actions": actions,
-        "done": done,
-        "by_source": _count_by_source(findings),
-    })
-
-
-@login_required
-def module_accessibility(request, code):
-    """
-    An HTMX fragment, loaded when the Accessibility tab is clicked rather than
-    on every page load. Proves partial rendering works; the Ally detail itself
-    is left for the real port.
-    """
-    _require_access(request, code)
-
-    row = data.load_module_row(code)
-    if row is None:
-        raise Http404(code)
-
-    return render(request, "modules/_accessibility.html", {
-        "code": code,
-        "module": _display(row),
-        "chart": _score_chart(row),
-    })
-
-
-def _display(row):
-    """
-    A view model with template-friendly names. The row's own keys ('Ally
-    Overall', 'Module name') carry spaces, which Django templates cannot
-    resolve by dot notation, and the pandas-era naming does not belong in a
-    template anyway. One place to rename, rather than a filter at every use.
-    """
-    overall = row.get("Ally Overall")
-    return {
-        "code": row.get("New module code", ""),
-        "name": row.get("Module name", ""),
-        "lead": row.get("Module Lead", ""),
-        # The module record carries no 'School' column; every reader derives
-        # it from the code through this one helper.
-        "school": processing.school_of(row.get("New module code", "")),
-        "ally_overall_pct": round(float(overall) * 100, 1) if overall is not None else None,
-        "ally_enabled": row.get("Ally Enabled", True),
-        "ally_severe": row.get("Ally Severe", 0),
-        "ally_major": row.get("Ally Major", 0),
-        "leganto_missing": row.get("Leganto Missing", False),
-        "leganto_status": row.get("Leganto List Status", ""),
-        "leganto_items": row.get("Leganto List Items", 0),
-        "section_count": len(row.get("Template Sections") or {}),
-        "sga_attributes": row.get("SGA Attributes"),
-    }
-
-
-def _count_by_source(findings):
-    counts = {}
-    for finding in findings:
-        source = finding.get("source", "unknown")
-        state = finding.get("state", "unknown")
-        entry = counts.setdefault(source, {"pending": 0, "completed": 0})
-        if state in entry:
-            entry[state] += 1
-    return counts
-
-
-def _score_chart(row):
-    """
-    One Plotly figure, serialised for plotly.js in the template. Rendering to
-    JSON rather than a full HTML snippet keeps one copy of the library on the
-    page however many charts it ends up showing.
-    """
-    import plotly.graph_objects as go
-
-    score = row.get("Ally Overall")
-    if score is None:
-        return None
-
-    figure = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=round(float(score) * 100, 1),
-        number={"suffix": "%"},
-        title={"text": "Ally overall score"},
-        gauge={"axis": {"range": [0, 100]}},
-    ))
-    figure.update_layout(height=260, margin={"t": 40, "b": 10, "l": 10, "r": 10})
-    return json.dumps(figure.to_plotly_json(), default=str)
+    tab = request.GET.get("tab", "template")
+    if tab not in TABS:
+        tab = "template"
+    context = {"code": report["code"], "report": report, "text": report_model,
+               "tab": tab}
+    if tab == "accessibility":
+        context["gauges"] = charts.gauges_for(report["ally"])
+    return render(request, "modules/report.html", context)
