@@ -1,10 +1,13 @@
 # Django spike only. The Streamlit app's own dependencies stay in
 # REQUIREMENTS.txt at the repo root - neither container installs the other's.
-# Pinned deliberately: the root file is unpinned and every rebuild there takes
-# whatever is newest, which is a separate problem not worth copying here.
+#
+# pandas and plotly deliberately match REQUIREMENTS.txt, which holds the
+# versions production is running. Both front ends read loaders.py and
+# processing.py, so web/smoke.py is only evidence about the deployed app if
+# it exercises them under the same pandas. Raise them in both files together.
 Django==5.2.6
 django-htmx==1.23.0
-pandas==2.3.2
-plotly==6.3.0
+pandas==3.0.6
+plotly==7.1.0
 pytest==8.4.2
 pytest-django==4.11.1
