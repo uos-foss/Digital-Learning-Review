@@ -58,7 +58,6 @@ ALLOWED_HOSTS = [h.strip() for h in
 _PREFIX = os.getenv("DJANGO_SCRIPT_NAME", "").strip().rstrip("/")
 if _PREFIX:
     FORCE_SCRIPT_NAME = _PREFIX
-    STATIC_URL = f"{_PREFIX}/static/"
     SESSION_COOKIE_PATH = CSRF_COOKIE_PATH = _PREFIX + "/"
 
 # Origins allowed to POST, e.g. https://example.sheffield.ac.uk
@@ -185,7 +184,12 @@ TIME_ZONE = "Europe/London"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+# Absolute, with the prefix, and set here rather than earlier. A relative value
+# is joined to the script prefix when first read, and under gunicorn that first
+# read happens at startup, before any request has set the prefix - so it would
+# be cached as /static/ for good, and every page would ask Caddy for CSS at a
+# path it does not route. Django's own STATIC_URL docs call this out.
+STATIC_URL = f"{_PREFIX}/static/" if _PREFIX else "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
