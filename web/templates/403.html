@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% comment %}
+Django's own 403 is the word "Forbidden" on a white page, which tells someone
+nothing about what to do next. The commonest cause here is not mischief: it is
+a new account that nobody has aligned with a school yet, which includes the
+first person ever to sign in.
+
+Only shown when DEBUG is off. With DEBUG on, Django's own debug page wins,
+which is why this is easy to forget exists.
+{% endcomment %}
+
+{% block title %}No access to that module{% endblock %}
+
+{% block content %}
+<div class="denied">
+  <h1>You cannot see that module</h1>
+
+  {% if request.user.is_authenticated %}
+    <p>
+      You are signed in as <strong>{{ request.user.email|default:request.user.username }}</strong>,
+      and that account is not aligned with the school this module belongs to.
+    </p>
+    <p class="muted">
+      If your account is new, this is normal: alignment is set by hand, and
+      nobody has set yours yet. A Digital Learning Advisor or an administrator
+      can do it.
+    </p>
+  {% else %}
+    <p>You are not signed in. <a href="{% url 'account_login' %}">Sign in</a> and try again.</p>
+  {% endif %}
+
+  <p><a href="/modules/">Back to the module list</a></p>
+</div>
+
+<style>
+  .denied { max-width: 32rem; margin: 3rem auto; }
+  .denied .muted { color: #6B7280; font-size: 0.95rem; }
+</style>
+{% endblock %}
