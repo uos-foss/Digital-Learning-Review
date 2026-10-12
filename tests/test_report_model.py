@@ -200,3 +200,82 @@ def test_table_status_is_complete_but_the_badge_keeps_its_full_wording():
     # Anything not manually verified keeps its badge as the status.
     plain = _card("ACCESSIBILITY_STATEMENT", "visible_edited")
     assert plain["short_status"] == plain["badge"] == "Visible to students"
+
+
+# --- School Dashboard --------------------------------------------------------
+
+def test_score_shows_the_stage_until_a_course_has_content():
+    assert report_model.score_or_stage(
+        {"Content Maturity": "In progress", "Ally Overall": 0.953}) == "95.3%"
+    assert report_model.score_or_stage(
+        {"Content Maturity": "Not yet built", "Ally Overall": 1.0}) == "Not started"
+    assert report_model.score_or_stage({"Content Maturity": "Empty"}) == "Empty"
+    assert report_model.score_or_stage({"Content Maturity": ""}) == "—"
+    # In progress but no score: the stage, not a blank.
+    assert report_model.score_or_stage({"Content Maturity": "In progress"}) == "In progress"
+
+
+def test_a_dla_answer_outranks_leganto_in_the_reading_list_cell():
+    row = {"Leganto Missing": True, "Leganto List Status": ""}
+    assert report_model.reading_list_display(row, True) == "✅ DLA confirmed"
+    assert report_model.reading_list_display(row, False) == "❌ DLA: not done"
+    assert report_model.reading_list_display(row, None) == "❌ Missing"
+    assert report_model.reading_list_display({"Leganto List Status": "Published"}, None) == "✅ Published"
+    assert report_model.reading_list_display({"Leganto List Status": "Mixed"}, None) == "📝 Draft"
+    # In neither export: no signal, but still something to act on.
+    assert report_model.reading_list_display({}, None) == "❌ Missing"
+
+
+def _school_frame():
+    base = {"Module name": "Mod", "Mod. lead": "ADA LOVELACE", "UG/ PG/ Other": "UG Level 2",
+            "Ally Enabled": True, "Ally Severe": 0, "Ally Major": 0, "Ally Overall": 0.9,
+            "Template Sections": {}, "Leganto Missing": False, "Leganto List Status": "Published"}
+    return pd.DataFrame([
+        {**base, "New module code": "TST002", "Content Maturity": "Not yet built"},
+        {**base, "New module code": "TST001", "Content Maturity": "In progress", "Ally Overall": 0.8,
+         "SGA Attributes": 2},
+    ])
+
+
+def _school(**kw):
+    args = dict(spot_check_status={"TST001": "checked"}, fix_claims_by_module={},
+                active_fields=[], can_view_sga=False)
+    args.update(kw)
+    summaries = {"TST001": {"Actionable Items": 3, "Responses": {}},
+                 "TST002": {"Actionable Items": 1, "Responses": {}}}
+    return report_model.build_school("TST", "Autumn", _school_frame(), summaries, **args)
+
+
+def test_headline_figures_use_the_shared_rules():
+    labels = {label: value for label, value, _ in _school()["headline"]}
+    assert labels["Total modules"] == "2"
+    assert labels["Modules with no activity"] == "1"       # the template-only course
+    assert labels["Average Ally score"] == "80.0%"          # built courses only
+    assert labels["Outstanding actionable items"] == "4"
+
+
+def test_modules_are_sorted_and_carry_their_cells():
+    modules = _school()["modules"]
+    assert [m["code"] for m in modules] == ["TST001", "TST002"]
+    first = modules[0]
+    assert first["lead"] == "Ada Lovelace" and first["level"] == "UG2"
+    assert first["score"] == "80.0%" and first["items"] == 3
+    assert first["spot_check"] == "✅ Checked" and modules[1]["spot_check"] == ""
+    assert modules[1]["score"] == "Not started"
+
+
+def test_the_sga_column_needs_the_capability_and_an_import():
+    assert _school()["show_sga"] is False
+    assert _school(can_view_sga=True)["show_sga"] is True
+    frame = _school_frame().drop(columns=["SGA Attributes"])
+    no_import = report_model.build_school(
+        "TST", "Autumn", frame, {}, spot_check_status={}, fix_claims_by_module={},
+        active_fields=[], can_view_sga=True)
+    assert no_import["show_sga"] is False
+
+
+def test_the_matrix_has_one_row_per_module_and_aligned_cells():
+    matrix = _school()["matrix"]
+    assert [r["code"] for r in matrix["rows"]] == ["TST001", "TST002"]
+    assert matrix["columns"][-1] == "Accessibility"
+    assert all(len(r["cells"]) == len(matrix["columns"]) for r in matrix["rows"])

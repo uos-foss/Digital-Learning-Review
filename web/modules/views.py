@@ -25,7 +25,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import render
 
-from accounts.models import may_view_module
+from accounts.models import may_view_module, may_view_school
 from auditdata.models import AuditField
 import report_model
 from modules import charts, data
@@ -70,3 +70,43 @@ def module_report(request, code):
     if tab == "accessibility":
         context["gauges"] = charts.gauges_for(report["ally"])
     return render(request, "modules/report.html", context)
+
+
+SCHOOL_VIEWS = ("modules", "alignment")
+
+
+@login_required
+def school_index(request):
+    """The schools this account may open."""
+    schools = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
+    return render(request, "modules/schools.html", {"schools": schools})
+
+
+@login_required
+def school_dashboard(request, school):
+    """
+    One school's dashboard: headline figures, then its modules or the Template
+    Alignment matrix. Read-only; flagging spot-checks stays in Streamlit.
+    Access is checked before the code is validated, so a 404 never reveals
+    which schools exist to someone outside them.
+    """
+    school = str(school).strip().upper()
+    if not may_view_school(request.user, school):
+        raise PermissionDenied(
+            f"{request.user.username} is not aligned with {school}.")
+    if school not in processing.FACULTY_SCHOOLS:
+        raise Http404(f"{school} is not a school in this faculty.")
+
+    semester = request.GET.get("semester", "Autumn")
+    if semester not in report_model.SEMESTERS:
+        semester = "Autumn"
+    view = request.GET.get("view", "modules")
+    if view not in SCHOOL_VIEWS:
+        view = "modules"
+
+    return render(request, "modules/school.html", {
+        "school": school, "semester": semester, "view": view,
+        "semesters": report_model.SEMESTERS,
+        "dashboard": data.load_school(school, semester, request.user),
+        "text": report_model,
+    })

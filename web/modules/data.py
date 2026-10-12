@@ -20,6 +20,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pandas as pd
+
 import database
 import loaders
 import processing
@@ -29,16 +31,33 @@ from accounts.models import capabilities_of
 
 SOURCES_TTL = 300
 
-_cache = {"at": 0.0, "sources": None}
+_cache = {"at": 0.0, "sources": None, "frames": None}
 _lock = threading.Lock()
 
 
-def _sources():
+def _loaded():
+    """(sources, (df_aut, df_spr)), rebuilt at most every SOURCES_TTL seconds.
+    The frames are every module's record, which a school page needs and a
+    single module report does not, so they are built on first use."""
     with _lock:
         if _cache["sources"] is None or time.monotonic() - _cache["at"] > SOURCES_TTL:
-            _cache["sources"] = loaders.load_module_sources()
-            _cache["at"] = time.monotonic()
+            _cache.update(sources=loaders.load_module_sources(), frames=None,
+                          at=time.monotonic())
         return _cache["sources"]
+
+
+def _sources():
+    return _loaded()
+
+
+def _frames():
+    sources = _loaded()
+    with _lock:
+        if _cache["frames"] is None:
+            with database.get_db_connection() as conn:
+                df_sits = pd.read_sql_query("SELECT * FROM sits_assessment_2026_27", conn)
+            _cache["frames"] = loaders.assemble_module_frames(df_sits, sources)
+        return _cache["frames"]
 
 
 def load_module_row(code: str) -> dict | None:
@@ -73,3 +92,40 @@ def load_report(code: str, user) -> dict | None:
         spot_check_pending=bool(
             database.get_pending_spot_check(code, processing.CURRENT_ACADEMIC_YEAR)),
     )
+
+
+def load_school(school: str, semester: str, user) -> dict:
+    """
+    One school's dashboard for a semester, as plain data (see
+    report_model.build_school()). Module records are cached with the sources;
+    everything a DLA can change (audit answers, fix claims, spot-checks) is
+    read fresh, so it never lags.
+    """
+    df_aut, df_spr = _frames()
+    target = processing.resolve_semester_df(df_aut, df_spr, semester)
+    if target is None or target.empty:
+        school_df = pd.DataFrame(columns=["New module code"])
+    else:
+        school_df = target[processing.school_series(target["New module code"]) == school]
+
+    rows = {str(r["New module code"]).strip().upper(): r
+            for r in school_df.to_dict("records")}
+    active_fields = database.get_active_audit_fields()
+    summaries = loaders.load_audit_summaries(rows, active_fields)
+
+    spot_checks = database.get_school_spot_checks(school, processing.CURRENT_ACADEMIC_YEAR)
+    spot_status = {}
+    if not spot_checks.empty:
+        latest = (spot_checks.sort_values("flagged_on", ascending=False)
+                  .drop_duplicates(subset="module_code", keep="first"))
+        spot_status = {str(c).strip().upper(): s
+                       for c, s in zip(latest["module_code"], latest["status"])}
+
+    claims = {str(c).strip().upper(): v
+              for c, v in database.get_all_active_fix_claims().items()}
+
+    return report_model.build_school(
+        school, semester, school_df, summaries,
+        spot_check_status=spot_status, fix_claims_by_module=claims,
+        active_fields=active_fields,
+        can_view_sga=processing.can_view_sga(capabilities_of(user)))

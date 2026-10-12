@@ -129,3 +129,13 @@ def capabilities_of(user):
         return []
     return [codename for codename, _ in Profile._meta.permissions
             if user.has_perm(f"accounts.{codename}")]
+
+
+def may_view_school(user, school):
+    """Whether this user may see this school: `view_all` wins outright, as in
+    may_view_module(), otherwise the school must be on their alignment."""
+    if not user.is_authenticated:
+        return False
+    if user.has_perm("accounts.view_all"):
+        return True
+    return profile_for(user).may_view_school(school)

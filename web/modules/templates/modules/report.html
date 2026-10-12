@@ -6,7 +6,8 @@
 {% block content %}
 <h1>{{ code }} <span class="muted">{{ report.name }}</span></h1>
 <table class="kv" style="margin-bottom:1rem;">
-  <tr><th style="width:9rem;">Module Lead</th><td>{% if report.lead %}{{ report.lead }}{% else %}--{% endif %}</td></tr>
+  <tr><th style="width:9rem;">School</th><td><a href="{% url 'schools:dashboard' report.school %}">{{ report.school }}</a></td></tr>
+  <tr><th>Module Lead</th><td>{% if report.lead %}{{ report.lead }}{% else %}--{% endif %}</td></tr>
   <tr><th>Level</th><td>{% if report.level %}{{ report.level }}{% else %}--{% endif %}</td></tr>
   <tr><th>Module Site</th><td>{% if report.site_url %}<a href="{{ report.site_url }}" target="_blank" rel="noopener">Open Module Site</a>{% else %}--{% endif %}</td></tr>
   <tr><th title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor, and when that check was last saved.">Audit Status</th><td>{{ report.audit_status }}</td></tr>
