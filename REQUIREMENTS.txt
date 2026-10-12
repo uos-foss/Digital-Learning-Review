@@ -1,9 +1,22 @@
-streamlit
-pandas
-gspread
-google-auth
-python-dotenv
-extra-streamlit-components
-tenacity
-plotly
+# Pinned 12-10-2026 to the versions the production container was running,
+# read from pip freeze inside vle_review_portal. Unpinned before that, so
+# every rebuild installed whatever was newest and the live app could break
+# with no change on our side. A rebuild now installs what is already
+# serving, so it changes nothing.
+#
+# The local .venv is BEHIND production on several of these (plotly 6 vs 7,
+# streamlit 1.57 vs 1.65), so local checks are not evidence about the
+# deployed versions until the two are brought into line.
+#
+# Direct dependencies only: transitive ones (numpy, pyarrow, narwhals,
+# protobuf) can still drift on a rebuild. Upgrade deliberately - raise a
+# pin, rebuild, boot-check, deploy.
+streamlit==1.65.0
+pandas==3.0.6
+gspread==6.2.1
+google-auth==2.60.0
+python-dotenv==1.2.4
+extra-streamlit-components==0.1.81
+tenacity==9.1.4
+plotly==7.1.0
 typst==0.15.0
