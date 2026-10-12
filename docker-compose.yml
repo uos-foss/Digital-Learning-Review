@@ -25,3 +25,30 @@ services:
     # Cap memory so one runaway container cannot starve the VM (and sshd/Caddy). Streamlit holds the audit/Ally/readiness frames per session.
     mem_limit: 1g
     memswap_limit: 1g
+
+  # The Django platform (web/): the module report as a page with its own URL.
+  # Reads the same shared database as the Streamlit service above and never
+  # migrates it. Built from the repo root because it imports processing.py,
+  # database.py, loaders.py and report_model.py from there.
+  dlr-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile.django
+    container_name: dlr_platform
+    ports:
+      # Loopback only. Django trusts X-Forwarded-Proto from whatever reaches it,
+      # which is safe only while Caddy is the sole thing that can.
+      - "127.0.0.1:8600:8600"
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/London
+      - DJANGO_DEBUG=0
+      # Django's own accounts, roles and school alignments. On the backed-up
+      # volume, so a rebuild does not erase who may see which school.
+      - DJANGO_DB_PATH=/app/data/dlr_platform.sqlite3
+    volumes:
+      - /opt/shared-audit-data:/app/data
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m

@@ -1,0 +1,21 @@
+# The Caddy route for the Django platform (dlr-platform in docker-compose.yml).
+#
+# The real Caddyfile is deliberately not in this repository (see README.md), so
+# this is only the one block to add to it, inside the existing site block for
+# the VM's host name. Nothing here is a credential.
+#
+# handle_path STRIPS the prefix before proxying, which is what Django expects:
+# DJANGO_SCRIPT_NAME in .env tells it to put the same prefix back on every URL
+# it builds. The two must match. If you change the path, change both.
+#
+# Caddy sends X-Forwarded-Proto itself, and Django trusts it, which is only safe
+# because the container's port is bound to 127.0.0.1. Do not publish port 8600.
+
+redir /module-reports /module-reports/ permanent
+
+handle_path /module-reports/* {
+	reverse_proxy 127.0.0.1:8600
+}
+
+# Place it before any catch-all handle in the same block. The Streamlit app is
+# a separate route at /digital-learning-review and is unaffected.

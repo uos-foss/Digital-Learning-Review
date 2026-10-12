@@ -1,0 +1,20 @@
+# Keeps secrets, local environments and local databases out of every image
+# built from this directory (Dockerfile and Dockerfile.django alike). The
+# container's own settings arrive through env_file and the mounted volumes.
+.git
+.gitignore
+.env
+.venv
+.venv-django
+.pytest_cache
+__pycache__
+*.pyc
+app.log
+scratch
+.claude
+.agent
+.gemini
+web/dlr_platform.sqlite3
+web/staticfiles
+*.sqlite3
+*.db

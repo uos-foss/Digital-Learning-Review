@@ -33,7 +33,9 @@ Deliberately out of scope, so the spike stayed small:
   eventual target and an enquiry is with IT.
 - **Writes.** Nothing here saves an audit. When it does, it should call
   `database.save_audit_response()` so both front ends behave identically.
-- **Deployment.** No Dockerfile, no compose service, no Caddy route.
+- **Deployment is configured but not done.** `Dockerfile.django`, the `dlr-platform`
+  compose service and `deploy/caddy-django.example` are in the repo; nothing is
+  running on the VM until the steps in `deploy/README.md` are followed.
 - **The module report's "Fixed something?" form and PDF export.** The report
   itself is ported, read-only; the form writes and the PDF builds a file, so both
   stay in Streamlit for now.

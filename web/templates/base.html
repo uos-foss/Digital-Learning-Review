@@ -59,8 +59,8 @@
   <span class="muted">platform spike</span>
   <nav>
     {% if user.is_authenticated %}{{ user.username }}
-      &middot; <a href="/admin/">Admin</a>
-    {% else %}<a href="{{ login_url|default:'/admin/login/' }}">Sign in</a>{% endif %}
+      &middot; <a href="{% url 'admin:index' %}">Admin</a>
+    {% else %}<a href="{% url 'account_login' %}">Sign in</a>{% endif %}
   </nav>
 </header>
 <main>

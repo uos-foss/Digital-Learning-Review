@@ -1,4 +1,4 @@
-# Django spike only. The Streamlit app's own dependencies stay in
+# The Django platform. The Streamlit app's own dependencies stay in
 # REQUIREMENTS.txt at the repo root - neither container installs the other's.
 #
 # pandas and plotly deliberately match REQUIREMENTS.txt, which holds the
@@ -11,5 +11,5 @@ django-htmx==1.23.0
 pandas==3.0.6
 plotly==7.1.0
 python-dotenv==1.2.4
-pytest==8.4.2
-pytest-django==4.11.1
+gunicorn==23.0.0
+whitenoise==6.9.0
