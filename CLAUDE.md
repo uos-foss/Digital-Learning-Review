@@ -161,9 +161,44 @@ claims-to-attributes mapping.
   redirect URI; without a client id and secret the sign-in page says so rather
   than showing a button that fails.
 
-Next, in order: the module report's own data behind that scoping for a pilot
-school, served on its own Caddy path, then School Dashboard. Writes, and
-anything resembling the Audit Portal, stay in Streamlit.
+**The module report is ported, read-only** (12-10-2026). `web/modules/` renders
+the same report as `views/module_report.py`: header, Report Summary, advisor
+comment, then Module Checks and Readiness and Accessibility tabs. The Django
+page is deliberately **quieter than Streamlit's** (the user found that too busy,
+then a bare version too plain): the same information in plain tables, with small
+section icons, a status dot, compact gauges and collapsed dropdowns (Report
+Summary, how-to-use, technical detail) instead of coloured cards. It is one page
+at `/modules/<code>/` with two tabs, `?tab=template` and `?tab=accessibility`,
+as plain links with no JavaScript framework. What the report says lives in **`report_model.py`** at
+the repo root (no Streamlit, no Django): the card wording, Ally bands and
+maturity notes, the template tree walk, the summary sentences and the shared
+copy (`TEMPLATE_INTRO`, `ALLY_OFF_WARNING` and so on), assembled by
+`build_report()`. The Streamlit page, its PDF and the Django views all read it,
+so a sentence reworded there changes all three. These were moved out of the
+Streamlit view rather than copied; the view imports them under their old
+underscore names. Verified by fingerprinting `_pdf_template_rows`,
+`_pdf_ally` and the summary strings for all 843 modules before and after: the
+hash was identical. Do not write a verdict or a sentence in a Django view or
+template; add it to `report_model.py` or `processing.py` and read it.
+
+- **`responses` is flat, `{field_id: value}`.** `loaders.load_audit_trail()`
+  builds it, with `has_audit`, the last timestamp and the auditor, the way
+  `app.py::load_checklist_data()` builds `checklist_sums`. `database.get_audit_responses()`
+  returns nested rows and must not be passed to `derive_module_findings()`
+  directly (the spike's first version did, which silently read every answer as
+  truthy).
+- **Module sources are cached in-process for 300 seconds**
+  (`modules/data.py::_sources()`, the same ttl as `app.py`'s loaders), because
+  building them is about a second. A DLA's saves, fix claims and spot-check
+  flags are read fresh each request. A Streamlit Admin Panel import shows in
+  Django within five minutes.
+- **Not ported, on purpose:** the "Fixed something?" form (a write, and it needs
+  the `report_fixed` capability and the `fix_claims` feature rollout) and the PDF
+  export. A claim already made does display, as "Reported fixed". The capability
+  tokens for `can_view_sga()` come from `accounts.models.capabilities_of()`.
+
+Next, in order: serve it on its own Caddy path for a pilot school, then School
+Dashboard. Writes, and anything resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data
 

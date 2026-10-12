@@ -117,3 +117,15 @@ def may_view_module(user, code):
     if user.has_perm("accounts.view_all"):
         return True
     return profile_for(user).may_view_module(code)
+
+
+def capabilities_of(user):
+    """
+    The user's capability tokens, in the lowercase form `processing.py` reads
+    (`can_view_sga()` and friends take the same list the Streamlit session
+    holds). Read from the permissions, so a superuser has every one.
+    """
+    if not user.is_authenticated:
+        return []
+    return [codename for codename, _ in Profile._meta.permissions
+            if user.has_perm(f"accounts.{codename}")]

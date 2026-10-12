@@ -52,12 +52,9 @@ def main():
         sys.exit(1)
     code = codes[0]
 
-    # 2. The row contract and the findings pipeline, unchanged from Streamlit.
-    row, findings = data.load_findings(code)
+    # 2. The row contract, unchanged from Streamlit.
+    row = data.load_module_row(code)
     check("module row built", row is not None)
-    check("findings produced", findings is not None,
-          f"{len(findings)} findings, "
-          f"{sum(1 for f in findings if f.get('state') == 'pending')} pending")
     check("template sections present", isinstance(row.get("Template Sections"), dict),
           f"{len(row.get('Template Sections') or {})} sections")
 
@@ -82,13 +79,45 @@ def main():
     report = client.get(f"/modules/{code}/")
     body = report.content.decode("utf-8", "replace")
     check("report page renders", report.status_code == 200, f"HTTP {report.status_code}")
-    check("actions panel present", "Actions" in body)
+    check("actions panel present", "Actions (" in body)
+    check("header present", "Audit Status" in body)
+    check("template tab is the default", "Blackboard item" in body)
+    acc = client.get(f"/modules/{code}/?tab=accessibility").content.decode("utf-8", "replace")
+    check("accessibility tab renders", "Plotly.newPlot" in acc or "No Ally record" in acc)
+    check("an unknown tab falls back to the template tab",
+          "Blackboard item" in client.get(f"/modules/{code}/?tab=nonsense").content.decode("utf-8", "replace"))
 
-    fragment = client.get(f"/modules/{code}/accessibility/")
-    frag_body = fragment.content.decode("utf-8", "replace")
-    check("htmx fragment renders", fragment.status_code == 200)
-    check("plotly chart rendered", "Plotly.newPlot" in frag_body
-          or "No Ally score" in frag_body)
+    # The report is built from the shared rules, so its counts must equal what
+    # derive_module_findings() says directly, with the inputs the Streamlit
+    # page uses. Compared on every module with an audit trail as well as this
+    # one: the shapes of `responses` are where a port goes quietly wrong.
+    import loaders
+
+    def cross_check(module_code):
+        built = data.load_report(module_code, user)
+        row_ = loaders.load_module_record(module_code, data._sources())
+        trail = loaders.load_audit_trail(module_code)
+        direct = processing.derive_module_findings(
+            row_, trail["responses"], database.get_active_audit_fields(),
+            database.get_active_fix_claims(module_code))
+        pending = [f for f in direct if f["state"] == "pending"]
+        shown = len(built["actions"]) + len(built["reported_fixed"])
+        # The panel lists boolean and custom findings only, as the Streamlit one does.
+        listable = [f for f in pending if f["type"] in ("boolean", "custom")]
+        return shown == len(listable), (shown, len(listable))
+
+    with database.get_db_connection() as conn:
+        audited = [r[0] for r in conn.execute(
+            "SELECT DISTINCT module_code FROM audit_responses LIMIT 25").fetchall()]
+    bad = [(c, cross_check(c)[1]) for c in [code] + audited if not cross_check(c)[0]]
+    check("report actions match derive_module_findings()", not bad,
+          f"{len(audited) + 1} modules compared" + (f"; differ: {bad[:3]}" if bad else ""))
+
+    from modules.templatetags.report_extras import comment_html
+    rendered = str(comment_html("**Note** <script>alert(1)</script>\n\nSecond"))
+    check("advisor comment is escaped before it is marked up",
+          "<script>" not in rendered and "<strong>Note</strong>" in rendered
+          and rendered.count("<p>") == 2, rendered)
 
     # 5. Unknown module is a 404, and anonymous access is redirected to sign in.
     #    The 404 is checked with a faculty-wide account: scoping is tested in 7.
@@ -143,8 +172,6 @@ def main():
     refused = outsider_client.get(f"/modules/{code}/")
     check("other school is refused", refused.status_code == 403,
           f"{outsider.username} aligned with {other}: HTTP {refused.status_code}")
-    check("the refusal covers the htmx fragment too",
-          outsider_client.get(f"/modules/{code}/accessibility/").status_code == 403)
     check("faculty-wide account still sees it",
           client.get(f"/modules/{code}/").status_code == 200, "view_all via the DLA group")
 

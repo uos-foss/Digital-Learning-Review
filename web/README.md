@@ -34,6 +34,9 @@ Deliberately out of scope, so the spike stayed small:
 - **Writes.** Nothing here saves an audit. When it does, it should call
   `database.save_audit_response()` so both front ends behave identically.
 - **Deployment.** No Dockerfile, no compose service, no Caddy route.
+- **The module report's "Fixed something?" form and PDF export.** The report
+  itself is ported, read-only; the form writes and the PDF builds a file, so both
+  stay in Streamlit for now.
 
 ## Running it
 
@@ -121,8 +124,9 @@ web/
   dlr/routers.py      auditdata -> shared database; never migrate it
   dlr/hashers.py      Verify existing scrypt hashes, never write them
   auditdata/models.py Unmanaged models over audit_fields, audit_responses
-  modules/data.py     Calls loaders.py at the repo root for a module's row
-  modules/views.py    Report page, HTMX fragment, Plotly chart
+  modules/data.py     Fetches for a module; sources cached 5 min, audit read fresh
+  modules/views.py    One plain module report page: facts, findings, Actions
+  ../report_model.py  What the report says, shared with the Streamlit page and PDF
   smoke.py            End-to-end check against the real database
 ```
 
