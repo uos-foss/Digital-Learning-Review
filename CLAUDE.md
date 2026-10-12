@@ -119,10 +119,51 @@ The boundary, all of it already true in the spike:
   shared rules themselves. The tests moved out of `web/tests/` to `tests/` on
   09-10-2026: they test `processing.py`, so they were never the spike's.
 
-Next, in order: tests on the shared layer at the repo root (the pure functions
-both front ends read), `django-allauth` with Google plus an account-to-school
-model, then one read-only page behind its own Caddy path for a pilot school.
-Writes, and anything resembling the Audit Portal, stay in Streamlit.
+**Sign-in is Google through `django-allauth`, and the rules live in
+`web/accounts/`.** Added 12-10-2026. Institutional SSO (Entra ID over OIDC) is
+the eventual target and an enquiry is with IT, but nothing waits on it: allauth
+takes providers side by side, so adding Microsoft later is configuration plus a
+claims-to-attributes mapping.
+
+- **The domain check is server side, in `accounts/adapters.py`.** Google's `hd`
+  auth parameter only steers the account chooser; it is set by the client and a
+  personal account can still reach the callback. `pre_social_login()` refuses
+  anything whose verified email is not on `ALLOWED_EMAIL_DOMAIN`, and refuses an
+  unverified address outright. Do not treat `hd` as a control.
+- **Signup is closed** (`AccountAdapter.is_open_for_signup`). Accounts arrive by
+  a first Google sign-in or by an admin creating one.
+- **Capabilities are Django permissions on `accounts.Profile`, roles are
+  Groups**, created by `manage.py seed_roles` from the same map as
+  `data_manager.py`'s seed defaults, ML without `edit_checklist` as per "Who
+  does what". The command only ever grants, never revokes, so an admin ticking
+  something by hand (`view_sga_analytics` seeds nowhere) survives a re-run. A
+  superuser passes every check, which is what keeps the break-glass local
+  account working when Google does not.
+- **`accounts/rules.py` holds the decisions and imports no Django**, so the
+  repo-root tests cover them: the domain match is exact (a suffix match would
+  admit `sheffield.ac.uk.example.com`), unknown school codes are dropped rather
+  than kept, and school scoping goes through `processing.school_of()` so it
+  cannot disagree with the rest of the app.
+- **Affiliation is a guess, stored, and correctable.** `affiliation_from_email()`
+  reads a digit in the local part as a student; it is a placeholder for the rule
+  GPLdash already uses, and it is wrong for postgraduate researchers, staff who
+  are also students and honorary contracts. It is set once at signup and never
+  re-guessed, because `affiliation_is_manual` records that a person has
+  corrected it. Nothing should gate on it alone.
+- **School alignment lives on `Profile`**, which is the thing the `users` table
+  cannot express today (see "Spot-check flagging"). `all_schools` is the
+  faculty-wide case; otherwise a module outside the alignment is a 403, checked
+  before the module is looked up so a 404 never reveals which codes exist in a
+  school someone cannot see.
+- `web/dlr/settings.py` reads the repo root's `.env`, the same file the
+  Streamlit app reads, so one VM has one place for credentials. The Google
+  project needs `<host>/accounts/google/login/callback/` as an authorised
+  redirect URI; without a client id and secret the sign-in page says so rather
+  than showing a button that fails.
+
+Next, in order: the module report's own data behind that scoping for a pilot
+school, served on its own Caddy path, then School Dashboard. Writes, and
+anything resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data
 

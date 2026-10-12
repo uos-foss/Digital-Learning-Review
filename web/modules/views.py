@@ -7,19 +7,22 @@ The spike's pages. Three things are being proved here:
    shareable and the back button works. No session state holds the selection.
 3. A Plotly chart and an HTMX panel both render inside a Django template.
 
-Scoping is a placeholder: `view_module` below checks only that the user is
-signed in. Real school scoping needs the account-to-school model described in
-the platform doc, which the spike deliberately does not invent.
+School scoping is real as of 12-10-2026: `accounts.models.may_view_module()`
+decides, from the signed-in account's `view_all` permission or its
+school alignment. A module outside that is a 403, not a crash and not a
+silently empty page.
 """
 
 import json
 
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import render
 
 import processing
 
+from accounts.models import may_view_module
 from auditdata.models import AuditField
 from modules import data
 
@@ -32,8 +35,24 @@ def module_index(request):
     return render(request, "modules/index.html", {"fields": fields})
 
 
+def _require_access(request, code):
+    """
+    403 unless this account may see this module's school.
+
+    Ordered deliberately: the access check runs before the module is looked
+    up, so a 404 never tells someone outside a school which codes exist
+    inside it.
+    """
+    if not may_view_module(request.user, code):
+        raise PermissionDenied(
+            f"{request.user.username} is not aligned with "
+            f"{processing.school_of(code) or 'that school'}.")
+
+
 @login_required
 def module_report(request, code):
+    _require_access(request, code)
+
     row, findings = data.load_findings(code)
     if row is None:
         raise Http404(f"{code} is not in SITS for the current academic year.")
@@ -57,6 +76,8 @@ def module_accessibility(request, code):
     on every page load. Proves partial rendering works; the Ally detail itself
     is left for the real port.
     """
+    _require_access(request, code)
+
     row = data.load_module_row(code)
     if row is None:
         raise Http404(code)

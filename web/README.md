@@ -29,11 +29,8 @@ Options** doc.
 
 Deliberately out of scope, so the spike stayed small:
 
-- **Google sign-in / SSO.** Django's built-in login is used as a placeholder.
-  `django-allauth` is the next step, and the doc's sign-in section covers it.
-- **School scoping.** Pages check only that a user is signed in. Real scoping
-  needs the account-to-school model the doc describes, which the spike does
-  not invent.
+- **Institutional SSO.** Google sign-in works (see below); Entra ID is the
+  eventual target and an enquiry is with IT.
 - **Writes.** Nothing here saves an audit. When it does, it should call
   `database.save_audit_response()` so both front ends behave identically.
 - **Deployment.** No Dockerfile, no compose service, no Caddy route.
@@ -71,6 +68,35 @@ database, so either environment runs them:
 .venv/Scripts/python -m pytest
 ```
 
+## Sign-in and scoping
+
+Google, through `django-allauth`, restricted to verified `sheffield.ac.uk`
+addresses by a server-side check in `accounts/adapters.py`. Capabilities are
+Django permissions on `accounts.Profile` and roles are Groups:
+
+```bash
+cd web && ../.venv-django/Scripts/python manage.py seed_roles
+```
+
+Credentials come from the repo root's `.env`, the same file the Streamlit app
+reads (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`). To sign in with
+Google locally, that Google project needs this as an authorised redirect URI:
+
+```
+http://localhost:8600/accounts/google/login/callback/
+```
+
+Without a client id and secret the page says so and offers the password form
+instead, rather than showing a button that fails on click.
+
+School scoping is real: an account is either `all_schools` (DLAs, admins, via
+the `view_all` permission) or aligned with specific schools on its profile. A
+module outside that returns 403. Set an alignment in the Django admin, or:
+
+```bash
+cd web && ../.venv-django/Scripts/python manage.py shell -c "from django.contrib.auth.models import User; from accounts.models import profile_for; p = profile_for(User.objects.get(username='you')); p.set_schools(['EDC','ALA']); p.save()"
+```
+
 To click around, create yourself a local account and start the dev server:
 
 ```bash
@@ -88,7 +114,10 @@ Then open `http://127.0.0.1:8600/modules/ALA102/`. On Linux the paths are
 
 ```
 web/
-  dlr/settings.py     Repo root on sys.path; two databases
+  dlr/settings.py     Repo root on sys.path; .env; two databases
+  accounts/rules.py   Domain, affiliation and scoping rules, no Django in them
+  accounts/adapters.py  Who allauth may let in; signup closed
+  accounts/models.py  Profile: affiliation, school alignment, capabilities
   dlr/routers.py      auditdata -> shared database; never migrate it
   dlr/hashers.py      Verify existing scrypt hashes, never write them
   auditdata/models.py Unmanaged models over audit_fields, audit_responses

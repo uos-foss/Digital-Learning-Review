@@ -2,16 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "streamlit-app",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port=8599", "--server.headless=true"],
-      "port": 8599
-    },
-    {
-      "name": "streamlit-app-prodpath",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port=8500", "--server.headless=true", "--server.baseUrlPath=digital-learning-review"],
-      "port": 8500
+      "name": "django-platform",
+      "runtimeExecutable": ".venv-django/Scripts/python",
+      "runtimeArgs": ["web/manage.py", "runserver", "8600"],
+      "port": 8600
     }
   ]
 }

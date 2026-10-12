@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% load socialaccount %}
+
+{% comment %}
+Overrides allauth's own login page so sign-in looks like the rest of the site
+rather than like allauth's unstyled default.
+
+Google leads, because that is how nearly everyone signs in. The password form
+is kept and deliberately tucked away: it exists for the local admin account
+that has to work when Google does not, and it is not a route anyone else
+needs. There is no "create an account" link because signup is closed, in
+accounts/adapters.py.
+{% endcomment %}
+
+{% block title %}Sign in{% endblock %}
+
+{% block content %}
+<div class="signin">
+  <h1>Digital Learning Review</h1>
+  <p class="lead">Sign in with your University of Sheffield account.</p>
+
+  {% if messages %}
+    <ul class="messages">
+      {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if google_configured %}
+    <p>
+      <a class="btn-google" href="{% provider_login_url 'google' process='login' %}">
+        Continue with Google
+      </a>
+    </p>
+  {% else %}
+    <p class="warn">
+      Google sign-in is not configured on this server: no client ID and secret
+      are set. Use a local account below, or set
+      <code>GOOGLE_OAUTH_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
+      in the repository's <code>.env</code>.
+    </p>
+  {% endif %}
+
+  <details class="local-signin">
+    <summary>Sign in with a password instead</summary>
+    <p class="muted">For administrator accounts only.</p>
+    <form method="post" action="{% url 'account_login' %}">
+      {% csrf_token %}
+      {{ form.as_p }}
+      {% if redirect_field_value %}
+        <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+      {% endif %}
+      <button type="submit">Sign in</button>
+    </form>
+  </details>
+</div>
+
+<style>
+  .signin { max-width: 26rem; margin: 3rem auto; }
+  .signin .lead { color: #4B5563; }
+  .btn-google { display: inline-block; padding: 0.6rem 1.1rem; border-radius: 6px;
+                background: #1A73E8; color: #fff; text-decoration: none; font-weight: 600; }
+  .signin .warn { background: #FEF3C7; border-left: 3px solid #D97706;
+                  padding: 0.6rem 0.8rem; }
+  .local-signin { margin-top: 2rem; }
+  .local-signin summary { cursor: pointer; color: #4B5563; }
+  .muted { color: #6B7280; font-size: 0.9rem; }
+  .messages { padding-left: 1.1rem; }
+</style>
+{% endblock %}

@@ -6,8 +6,10 @@
 # processing.py, so web/smoke.py is only evidence about the deployed app if
 # it exercises them under the same pandas. Raise them in both files together.
 Django==5.2.6
+django-allauth[socialaccount]==65.19.7
 django-htmx==1.23.0
 pandas==3.0.6
 plotly==7.1.0
+python-dotenv==1.2.4
 pytest==8.4.2
 pytest-django==4.11.1

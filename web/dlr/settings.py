@@ -18,12 +18,20 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent      # <repo>/web
 REPO_ROOT = BASE_DIR.parent                            # <repo>
 
 # Reach processing.py / database.py at the repo root (choice 1 above).
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# The same .env the Streamlit app reads, so one VM has one place where
+# credentials live. Without this, settings fall back to defaults and the
+# Google client id reads as empty while sitting in the file two directories
+# up, which is a confusing way to be unconfigured.
+load_dotenv(REPO_ROOT / ".env")
 
 # Spike only. A real deployment reads this from the environment and refuses to
 # start without it.
@@ -38,10 +46,18 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.sites",          # allauth needs it
     "django_htmx",
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.google",
+    "accounts",
     "auditdata",
     "modules",
 ]
+
+SITE_ID = 1
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -52,6 +68,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
+    # allauth needs this, and it must sit after AuthenticationMiddleware.
+    "allauth.account.middleware.AccountMiddleware",
 ]
 
 ROOT_URLCONF = "dlr.urls"
@@ -66,6 +84,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "accounts.context.signin_state",
             ],
         },
     },
@@ -128,5 +147,62 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-LOGIN_URL = "/admin/login/"
+# ---------------------------------------------------------------------------
+# Sign-in
+#
+# Google, through allauth, with Django's own signed HttpOnly session cookie.
+# That alone removes the forgeable-cookie problem the Streamlit app had: the
+# CookieManager component writes from JavaScript and cannot set HttpOnly, so
+# its cookie was readable and settable in devtools. See CLAUDE.md, "Auth".
+#
+# Institutional SSO (Entra ID, over OIDC) is the eventual target and an
+# enquiry is outstanding with IT. Nothing below has to change for it except
+# adding a provider and mapping its claims onto accounts.Profile: allauth
+# takes providers side by side.
+# ---------------------------------------------------------------------------
+
+AUTHENTICATION_BACKENDS = [
+    # Local accounts an admin created, including the break-glass superuser.
+    "django.contrib.auth.backends.ModelBackend",
+    # Google.
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
+ACCOUNT_ADAPTER = "accounts.adapters.AccountAdapter"
+SOCIALACCOUNT_ADAPTER = "accounts.adapters.SocialAccountAdapter"
+
+# Only university addresses may sign in, checked server side in the adapter
+# against the email Google reports as verified.
+ALLOWED_EMAIL_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "sheffield.ac.uk")
+
+ACCOUNT_EMAIL_VERIFICATION = "none"      # Google has already verified it
+ACCOUNT_LOGIN_METHODS = {"username", "email"}
+ACCOUNT_SIGNUP_FIELDS = ["email*"]
+SOCIALACCOUNT_LOGIN_ON_GET = True        # no extra "continue" click
+SOCIALACCOUNT_AUTO_SIGNUP = True         # the adapter has already vetted them
+SOCIALACCOUNT_STORE_TOKENS = False       # nothing here calls Google's APIs
+
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        "APP": {
+            # Same Google project as the Streamlit app, which reads the same
+            # two variables. The Django callback URL has to be added to that
+            # project's authorised redirect URIs.
+            "client_id": (os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+                          or os.getenv("GOOGLE_CLIENT_ID", "")),
+            "secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+            "key": "",
+        },
+        "SCOPE": ["profile", "email"],
+        "AUTH_PARAMS": {
+            # A hint to the account chooser, not a control: see
+            # accounts/adapters.py for why the real check is server side.
+            "hd": os.getenv("ALLOWED_EMAIL_DOMAIN", "sheffield.ac.uk"),
+        },
+    },
+}
+
+LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/modules/"
+ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
+ACCOUNT_LOGOUT_ON_GET = False            # logging out is a POST, so a link cannot do it

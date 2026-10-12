@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% comment %}
+Shown with a 403 when Google authenticated someone successfully but they are
+not allowed in: a personal account, or an address Google would not confirm.
+
+It says which account was refused, because the commonest cause is being signed
+into a personal Google account in the same browser, and someone who cannot see
+which account was used has no way to work that out.
+{% endcomment %}
+
+{% block title %}Sign-in refused{% endblock %}
+
+{% block content %}
+<div class="refused">
+  <h1>That account cannot be used here</h1>
+
+  {% if reason == "domain" %}
+    <p>
+      {% if email %}<strong>{{ email }}</strong> is not a{% else %}That is not a{% endif %}
+      <strong>{{ domain }}</strong> address, and this tool is open to University
+      of Sheffield accounts only.
+    </p>
+    <p class="muted">
+      If you are signed into a personal Google account in this browser, that is
+      usually the reason. Sign in again and choose your university account.
+    </p>
+  {% else %}
+    <p>Google did not confirm an email address for that account, so it cannot be used to sign in.</p>
+  {% endif %}
+
+  <p><a href="{% url 'account_login' %}">Try again</a></p>
+  <p class="muted">
+    If you think your university account should work and it does not, this needs
+    a person: ask your Digital Learning Advisor.
+  </p>
+</div>
+
+<style>
+  .refused { max-width: 32rem; margin: 3rem auto; }
+  .refused .muted { color: #6B7280; font-size: 0.95rem; }
+</style>
+{% endblock %}
