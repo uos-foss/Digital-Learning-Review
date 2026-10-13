@@ -35,9 +35,15 @@ the right one. Mark an item `[RESOLVED]` rather than deleting it, following
 
 ## Outstanding — defects
 
-### 1. Masquerade is advertised as view-only but does not gate most writes
+### 1. `[RESOLVED]` Masquerade is advertised as view-only but does not gate most writes
 
-**Highest priority of what remains.** `masquerade.py`'s own docstring says
+**Resolved 13-10-2026 by removing the feature, not by gating it.** The only
+admin has non-Google test accounts that cover the same role/school/capability
+combinations, and `app.log` shows no masquerade use after 7 Aug 2026.
+`masquerade.py`, the sidebar banner, the Admin Panel's "View As This User"
+button and every `is_masquerading()` check are gone. Original finding below.
+
+**Highest priority of what remains (at the time).** `masquerade.py`'s own docstring says
 "View-only - callers must gate writes with `is_masquerading()`", and the
 sidebar banner tells the user "changes are disabled". Only
 `views/audit_portal.py` and `views/feedback.py` actually check.

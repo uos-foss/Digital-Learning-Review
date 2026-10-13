@@ -23,7 +23,6 @@ from views.docs import view_about, view_help, view_faq, view_changelog, view_dev
 from views.feedback import view_feedback
 from views.admin_panel import view_admin_panel
 from views.audit_portal import view_audit_portal
-from masquerade import is_masquerading, stop_masquerade, clear_masquerade_state
 # background sync daemon is disabled as we moved to SQLite primary database
 # from background_tasks import start_scheduler
 # start_scheduler()
@@ -286,17 +285,6 @@ nav = st.navigation(pages_list, position="hidden")
 with st.sidebar:
     st.title("FoSS Digital Learning Review Portal")
 
-    if is_masquerading():
-        st.warning(
-            f"🎭 Viewing as **{st.session_state.username}** "
-            f"({st.session_state.user_role}, {st.session_state.saved_school}) — "
-            f"changes are disabled.",
-            icon="🎭"
-        )
-        if st.button("↩️ Return to my account", key="exit_masquerade_btn", use_container_width=True):
-            stop_masquerade()
-        st.divider()
-
     import_dates = load_last_import_dates()
     freshness_sources = [('sits', 'SITS'), ('bb', 'Blackboard Template Alignment'), ('ally', 'Ally'), ('leganto', 'Leganto')]
     if can_view_sga(user_caps):
@@ -344,7 +332,6 @@ with st.sidebar:
     st.divider()
     
     def handle_logout():
-        clear_masquerade_state()
         st.session_state.logged_in = False
         st.session_state.saved_school = "All"
         st.session_state.username = ""
