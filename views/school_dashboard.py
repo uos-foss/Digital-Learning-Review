@@ -928,8 +928,13 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             f"{school}_item_status.csv", "text/csv",
                             key="btn_sd_priority_export")
                     
-                        if selection_priority.selection.rows:
-                            row_idx = selection_priority.selection.rows[0]
+                        # The selection is stored by row position and this key is
+                        # shared by every lens, so one made on a longer table can
+                        # outlive a switch to a shorter one.
+                        priority_rows = [i for i in selection_priority.selection.rows
+                                         if i < len(clean_render_df)]
+                        if priority_rows:
+                            row_idx = priority_rows[0]
                             clicked_code = clean_render_df.iloc[row_idx]['New module code']
                         
                             st.divider()
