@@ -92,7 +92,14 @@ has not bitten, but it holds WAL read locks longer than necessary and the
 timing is undefined. A `@contextmanager` wrapper with
 `try/finally: conn.close()` fixes all 85 sites with no call-site changes.
 
-### 4. Audit saves are one connection and one transaction per field
+### 4. `[RESOLVED]` Audit saves are one connection and one transaction per field
+
+**Resolved 13-10-2026.** `database.save_audit_responses(module_code, {field_id:
+value}, ...)` writes a whole audit in one connection and one transaction, and
+the Audit Portal now calls it with `audit_status` last, so a failure rolls
+everything back instead of leaving new answers beside a stale status.
+`save_audit_response()` remains as a one-field wrapper. Pinned by
+`tests/test_audit_save.py`. Original finding below.
 
 `views/audit_portal.py` (~lines 371–375) loops over every field calling
 `save_audit_response()`, each of which opens a connection, runs a SELECT, an

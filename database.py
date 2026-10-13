@@ -1848,38 +1848,62 @@ def purge_spot_checks(academic_year: str) -> int:
     logging.info("Purged %d spot_checks rows for %s.", before, academic_year)
     return before
 
+def _write_audit_response(cursor, module_code: str, field_id: str, value: str,
+                          auditor_username: str, timestamp: str):
+    """One audit_responses upsert plus its history row, on the caller's cursor
+    so the caller decides what shares a transaction. `module_code` must
+    already be stripped and upper-cased."""
+    cursor.execute(
+        "SELECT value FROM audit_responses WHERE module_code = ? AND field_id = ?",
+        (module_code, field_id))
+    existing = cursor.fetchone()
+    old_value = existing['value'] if existing else None
+
+    if old_value != value:
+        cursor.execute("""
+            INSERT INTO audit_response_history
+                (module_code, field_id, old_value, new_value, changed_by, changed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (module_code, field_id, old_value, value, auditor_username, timestamp))
+
+    cursor.execute("""
+        INSERT INTO audit_responses (module_code, field_id, value, auditor_username, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(module_code, field_id) DO UPDATE SET
+            value=excluded.value,
+            auditor_username=excluded.auditor_username,
+            timestamp=excluded.timestamp
+    """, (module_code, field_id, value, auditor_username, timestamp))
+
+
+def save_audit_responses(module_code: str, values: dict, auditor_username: str, timestamp: str):
+    """Saves a whole audit in one connection and one transaction: every
+    `{field_id: value}` pair, in the dict's order, or none of them. A failure
+    part-way rolls the lot back, so an audit is never left partly written -
+    in particular never with new answers but a stale audit_status. Put
+    `audit_status` last so it only changes if everything before it saved.
+
+    Each changed value is also logged to audit_response_history, exactly as
+    save_audit_response() does."""
+    module_code = module_code.strip().upper()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        for field_id, value in values.items():
+            _write_audit_response(cursor, module_code, field_id, value,
+                                  auditor_username, timestamp)
+
+
 def save_audit_response(module_code: str, field_id: str, value: str, auditor_username: str, timestamp: str):
     """Saves or updates a single audit response, and logs the change to
     audit_response_history whenever the value actually differs from what was
     stored before - including the first-ever save of a field, logged with
     old_value=NULL. Applies to real audit_fields checklist items and the
-    notes_to_lead/auditor_notes/audit_status meta keys alike, since none of
-    them have a cheap way to be told apart here and all are worth tracing."""
-    module_code = module_code.strip().upper()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT value FROM audit_responses WHERE module_code = ? AND field_id = ?",
-            (module_code, field_id))
-        existing = cursor.fetchone()
-        old_value = existing['value'] if existing else None
+    audit_status meta key alike (and the retired notes_to_lead/auditor_notes
+    keys), since none of them have a cheap way to be told apart here and all
+    are worth tracing. A whole audit should go through save_audit_responses()
+    so it is one transaction."""
+    save_audit_responses(module_code, {field_id: value}, auditor_username, timestamp)
 
-        if old_value != value:
-            cursor.execute("""
-                INSERT INTO audit_response_history
-                    (module_code, field_id, old_value, new_value, changed_by, changed_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (module_code, field_id, old_value, value, auditor_username, timestamp))
-
-        cursor.execute("""
-            INSERT INTO audit_responses (module_code, field_id, value, auditor_username, timestamp)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(module_code, field_id) DO UPDATE SET
-                value=excluded.value,
-                auditor_username=excluded.auditor_username,
-                timestamp=excluded.timestamp
-        """, (module_code, field_id, value, auditor_username, timestamp))
-        conn.commit()
 
 def save_user_sqlite(username: str, password_hash: str, role: str, school: str, capabilities: str, status: str):
     """

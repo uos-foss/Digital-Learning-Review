@@ -13,7 +13,7 @@ from database import (
     get_audit_responses,
     get_audit_response_history,
     get_active_fix_claims,
-    save_audit_response,
+    save_audit_responses,
     get_spot_checks_for_schools,
     get_pending_spot_check,
     mark_spot_check_checked,
@@ -372,11 +372,15 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
                 if save_draft or save_submit:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     try:
-                        for fid, val in responses_input.items():
-                            save_audit_response(selected_code, fid, str(val), username_upper, timestamp)
-
                         status = 'submitted' if save_submit else 'draft'
-                        save_audit_response(selected_code, 'audit_status', status, username_upper, timestamp)
+                        # One transaction: all answers and the status, or nothing.
+                        # audit_status goes last so it can't move ahead of answers
+                        # that failed to save.
+                        save_audit_responses(
+                            selected_code,
+                            {**{fid: str(val) for fid, val in responses_input.items()},
+                             'audit_status': status},
+                            username_upper, timestamp)
                         if save_submit:
                             action = "updated" if is_submitted else "submitted"
                         else:
