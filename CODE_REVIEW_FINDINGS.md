@@ -173,7 +173,22 @@ a third copy of it, not just a pair). Original finding below.
 they call. One function taking the summariser — or a shared
 `_module_issue_rows(code)` both build on — collapses them.
 
-### 8. Import scaffolding duplicated three times
+### 8. `[PARTLY RESOLVED]` Import scaffolding duplicated three times
+
+**Done 13-10-2026:** the filename date extraction. `processing.date_from_filename()`
+(tested) reads the date and `views/admin_panel.py`'s `_snapshot_date_input()`
+is the one "Snapshot date" picker the Ally, Leganto and readiness importers
+share, replacing three identical copies of the regex, the `to_datetime` and
+the widget.
+
+**Deliberately not done:** a shared upload → parse → confirm → write
+framework over the three importers. The steps that differ (the year source -
+read from `Term name`, chosen by the operator, or read from `TERM_NAME` - the
+parse call, the metrics shown, the extra Ally options, the write) are most of
+each function, so a framework would be mostly callbacks, and none of it can
+be exercised without signing in and importing a real export of each kind.
+Revisit only alongside a change that needs to touch all three at once.
+Original finding below.
 
 `views/admin_panel.py` repeats the same filename date-extraction
 (`re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', …)` + `pd.to_datetime(dayfirst=True)`)

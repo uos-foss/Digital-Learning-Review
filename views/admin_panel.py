@@ -67,7 +67,7 @@ from processing import (
     format_user_schools,
     school_of, school_series,
 )
-from processing import title_case_name
+from processing import date_from_filename, title_case_name
 
 def parse_log_line(line):
     """
@@ -189,6 +189,15 @@ def _render_purge_expander(expander_label, description, no_data_caption,
                 st.cache_data.clear()
 
 
+def _snapshot_date_input(uploaded_file, key, help_text):
+    """The "Snapshot date" picker the Ally, Leganto and readiness importers
+    share. A date in the filename is the usual convention and is offered as the
+    default; with none, it is today - never a silent guess at anything else."""
+    return st.date_input(
+        "Snapshot date:", value=date_from_filename(uploaded_file.name) or datetime.date.today(),
+        key=key, help=f"{help_text} Taken from the filename where possible.")
+
+
 def _render_ally_import():
     """
     Importer for the Anthology Ally institutional report.
@@ -246,16 +255,8 @@ def _render_ally_import():
             "Academic year to import:", years, index=0, key="ally_import_year",
             help="Every other year in the file is discarded.")
     with c2:
-        # A date in the filename is the usual convention; never guess silently.
-        default_date = datetime.date.today()
-        match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', ally_file.name)
-        if match:
-            parsed = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
-            if not pd.isna(parsed):
-                default_date = parsed.date()
-        snapshot_date = st.date_input(
-            "Snapshot date:", value=default_date, key="ally_import_date",
-            help="When Ally produced this export. Taken from the filename where possible.")
+        snapshot_date = _snapshot_date_input(
+            ally_file, "ally_import_date", "When Ally produced this export.")
 
     try:
         parsed = parse_ally_export(df_raw, academic_year, snapshot_date.strftime('%Y-%m-%d'))
@@ -439,15 +440,8 @@ def _render_leganto_import():
             key="leganto_import_year",
             help="Not read from the file - there is no reliable per-row year column.")
     with c2:
-        default_date = datetime.date.today()
-        match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', leganto_file.name)
-        if match:
-            parsed = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
-            if not pd.isna(parsed):
-                default_date = parsed.date()
-        snapshot_date = st.date_input(
-            "Snapshot date:", value=default_date, key="leganto_import_date",
-            help="When this export was produced. Taken from the filename where possible.")
+        snapshot_date = _snapshot_date_input(
+            leganto_file, "leganto_import_date", "When this export was produced.")
 
     if detected_years and academic_year not in detected_years:
         st.warning(
@@ -604,15 +598,8 @@ def _render_readiness_import():
             key="readiness_import_year",
             help="Read from TERM_NAME in the file. Rows for other years are dropped.")
     with c2:
-        default_date = datetime.date.today()
-        match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', readiness_file.name)
-        if match:
-            parsed_dt = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
-            if not pd.isna(parsed_dt):
-                default_date = parsed_dt.date()
-        snapshot_date = st.date_input(
-            "Snapshot date:", value=default_date, key="readiness_import_date",
-            help="When this export was produced. Taken from the filename where possible.")
+        snapshot_date = _snapshot_date_input(
+            readiness_file, "readiness_import_date", "When this export was produced.")
 
     try:
         parsed = parse_readiness_export(df_raw, academic_year, snapshot_date.strftime('%Y-%m-%d'))

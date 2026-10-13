@@ -293,6 +293,18 @@ def summarise_ally_issue_categories(df_issues, module_codes=None):
     grouped = grouped.sort_values('_order').drop(columns='_order')
     return grouped[columns].reset_index(drop=True)
 
+def date_from_filename(filename):
+    """The DD-MM-YYYY (or D-M-YY) date an export's filename carries, as a
+    datetime.date, or None if it has none or it isn't a real date. Day first,
+    the convention the faculty's exports use. The admin importers offer this as
+    the default snapshot date and never guess beyond it."""
+    match = re.search(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', str(filename or ''))
+    if not match:
+        return None
+    parsed = pd.to_datetime(match.group(0), dayfirst=True, errors='coerce')
+    return None if pd.isna(parsed) else parsed.date()
+
+
 def ally_term_to_academic_year(term_name):
     """'Academic Year 2026-2027' -> '2026-27'. Returns '' if unparseable."""
     m = re.search(r'(\d{4})\s*[-~/]\s*(\d{2,4})', str(term_name))
