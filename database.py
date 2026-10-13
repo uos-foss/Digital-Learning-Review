@@ -570,14 +570,33 @@ def init_db():
     conn.commit()
     conn.close()
 
+class _ClosingConnection(sqlite3.Connection):
+    """A connection whose `with` block also closes it.
+
+    sqlite3.Connection's own context manager only commits or rolls back - it
+    leaves the connection open until it is garbage-collected. Every
+    `with get_db_connection() as conn:` in the codebase is meant to be a
+    complete unit of work, so leaving the block commits (or rolls back on an
+    exception, which is then re-raised) and closes. Code that holds a
+    connection without `with` still closes it explicitly, as before."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def get_db_connection():
     """
-    Establishes an SQLite connection to the shared database.
+    Establishes an SQLite connection to the shared database. Use it as
+    `with get_db_connection() as conn:` - the block commits or rolls back,
+    then closes the connection.
     """
     # Ensure the enclosing folder structure exists locally or in-container
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, factory=_ClosingConnection)
     conn.row_factory = sqlite3.Row
     
     # Enable WAL mode for asynchronous concurrency
@@ -595,9 +614,9 @@ def _immediate_transaction():
     The shared shape every "read-then-write-then-log" full-year-replace
     import (SITS, SGA) needs: none of them can use the ordinary
     `with get_db_connection() as conn:` pattern used elsewhere in this file,
-    since that manages the transaction but not the connection itself (a
-    quirk of sqlite3.Connection's own context-manager protocol), and these
-    functions need the connection actually closed on every path. Yields the
+    since they need an explicit BEGIN IMMEDIATE (the ordinary block only
+    starts a transaction at its first write) and the connection actually
+    closed on every path. Yields the
     cursor; the caller does its work against it and returns/raises normally.
     """
     conn = get_db_connection()
