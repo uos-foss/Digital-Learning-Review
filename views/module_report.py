@@ -882,7 +882,7 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
 
     if only_own_school:
         user_schools = parse_user_schools(st.session_state.saved_school)
-        school_context_badge = f" <span style='font-size: 14px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 3px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
+        school_context_badge = f" <span style='font-size: 14px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 3px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {html.escape(format_user_schools(user_schools))}</span>"
         st.markdown(f"<h1 class='mr-page-title'>Module Report{school_context_badge}</h1>", unsafe_allow_html=True)
         combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
         col_school, col_search = None, st.container()
@@ -996,7 +996,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             with col_title:
                 st.markdown(
                     f"<div style='font-size:1.35rem;font-weight:700;line-height:1.3;'>"
-                    f"{selected_code} — {module_mapping.get(selected_code, selected_code)}</div>",
+                    f"{html.escape(str(selected_code))} — "
+                    f"{html.escape(str(module_mapping.get(selected_code, selected_code)))}</div>",
                     unsafe_allow_html=True)
             # Filled at the end, once the report below has been worked out.
             pdf_slot = col_pdf.empty()
@@ -1087,11 +1088,13 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
             if not raw_mod_lead or raw_mod_lead.lower() == 'nan':
                 mod_lead = f"<span style='{TEXT_FAINT};'>--</span>"
             else:
-                mod_lead = title_case_name(raw_mod_lead)
+                mod_lead = html.escape(title_case_name(raw_mod_lead))
 
             ug_pg = str(active_row.get('UG/ PG/ Other', '')).strip()
             if not ug_pg or ug_pg == 'nan':
                 ug_pg = f"<span style='{TEXT_FAINT};'>--</span>"
+            else:
+                ug_pg = html.escape(ug_pg)
 
             url = str(active_row.get('URL', '')).strip()
             if url == 'nan':
@@ -1122,8 +1125,10 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
                 has_audit, sum_entry.get('Timestamp') if sum_entry else None,
                 pending_spot_check)
 
-            vle_value = (f"<a href='{url}' target='_blank'>Open Module Site</a>"
-                         if url else f"<span style='{TEXT_FAINT};'>--</span>")
+            # The URL is imported data: only a web link is offered, and it is
+            # escaped for the quoted href so an apostrophe can't end the attribute.
+            vle_value = (f"<a href='{html.escape(url, quote=True)}' target='_blank'>Open Module Site</a>"
+                         if url.lower().startswith(('http://', 'https://')) else f"<span style='{TEXT_FAINT};'>--</span>")
 
             # Readiness Outcome (the data-driven gating verdict) is hidden for
             # now, per user request - compute_audit_verdict() above is left
