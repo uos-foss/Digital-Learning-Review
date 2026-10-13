@@ -29,6 +29,7 @@ from processing import (
     scoreable,
     summarise_ally_issue_categories,
     summarise_ally_issues,
+    title_case_name,
     SECTION_STATES,
     SGA_SECTION,
     TEMPLATE_SECTIONS,
@@ -484,33 +485,6 @@ def ally_summary(active_row, ally_categories, snapshot_date):
             'maturity_banner': maturity_banner}
 
 
-def title_case_name(name: str) -> str:
-    if not name:
-        return name
-    words = name.split()
-    title_words = []
-    for word in words:
-        if '-' in word:
-            parts = word.split('-')
-            processed_parts = []
-            for part in parts:
-                p = part.capitalize()
-                if p.lower().startswith('mc') and len(p) > 2:
-                    p = 'Mc' + p[2:].capitalize()
-                elif len(p) > 2 and p[:2].upper() in ["O'", "D'", "L'"]:
-                    p = p[:2].upper() + p[2:].capitalize()
-                processed_parts.append(p)
-            word = '-'.join(processed_parts)
-        else:
-            word = word.capitalize()
-            if word.lower().startswith('mc') and len(word) > 2:
-                word = 'Mc' + word[2:].capitalize()
-            elif len(word) > 2 and word[:2].upper() in ["O'", "D'", "L'"]:
-                word = word[:2].upper() + word[2:].capitalize()
-        title_words.append(word)
-    return ' '.join(title_words)
-
-
 def sga_note(active_row, can_view):
     """One neutral line for the Skills Development (SGAs) card: whether the SGA
     tool has any attributes mapped for this module, and how many. None when
@@ -570,7 +544,7 @@ def action_items(actions):
     return items
 
 
-def _module_issues(df_issues, code):
+def module_issues(df_issues, code):
     """This module's rows of an Ally issues frame, or an empty frame."""
     if df_issues is None or df_issues.empty:
         return pd.DataFrame()
@@ -600,7 +574,7 @@ def ally_issue_view(df_issues, code):
     tier). Both empty when the module has none. See the Streamlit page's
     _render_ally_issues() for why categories lead and detail is secondary.
     """
-    mine = _module_issues(df_issues, code)
+    mine = module_issues(df_issues, code)
     cats = summarise_ally_issue_categories(mine) if not mine.empty else pd.DataFrame()
     detail = summarise_ally_issues(mine) if not mine.empty else pd.DataFrame()
 
