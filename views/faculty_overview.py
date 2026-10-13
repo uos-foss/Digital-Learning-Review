@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from processing import (aggregate_faculty_stats, calculate_module_compliance,
+from processing import (title_case_name, aggregate_faculty_stats, calculate_module_compliance,
                         calculate_dynamic_compliance_gap, get_school_comparison,
                         resolve_semester_df, summarise_ai_declarations, summarise_ai_modules,
                         AI_FLAG_OPTIONS, school_of,
@@ -15,7 +15,7 @@ from views.ally_widgets import (
     scoreable, mean_score, render_maturity_banner, render_maturity_breakdown,
     render_issue_profile, build_accessibility_risk_list,
 )
-from views.school_dashboard import to_title_case, comment_field_label
+from views.school_dashboard import comment_field_label
 
 
 def _with_school_column(df):
@@ -177,7 +177,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
 
             st.subheader("Module Audit Status")
             display_df = scope_df.copy().sort_values(['School', 'New module code']).reset_index(drop=True)
-            display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_title_case)
+            display_df['Mod. lead'] = display_df['Mod. lead'].apply(title_case_name)
             cols = ['School', 'New module code', 'Module name', 'Mod. lead']
             configs = {
                 "School": "School",
@@ -664,7 +664,7 @@ def view_faculty_overview(df_aut, df_spr, checklist_sums, df_assess=None):
                     'School': r.get('School', ''),
                     'Module Code': code,
                     'Module Name': r.get('Module name', ''),
-                    'Module Lead': to_title_case(r.get('Mod. lead', '')),
+                    'Module Lead': title_case_name(r.get('Mod. lead', '')),
                 }
                 row.update(module_alignment_status(
                     active_row, responses, active_fields,

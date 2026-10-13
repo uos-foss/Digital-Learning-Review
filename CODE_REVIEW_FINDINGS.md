@@ -134,7 +134,14 @@ That invariant is currently protected by three copies staying in sync by
 hand. One `resolve_school_context(page_prefix, title, ...)` helper would
 make it enforceable in a single place.
 
-### 6. Two title-case implementations for academic names
+### 6. `[RESOLVED]` Two title-case implementations for academic names
+
+**Resolved 13-10-2026.** `title_case_name()` now lives in `processing.py`
+(made safe for blank/None/NaN, which was the one thing School Dashboard's
+copy did that it didn't). `to_title_case()` is deleted; School Dashboard,
+Faculty Overview, the Admin Panel, the module report and `report_model` all
+use the one function, so a lead's name now reads the same in every table
+(`MCDONALD` is `McDonald`, not `Mcdonald`). Original finding below.
 
 `views/module_report.py`'s `title_case_name()` handles McDonald / O'Brien /
 hyphenated names; `views/school_dashboard.py`'s `to_title_case()` is a bare
@@ -146,7 +153,12 @@ differently across three of its tables.
 Both belong in `processing.py` (pure string work, no I/O), with the
 School Dashboard copy deleted.
 
-### 7. `_ally_issue_profile` / `_ally_issue_categories` are the same function
+### 7. `[RESOLVED]` `_ally_issue_profile` / `_ally_issue_categories` are the same function
+
+**Resolved 13-10-2026.** One `_ally_issues_for(code, summarise)` in
+`views/module_report.py`, built on `report_model.module_issues()` (the
+public name for the per-module filter `report_model` already had - this was
+a third copy of it, not just a pair). Original finding below.
 
 `views/module_report.py` (~355 and ~366) differ only in which `summarise_*`
 they call. One function taking the summariser — or a shared

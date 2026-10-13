@@ -61,6 +61,7 @@ from report_model import (
     ally_snapshot_date,
     ally_summary,
     sga_note,
+    module_issues,
     title_case_name,
     ally_band as _ally_band,
     audit_status_label as _audit_status_label,
@@ -253,26 +254,13 @@ def _render_ally_card(selected_code, active_row, ally_profile, ally_categories):
         _render_ally_issues(ally_categories, ally_profile, is_template)
 
 
-def _ally_issue_profile(selected_code):
-    """This module's Ally issues, ranked worst-first. Empty frame if none."""
+def _ally_issues_for(selected_code, summarise):
+    """This module's Ally issues, put through `summarise` (per-check profile or
+    category roll-up). Empty frame if the module, or the import, has none."""
     df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
     if df_issues is None or df_issues.empty:
         return pd.DataFrame()
-
-    mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
-                     == str(selected_code).strip().upper()]
-    return summarise_ally_issues(mine)
-
-
-def _ally_issue_categories(selected_code):
-    """This module's Ally issues rolled up to ALLY_CATEGORIES. Empty frame if none."""
-    df_issues = st.session_state.get("df_ally_issues", pd.DataFrame())
-    if df_issues is None or df_issues.empty:
-        return pd.DataFrame()
-
-    mine = df_issues[df_issues['module_code'].astype(str).str.strip().str.upper()
-                     == str(selected_code).strip().upper()]
-    return summarise_ally_issue_categories(mine)
+    return summarise(module_issues(df_issues, selected_code))
 
 
 def _render_advisor_comment(responses):
@@ -1079,8 +1067,8 @@ def view_module_report(df_aut, df_spr, checklist_sums, df_assess=None, load_chec
         # Accessibility tab) - see "Unified module findings" in CLAUDE.md.
         actions = [f for f in findings if f['state'] == 'pending']
 
-        ally_profile = _ally_issue_profile(selected_code)
-        ally_categories = _ally_issue_categories(selected_code)
+        ally_profile = _ally_issues_for(selected_code, summarise_ally_issues)
+        ally_categories = _ally_issues_for(selected_code, summarise_ally_issue_categories)
 
         # 1. Overview metadata + Report Summary
         if active_row is not None:

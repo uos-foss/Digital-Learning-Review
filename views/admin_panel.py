@@ -66,7 +66,7 @@ from processing import (
     format_user_schools,
     school_of, school_series,
 )
-from views.module_report import title_case_name
+from processing import title_case_name
 
 def parse_log_line(line):
     """

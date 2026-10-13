@@ -365,6 +365,38 @@ def parse_user_schools(school_value):
     codes = [c.strip().upper() for c in raw.split(",") if c.strip()]
     return codes if codes else ["All"]
 
+def title_case_name(name) -> str:
+    """A person's name from SITS, which holds it in capitals, as display text.
+
+    Handles hyphenated names and the Mc / O' / D' / L' prefixes, and gives ''
+    for a blank, None or NaN cell so it is safe to `.apply()` over a column.
+    Collapses runs of whitespace. The one name formatter the Streamlit pages,
+    the PDF and the Django report all use."""
+    if name is None or pd.isna(name):
+        return ""
+    words = str(name).split()
+    title_words = []
+    for word in words:
+        if '-' in word:
+            processed_parts = []
+            for part in word.split('-'):
+                p = part.capitalize()
+                if p.lower().startswith('mc') and len(p) > 2:
+                    p = 'Mc' + p[2:].capitalize()
+                elif len(p) > 2 and p[:2].upper() in ["O'", "D'", "L'"]:
+                    p = p[:2].upper() + p[2:].capitalize()
+                processed_parts.append(p)
+            word = '-'.join(processed_parts)
+        else:
+            word = word.capitalize()
+            if word.lower().startswith('mc') and len(word) > 2:
+                word = 'Mc' + word[2:].capitalize()
+            elif len(word) > 2 and word[:2].upper() in ["O'", "D'", "L'"]:
+                word = word[:2].upper() + word[2:].capitalize()
+        title_words.append(word)
+    return ' '.join(title_words)
+
+
 def format_user_schools(schools):
     """
     Inverse of parse_user_schools - for the School badge/checkbox label and

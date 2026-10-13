@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from processing import (calculate_module_compliance, module_gap_areas, resolve_semester_df,
+from processing import (title_case_name, calculate_module_compliance, module_gap_areas, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
@@ -19,15 +19,6 @@ from views.ally_widgets import (
     build_accessibility_risk_list,
 )
 from views.sga_widgets import render_school_sga
-
-def to_title_case(name: str) -> str:
-    """Convert name to title case (capitalize each word)."""
-    if not name or pd.isna(name):
-        return ""
-    name_str = str(name).strip()
-    if not name_str:
-        return ""
-    return name_str.title()
 
 # 'comments' ("Additional Comments") is the audit field both spot-check views
 # read: a column on "Spot-Checks", the whole of "Spot-Check Comments". Its
@@ -276,7 +267,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 # otherwise land in whatever order the last sync inserted them.
                 display_df = display_df.sort_values('New module code').reset_index(drop=True)
                 # Apply sentence case to Module Lead names
-                display_df['Mod. lead'] = display_df['Mod. lead'].apply(to_title_case)
+                display_df['Mod. lead'] = display_df['Mod. lead'].apply(title_case_name)
                 cols = ['New module code', 'Module name', 'Mod. lead']
                 configs = {
                     "New module code": "Module Code",
@@ -540,7 +531,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     else:
                         table = school_df.copy()
                         table['_code'] = table['New module code'].astype(str).str.strip().str.upper()
-                        table['Mod. lead'] = table['Mod. lead'].apply(to_title_case)
+                        table['Mod. lead'] = table['Mod. lead'].apply(title_case_name)
 
                         if filters_active:
                             table_issues = severity_scoped
@@ -888,7 +879,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             row = {
                                 'New module code': code,
                                 'Module name': active_row.get('Module name', ''),
-                                'Mod. lead': to_title_case(active_row.get('Mod. lead', '')),
+                                'Mod. lead': title_case_name(active_row.get('Mod. lead', '')),
                             }
                             row['Auditor Comments'] = " ".join(format_comment_markdown(
                                 checklist_sums.get(c_str, {}).get('Responses', {}).get('comments')
