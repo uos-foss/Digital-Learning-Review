@@ -66,8 +66,17 @@ The ones carrying imported data were the metadata bar's module lead, level
 and URL, the module title/code and the school badge; all are now
 `html.escape()`d, and the Module Site link is only offered for `http(s)` URLs.
 The Ally issue/category cards, section cards, SGA note and audit-status label
-interpolate only text built in code, so they were left alone. Original finding
-below.
+interpolate only text built in code, so they were left alone.
+
+**Follow-up audit of the other pages, 13-10-2026.** Every remaining
+`unsafe_allow_html` site in `app.py` and `views/` was read. Escaped: the
+school badge in `audit_portal.py` and `school_dashboard.py`, the spot-check
+queue's module code and name (`audit_portal.py`), School Dashboard's heading,
+and the Admin Panel's console-style log viewer, the worst of them because log
+lines carry user-typed values (login names, error text). The rest are static
+CSS or an `<hr>`, and need nothing. There is no `st.html()` use in the repo.
+
+Original finding below.
 
 `views/module_report.py` (~lines 1234–1247) puts `mod_lead`, `ug_pg` and
 `url` straight into an `unsafe_allow_html` block, with `url` also landing
