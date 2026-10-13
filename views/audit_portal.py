@@ -19,7 +19,6 @@ from database import (
     mark_spot_check_checked,
     record_unflagged_spot_check,
 )
-from masquerade import is_masquerading
 from views.nav import render_back_to_school_dashboard
 
 def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_checklist_data_cache=None):
@@ -333,10 +332,6 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
 
                 st.markdown("---")
 
-                masquerading = is_masquerading()
-                if masquerading:
-                    st.info("🎭 Masquerade mode is view-only — switch back to your own account to save changes.")
-
                 # Audit status is a one-way progression: Not Started -> Draft ->
                 # Submitted, and never goes backwards. There is deliberately no
                 # "revert to draft" action.
@@ -357,7 +352,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
                 if is_submitted:
                     save_draft = False
                     save_submit = st.form_submit_button(
-                        "✅ Update Audit", use_container_width=True, disabled=masquerading,
+                        "✅ Update Audit", use_container_width=True,
                         help="Saves your changes. This module stays Submitted and keeps "
                              "counting toward faculty figures; every change is recorded "
                              "in Change History.")
@@ -365,16 +360,16 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
                     col_draft, col_submit = st.columns(2)
                     with col_draft:
                         save_draft = st.form_submit_button(
-                            "💾 Save Draft", use_container_width=True, disabled=masquerading,
+                            "💾 Save Draft", use_container_width=True,
                             help="Saves your progress without marking the audit complete. "
                                  "Draft audits are excluded from faculty compliance figures.")
                     with col_submit:
                         save_submit = st.form_submit_button(
-                            "✅ Submit Audit", use_container_width=True, disabled=masquerading,
+                            "✅ Submit Audit", use_container_width=True,
                             help="Marks this audit complete. It starts counting toward "
                                  "faculty compliance figures, and stays editable afterwards.")
 
-                if (save_draft or save_submit) and not masquerading:
+                if save_draft or save_submit:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     try:
                         for fid, val in responses_input.items():

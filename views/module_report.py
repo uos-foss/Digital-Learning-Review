@@ -6,7 +6,6 @@ import re
 import html
 from datetime import datetime
 from report_pdf import build_module_report_pdf
-from masquerade import is_masquerading
 from views.nav import render_back_to_school_dashboard
 from processing import (
     get_module_mapping,
@@ -563,8 +562,7 @@ def _render_fix_claim_buttons(open_actions, module_code):
     button: every other action resolves from the data on its own. A claim
     changes wording and where the item is listed on this page, never the
     advisor's answer, the counts or the matrix; it stays until the advisor
-    next saves that field. Held by the report_fixed capability, and refused
-    while masquerading.
+    next saves that field. Held by the report_fixed capability.
     """
     caps = [str(c).lower() for c in st.session_state.get("capabilities", [])]
     if not module_code or FIX_CLAIM_CAPABILITY not in caps:
@@ -599,9 +597,7 @@ def _render_fix_claim_buttons(open_actions, module_code):
             submitted = st.form_submit_button("Mark selected as fixed")
         if submitted:
             chosen = [fid for fid, on in ticked.items() if on]
-            if is_masquerading():
-                st.warning("Viewing as another user. Nothing was saved.")
-            elif not chosen:
+            if not chosen:
                 st.warning("Tick at least one section.")
             else:
                 # Everyone signs in with Google, and the session username is

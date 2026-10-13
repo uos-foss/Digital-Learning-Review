@@ -777,7 +777,7 @@ Reported fixed panel do. The form lists sections in report order
 indefinitely, so a lead who fixed a section afterwards had no way to say so.
 `fix_claims` (one row per module and field) holds a lead's claim, written from
 the module report's Actions column by `_render_fix_claim_buttons()` under the
-`report_fixed` capability (refused while masquerading). It is offered only for
+`report_fixed` capability. It is offered only for
 a template-mapped field the DLA recorded as not complete: everything else
 resolves from data on its own. A claim only adds wording
 (`processing.fix_claim_words()`, passed to `derive_module_findings()` and the
@@ -1414,11 +1414,8 @@ inspection scripts, not tests.
 ## Known outstanding issues
 
 `CODE_REVIEW_FINDINGS.md` records what a September 2026 sweep for
-redundancies and improvements turned up, including the items not yet fixed -
-most notably that **masquerade mode does not actually gate writes** in the
-Admin Panel or the School Dashboard's spot-check actions, despite
-`masquerade.py`'s docstring and the sidebar banner both saying it is
-view-only. Read it before starting work in those areas, and mark an item
+redundancies and improvements turned up, including the items not yet fixed.
+Read it before starting work in those areas, and mark an item
 `[RESOLVED]` there rather than deleting it when you fix one.
 
 ## AI declarations (read from the satellite AI-Audit app)

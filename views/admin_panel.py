@@ -66,7 +66,6 @@ from processing import (
     format_user_schools,
     school_of, school_series,
 )
-from masquerade import start_masquerade
 from views.module_report import title_case_name
 
 def parse_log_line(line):
@@ -1396,12 +1395,6 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                                         except Exception as ex:
                                             st.error(f"Error deleting user: {ex}")
 
-                                    real_username = st.session_state.get("real_username", st.session_state.get("username", ""))
-                                    if str(selected_user).strip().upper() != str(real_username).strip().upper():
-                                        if st.button("🎭 View As This User", use_container_width=True, key=f"btn_masquerade_{selected_user}"):
-                                            logging.info(f"🎭 Admin '{real_username}' started masquerading as '{selected_user}'.")
-                                            start_masquerade(selected_user)
-
                     with c2:
                         st.markdown("**Create New User Account**")
                         creatable_roles_list = roles_list if is_full_admin else assignable_roles_list
@@ -1630,7 +1623,7 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
                             if "Username" not in df_remove.columns:
                                 st.error("🚫 CSV must include a `Username` column.")
                             else:
-                                real_username = st.session_state.get("real_username", st.session_state.get("username", ""))
+                                real_username = st.session_state.get("username", "")
                                 real_username_key = str(real_username).strip().upper()
 
                                 existing_by_key_rm = {}

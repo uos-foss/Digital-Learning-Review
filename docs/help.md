@@ -24,8 +24,8 @@ all of these.
 5. **Admin Panel**: user and role management, audit field configuration, data
    import/export, logs and diagnostics. Requires `access_admin_panel`, or the
    reduced `access_admin_limited` scope (Module Manager and a restricted User
-   Control tab only, with no Role Capabilities, no delete/password-reset/
-   masquerade, no assigning admin roles) available to Digital Learning
+   Control tab only, with no Role Capabilities, no delete/password-reset,
+   no assigning admin roles) available to Digital Learning
    Advisors.
 
 ### 🗓️ Semester Selector
@@ -228,7 +228,7 @@ module to a different lead.
 The Admin Panel's User Control tab manages accounts and roles. Full admin
 holders see the whole tab, including Role Capabilities; the reduced
 `access_admin_limited` scope hides Role Capabilities entirely and excludes
-delete, password-reset and masquerade actions, and can't assign an admin
+delete and password-reset actions, and can't assign an admin
 role to anyone.
 
 User Accounts includes a Bulk Import/Export section: importing a CSV of

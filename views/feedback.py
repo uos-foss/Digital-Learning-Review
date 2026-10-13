@@ -2,7 +2,6 @@ import streamlit as st
 import datetime
 import logging
 from database import save_feedback_sqlite
-from masquerade import is_masquerading
 from processing import parse_user_schools, format_user_schools
 
 def view_feedback():
@@ -15,10 +14,6 @@ def view_feedback():
     # Use a nice card-like container for the form
     with st.container(border=True):
         st.subheader("Submit Your Feedback")
-
-        masquerading = is_masquerading()
-        if masquerading:
-            st.info("🎭 Masquerade mode is view-only — switch back to your own account to submit feedback.")
 
         with st.form("app_feedback_form", clear_on_submit=True):
             category = st.selectbox(
@@ -49,9 +44,9 @@ def view_feedback():
                 height=150
             )
             
-            submitted = st.form_submit_button("Submit Feedback", type="primary", disabled=masquerading)
+            submitted = st.form_submit_button("Submit Feedback", type="primary")
 
-            if submitted and not masquerading:
+            if submitted:
                 if not comments.strip():
                     st.warning("Please provide your comments before submitting.")
                 else:
