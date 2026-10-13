@@ -58,7 +58,16 @@ shadowing another admin gets a fully writable Admin Panel while the banner
 claims otherwise. Needs a deliberate decision: either gate the write paths,
 or narrow the banner's claim to match what is actually enforced.
 
-### 2. Unescaped database content interpolated into HTML
+### 2. `[RESOLVED]` Unescaped database content interpolated into HTML
+
+**Resolved 13-10-2026.** Audited every `unsafe_allow_html` site in
+`views/module_report.py` (the line numbers below predate later refactors).
+The ones carrying imported data were the metadata bar's module lead, level
+and URL, the module title/code and the school badge; all are now
+`html.escape()`d, and the Module Site link is only offered for `http(s)` URLs.
+The Ally issue/category cards, section cards, SGA note and audit-status label
+interpolate only text built in code, so they were left alone. Original finding
+below.
 
 `views/module_report.py` (~lines 1234–1247) puts `mod_lead`, `ug_pg` and
 `url` straight into an `unsafe_allow_html` block, with `url` also landing
