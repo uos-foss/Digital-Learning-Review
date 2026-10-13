@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
 import logging
+import html
 from processing import (
     get_module_mapping, FACULTY_SCHOOLS, readiness_prefill_for_module,
     resolve_active_row, compute_spot_check_agreement, build_spot_check_snapshot,
@@ -41,7 +42,7 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
 
     if only_own_school:
         user_schools = parse_user_schools(st.session_state.saved_school)
-        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
+        school_context_badge = f" <span style='font-size: 16px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {html.escape(format_user_schools(user_schools))}</span>"
         st.markdown(f"### VLE Audit Portal{school_context_badge}", unsafe_allow_html=True)
         combined_options = [opt for opt in combined_options if module_matches_user_schools(opt, user_schools)]
         schools_in_scope = user_schools
@@ -156,8 +157,8 @@ def view_audit_portal(df_aut, df_spr, checklist_sums, df_assess=None, load_check
                         # separate st.caption) so the row doesn't carry two
                         # lots of Streamlit's default block spacing.
                         st.markdown(
-                            f"{marker}**{sc_code}**  \n"
-                            f"<span style='color:inherit;opacity:0.7;font-size:13px;'>{sc_name}</span>",
+                            f"{marker}**{html.escape(str(sc_code))}**  \n"
+                            f"<span style='color:inherit;opacity:0.7;font-size:13px;'>{html.escape(str(sc_name))}</span>",
                             unsafe_allow_html=True)
                     with row_action:
                         if is_current:

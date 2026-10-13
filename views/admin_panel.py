@@ -4,6 +4,7 @@ import altair as alt
 import os
 import re
 import logging
+import html
 import datetime
 from database import (
     get_db_connection,
@@ -1212,9 +1213,11 @@ def view_admin_panel(df_aut, df_spr, checklist_sums, df_assess=None):
             else:
                 console_text = ""
                 for _, row in filtered_logs.iterrows():
-                    ts = row["Timestamp"]
-                    lvl = row["Level"]
-                    msg = row["Message"]
+                    # Log text carries user-typed values (login names, search
+                    # terms, error text), so it is shown as text, never as HTML.
+                    ts = html.escape(str(row["Timestamp"]))
+                    lvl = html.escape(str(row["Level"]))
+                    msg = html.escape(str(row["Message"]))
                     
                     color = "#38BDF8"
                     if lvl == "WARNING":

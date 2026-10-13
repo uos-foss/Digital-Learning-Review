@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import html
 from processing import (title_case_name, calculate_module_compliance, module_gap_areas, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
@@ -92,7 +93,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 user_schools,
                 key="sd_school_select_locked",
             )
-        school_context_badge = f" <span style='font-size: 14px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 3px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {format_user_schools(user_schools)}</span>"
+        school_context_badge = f" <span style='font-size: 14px; vertical-align: middle; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 3px 10px; border-radius: 12px; margin-left: 12px; border: 1px solid rgba(59, 130, 246, 0.2);'>Context: {html.escape(format_user_schools(user_schools))}</span>"
     else:
         user_schools = parse_user_schools(st.session_state.saved_school)
         # If not faculty-wide, show the focus checkbox. If unchecked, let them select another school context.
@@ -169,7 +170,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
         st.markdown(
             f"<h1 class='sd-page-title'>School Dashboard{badge}</h1>"
             f"<div style='font-size:1.35rem;font-weight:700;line-height:1.3;'>"
-            f"{school} - {semester} Semester</div>",
+            f"{html.escape(str(school))} - {html.escape(str(semester))} Semester</div>",
             unsafe_allow_html=True)
 
     target_df = resolve_semester_df(df_aut, df_spr, semester)
