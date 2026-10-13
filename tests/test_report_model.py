@@ -279,3 +279,12 @@ def test_the_matrix_has_one_row_per_module_and_aligned_cells():
     assert [r["code"] for r in matrix["rows"]] == ["TST001", "TST002"]
     assert matrix["columns"][-1] == "Accessibility"
     assert all(len(r["cells"]) == len(matrix["columns"]) for r in matrix["rows"])
+
+
+def test_ally_snapshot_date_accepts_a_series_or_a_dict():
+    # The Streamlit page passes a pandas Series, Django a dict. `row or {}`
+    # raised "truth value of a Series is ambiguous" on the Series.
+    checked = {"Ally Last Checked": "2026-10-01"}
+    for row in (pd.Series(checked), checked):
+        assert report_model.ally_snapshot_date(row, {}) == "01-10-2026"
+    assert report_model.ally_snapshot_date(None, {"ally": "2026-10-05"}) == "05-10-2026"
