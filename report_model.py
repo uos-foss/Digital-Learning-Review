@@ -421,7 +421,10 @@ def ally_snapshot_date(active_row, import_dates):
     in preference to this course's own last-checked date, which Ally's
     unchanged-course skip can leave on an earlier import than the one that
     just ran."""
-    last_checked = str((active_row or {}).get('Ally Last Checked', '') or '')
+    # active_row is a pandas Series on the Streamlit page and a dict in Django;
+    # `active_row or {}` raises on a Series, so test for None explicitly.
+    last_checked = str(
+        ({} if active_row is None else active_row).get('Ally Last Checked', '') or '')
     return (fmt_report_date((import_dates or {}).get('ally'))
             or fmt_report_date(last_checked))
 
