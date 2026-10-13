@@ -80,7 +80,16 @@ already breaks the `href` quoting today. `_render_actions_panel()` already
 `html.escape()`s its custom-observation text and documents why; the same
 discipline has not reached the metadata bar or the card renderers.
 
-### 3. `get_db_connection()` connections are never closed
+### 3. `[RESOLVED]` `get_db_connection()` connections are never closed
+
+**Resolved 13-10-2026** with a `sqlite3.Connection` subclass
+(`database._ClosingConnection`) whose `__exit__` commits or rolls back as
+before and then closes, instead of the `@contextmanager` wrapper proposed
+below: it fixes all 85 `with` sites with no call-site change and, unlike a
+generator-based wrapper, still returns a real connection to the one caller
+that holds it without `with` (`_immediate_transaction()`). Checked that no
+code uses a connection after its `with` block. Pinned by
+`tests/test_db_connection.py`. Original finding below.
 
 85 `with get_db_connection() as conn:` blocks across the codebase; only
 `init_db()` calls `conn.close()`. `sqlite3.Connection.__enter__/__exit__`
