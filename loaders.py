@@ -518,6 +518,7 @@ def audit_summary(row, trail, active_fields):
     return {
         'Status': status,
         'Actionable Items': len(pending),
+        'Pending Items': [f['label'] for f in pending],
         'Derived Findings': [f['label'] for f in pending if f['source'] != 'checklist'],
         'Timestamp': (trail['last_saved'] if audited else "Never"),
         'Auditor': (trail['auditor'] if audited else "System"),
