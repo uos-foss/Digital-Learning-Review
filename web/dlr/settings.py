@@ -254,6 +254,6 @@ SOCIALACCOUNT_PROVIDERS = {
 
 # URL names, not paths, so the script prefix is applied wherever they resolve.
 LOGIN_URL = "account_login"
-LOGIN_REDIRECT_URL = "modules:index"
+LOGIN_REDIRECT_URL = "home"
 ACCOUNT_LOGOUT_REDIRECT_URL = "account_login"
 ACCOUNT_LOGOUT_ON_GET = False            # logging out is a POST, so a link cannot do it

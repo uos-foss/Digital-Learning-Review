@@ -19,12 +19,12 @@
   {% endfor %}
 </table>
 
-<p class="tabs-links">
+{% if not basic %}<p class="tabs-links">
   {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
   {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
   {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
   {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
-</p>
+</p>{% endif %}
 
 <section class="panel">
 {% if view == "comments" %}
