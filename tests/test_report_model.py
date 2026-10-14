@@ -299,3 +299,77 @@ def test_date_from_filename_reads_a_day_first_date_or_gives_none():
     assert date_from_filename("leganto 03-04-2026.csv") == datetime.date(2026, 4, 3)
     for none in ("export.csv", "", None, "report 31-31-2026.csv"):
         assert date_from_filename(none) is None
+
+
+# --- School Dashboard: Spot-Check Comments and Reported Fixes ---------------
+
+def _comments_frame():
+    return pd.DataFrame([
+        # Re-flagged module: two rows, newest flag first, one comment.
+        {"id": 3, "module_code": "TST001", "status": "pending", "flagged_by": "ann",
+         "flagged_on": "2026-10-10 09:00:00", "checked_by": None, "checked_on": None,
+         "comment": " Fixed the contacts\nand the outline ", "comment_by": "bob",
+         "comment_on": "2026-10-05 10:00:00"},
+        {"id": 1, "module_code": "TST001", "status": "checked", "flagged_by": "ann",
+         "flagged_on": "2026-09-01 09:00:00", "checked_by": "bob", "checked_on": None,
+         "comment": " Fixed the contacts\nand the outline ", "comment_by": "bob",
+         "comment_on": "2026-10-05 10:00:00"},
+        {"id": 2, "module_code": "TST002", "status": "pending", "flagged_by": "ann",
+         "flagged_on": "2026-10-11 09:00:00", "checked_by": None, "checked_on": None,
+         "comment": "", "comment_by": None, "comment_on": None},
+        {"id": 4, "module_code": "TST003", "status": "checked", "flagged_by": "cat",
+         "flagged_on": "2026-09-02 09:00:00", "checked_by": "bob", "checked_on": None,
+         "comment": "Later note", "comment_by": "dan", "comment_on": "2026-10-09 10:00:00"},
+    ])
+
+
+def test_comments_one_card_per_module_newest_comment_first():
+    out = report_model.build_spot_check_comments(
+        _comments_frame(), {"TST001": "Alpha"}, [])
+    assert [c["code"] for c in out["cards"]] == ["TST003", "TST001", "TST002"]
+    assert out["flagged"] == 3 and out["with_comment"] == 2 and out["without_comment"] == 1
+    assert out["label"] == "Additional Comments"
+    first_flag = next(c for c in out["cards"] if c["code"] == "TST001")
+    assert first_flag["status"] == "pending"      # the most recent flag is kept
+    assert first_flag["name"] == "Alpha"
+
+
+def test_comments_label_follows_audit_fields():
+    out = report_model.build_spot_check_comments(
+        _comments_frame(), {}, [{"id": "comments", "label": "Advisor remarks"}])
+    assert out["label"] == "Advisor remarks"
+
+
+def test_comments_filters():
+    cards = report_model.build_spot_check_comments(_comments_frame(), {}, [])["cards"]
+    shown = report_model.filter_comment_cards(cards)
+    assert [c["code"] for c in shown] == ["TST003", "TST001"]     # empties hidden
+    assert len(report_model.filter_comment_cards(cards, include_empty=True)) == 3
+    assert [c["code"] for c in report_model.filter_comment_cards(cards, status="checked")] == ["TST003"]
+    assert [c["code"] for c in report_model.filter_comment_cards(cards, search="CONTACTS")] == ["TST001"]
+    assert [c["code"] for c in report_model.filter_comment_cards(
+        cards, search="tst003", include_empty=True)] == ["TST003"]
+
+
+def test_comments_empty_frame():
+    out = report_model.build_spot_check_comments(pd.DataFrame(), {}, [])
+    assert out["cards"] == [] and out["flagged"] == 0
+
+
+def test_reported_fixes_rows_and_counts():
+    fixes = pd.DataFrame([
+        {"module_code": "TST001", "field_id": "contacts_complete", "claimed_by": "login1",
+         "claimed_on": "2026-10-10 09:00:00", "note": "Done", "submitter_name": "a@x.ac.uk",
+         "checked_on": "2026-10-11 09:00:00", "checked_by": "bob", "checked": True},
+        {"module_code": "TST002", "field_id": "learning_materials", "claimed_by": "login2",
+         "claimed_on": "2026-10-12 09:00:00", "note": None, "submitter_name": None,
+         "checked_on": None, "checked_by": None, "checked": False},
+    ])
+    out = report_model.build_reported_fixes(
+        fixes, {"TST001": "Alpha"}, [{"id": "learning_materials", "label": "Learning Materials"}])
+    assert out["awaiting"] == 1 and out["checked"] == 1
+    done, waiting = out["rows"]
+    assert done["reporter"] == "a@x.ac.uk" and done["checked_on"] != "" and done["name"] == "Alpha"
+    assert waiting["reporter"] == "login2" and waiting["note"] == "" and waiting["checked_on"] == ""
+    assert waiting["section"] == "Learning Materials"
+    assert report_model.build_reported_fixes(pd.DataFrame(), {}, [])["rows"] == []

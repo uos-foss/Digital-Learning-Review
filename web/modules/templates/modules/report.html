@@ -16,7 +16,7 @@
 {% if report.comment %}
   <div class="advisor-comment">
     <strong>Comments from your Digital Learning Advisor</strong>
-    {{ report.comment|comment_html }}
+    {{ report.comment|markdown_html }}
   </div>
 {% endif %}
 

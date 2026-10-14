@@ -113,8 +113,8 @@ def main():
     check("report actions match derive_module_findings()", not bad,
           f"{len(audited) + 1} modules compared" + (f"; differ: {bad[:3]}" if bad else ""))
 
-    from modules.templatetags.report_extras import comment_html
-    rendered = str(comment_html("**Note** <script>alert(1)</script>\n\nSecond"))
+    from modules.templatetags.report_extras import markdown_html
+    rendered = str(markdown_html("**Note** <script>alert(1)</script>\n\nSecond"))
     check("advisor comment is escaped before it is marked up",
           "<script>" not in rendered and "<strong>Note</strong>" in rendered
           and rendered.count("<p>") == 2, rendered)
@@ -188,6 +188,24 @@ def main():
           .content.decode("utf-8", "replace"))
     check("an unknown semester falls back instead of failing",
           client.get(f"/schools/{school}/?semester=Winter").status_code == 200)
+    sc = client.get(f"/schools/{school}/?view=comments&empty=1&status=bogus&q=%3Cb%3E")
+    check("spot-check comments view renders and survives odd filters",
+          sc.status_code == 200 and "Spot-Check Comments" in sc.content.decode("utf-8", "replace"))
+    from modules.templatetags.report_extras import markdown_html
+    rendered = str(markdown_html(
+        "**b**\n\n- x\n\n<script>alert(1)</script> [j](javascript:alert(1))"))
+    check("comment markdown renders and typed HTML and javascript: links stay inert",
+          "<strong>b</strong>" in rendered and "<li>x</li>" in rendered
+          and "<script>" not in rendered and 'href="javascript' not in rendered, rendered)
+    comments = data.load_school_comments(school)
+    check("every flagged module appears once in the comments view",
+          len({c["code"] for c in comments["cards"]}) == len(comments["cards"]),
+          f"{comments['flagged']} flagged")
+    fx = client.get(f"/schools/{school}/?view=fixes&show=bogus")
+    check("reported fixes view renders, or falls back when not rolled out",
+          fx.status_code == 200
+          and (data.fixes_enabled(school) == ("Awaiting check" in fx.content.decode("utf-8", "replace")
+                                              or "No fixes have been reported" in fx.content.decode("utf-8", "replace"))))
     check("own school sees its dashboard",
           aligned_client.get(f"/schools/{school}/").status_code == 200)
     check("other school is refused its dashboard",
