@@ -214,7 +214,7 @@ there from `views/ally_widgets.py`, `module_alignment_status()`,
 `reading_list_verdict()`). Scoping is the module report's: a school outside an
 account's alignment is a 403, checked before the code is validated. Not ported:
 spot-check flagging, removal and checking (writes), the Audit Portal jumps,
-the per-lens filters. **Spot-Check Comments and
+the Audit Portal jumps and flagging. **Spot-Check Comments and
 Reported Fixes were added 14-10-2026** as `?view=comments` and `?view=fixes`
 (read-only; their shaping is `report_model.build_spot_check_comments()` /
 `build_reported_fixes()`, so a reworded rule changes one place). Reported Fixes
@@ -280,8 +280,25 @@ partial snapshot showed as a fake fall (ALA's files went 1117 to 1044 on
 as it was. A course deleted in Blackboard is not dropped from the series; that
 was not handled before either.
 
-Next: which of the remaining School Dashboard views, if any, are worth porting
-(the per-lens filters). Writes, and anything
+**The lenses were added 14-10-2026** to the Template Alignment page
+(`?view=alignment&lens=risk&lens=alignment&lens=reading&lens=sga&item=<label>`):
+the same four filters over the item-by-item table, still read-only (no flagging
+from the table). **The rules moved out of `views/school_dashboard.py` into
+`processing.py`** (`lens_accessibility_risk()`, `lens_template_alignment()`,
+`lens_missing_reading_lists()`, `lens_no_sgas()`, `combine_lenses()`,
+`item_status_table()`), so Streamlit and Django read one copy;
+`ally_widgets.build_accessibility_risk_list()` is now the first of those plus
+column configs, which Faculty Overview still uses. Proven a no-op before
+switching Streamlit over, by running the old inline code verbatim against the
+new functions for every school, both semesters, every lens and every
+combination of lenses, plus the item-by-item table: 308 comparisons, 0
+differences. The SGA lens needs `view_sga_analytics`, as in Streamlit.
+`report_model.build_lens_table()` shapes it for the page. The Django modules
+list's Spot-check column now breaks a same-day tie on `id`, as Streamlit does.
+
+Nothing on the School Dashboard is left to port except what stays in
+Streamlit on purpose: flagging, removal and checking spot-checks, and the Audit
+Portal jumps. Writes, and anything
 resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data

@@ -94,6 +94,35 @@ def load_report(code: str, user) -> dict | None:
     )
 
 
+def _spot_status(school: str) -> dict:
+    """Latest spot-check status ('pending' / 'checked') per module code this
+    year. A module re-flagged after a check has one row per flag; the most
+    recent counts. Read fresh."""
+    spot_checks = database.get_school_spot_checks(school, processing.CURRENT_ACADEMIC_YEAR)
+    if spot_checks.empty:
+        return {}
+    latest = (spot_checks.sort_values(["flagged_on", "id"], ascending=False)
+              .drop_duplicates(subset="module_code", keep="first"))
+    return {str(c).strip().upper(): s
+            for c, s in zip(latest["module_code"], latest["status"])}
+
+
+def load_school_lenses(school: str, semester: str, user, lenses, focus) -> dict:
+    """The alignment page's item-by-item table for one school and semester,
+    narrowed by lenses (see report_model.build_lens_table()). The module
+    records come from the cached frames; audit answers, claims and spot-checks
+    are read fresh."""
+    school_df = _school_frame(school, semester)
+    rows = {str(r["New module code"]).strip().upper(): r
+            for r in school_df.to_dict("records")}
+    active_fields = database.get_active_audit_fields()
+    return report_model.build_lens_table(
+        school_df, loaders.load_audit_summaries(rows, active_fields), active_fields,
+        database.get_all_active_fix_claims(), _spot_status(school),
+        lenses=lenses, focus=focus,
+        can_view_sga=processing.can_view_sga(capabilities_of(user)))
+
+
 def _school_frame(school: str, semester: str) -> pd.DataFrame:
     """One school's module records for a semester."""
     df_aut, df_spr = _frames()
@@ -134,13 +163,7 @@ def load_school(school: str, semester: str, user) -> dict:
     active_fields = database.get_active_audit_fields()
     summaries = loaders.load_audit_summaries(rows, active_fields)
 
-    spot_checks = database.get_school_spot_checks(school, processing.CURRENT_ACADEMIC_YEAR)
-    spot_status = {}
-    if not spot_checks.empty:
-        latest = (spot_checks.sort_values("flagged_on", ascending=False)
-                  .drop_duplicates(subset="module_code", keep="first"))
-        spot_status = {str(c).strip().upper(): s
-                       for c, s in zip(latest["module_code"], latest["status"])}
+    spot_status = _spot_status(school)
 
     claims = {str(c).strip().upper(): v
               for c, v in database.get_all_active_fix_claims().items()}

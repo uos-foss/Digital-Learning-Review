@@ -235,6 +235,23 @@ def main():
           and leaving.get(f"/schools/{school}/").status_code == 302)
     ally_all = data.load_school_ally(school, "Autumn", [], [])
     ally_sev = data.load_school_ally(school, "Autumn", ["Severe"], [])
+    every = data.load_school_lenses(school, "Autumn", user, [], [])
+    narrowed = data.load_school_lenses(
+        school, "Autumn", user, ["risk", "alignment", "reading", "bogus"], ["not-an-item"])
+    check("lenses: no lens lists every module, with the matrix columns",
+          len(every["rows"]) == len(listed) and bool(every["columns"]) and not every["filtered"],
+          f"{len(every['rows'])} modules")
+    check("lenses: several lenses narrow, never widen, and say how many flag",
+          len(narrowed["rows"]) <= len(every["rows"]) and narrowed["filtered"]
+          and "flagged by at least one of 3 lenses" in narrowed["status"] and len(narrowed["notes"]) == 3)
+    check("lenses: every flagged module is one the school has",
+          {r["code"] for r in narrowed["rows"]} <= {r["code"] for r in every["rows"]})
+    check("lenses: the SGA lens is not offered to an account without view_sga_analytics",
+          all(o["key"] != "sga" for o in narrowed["lens_options"])
+          and data.load_school_lenses(school, "Autumn", user, ["sga"], [])["filtered"] is False)
+    lp = client.get(f"/schools/{school}/?view=alignment&lens=risk&lens=alignment&item=nope&lens=junk")
+    check("lenses: the alignment page renders with lenses and odd parameters",
+          lp.status_code == 200 and "Per-lens notes" in lp.content.decode("utf-8", "replace"))
     check("ally analytics: modules and issue profile are built",
           bool(ally_all["modules"]) and len(ally_all["modules"]) <= len(listed) + 5,
           f"{len(ally_all['modules'])} modules, {len(ally_all['profile'])} issue types")

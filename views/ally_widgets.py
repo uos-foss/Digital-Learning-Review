@@ -17,7 +17,8 @@ import pandas as pd
 import streamlit as st
 
 from processing import (  # noqa: F401 - the first three re-exported for the views
-    SCOREABLE_MATURITY, mean_score, scoreable, summarise_ally_issues)
+    SCOREABLE_MATURITY, mean_score, scoreable, summarise_ally_issues,
+    lens_accessibility_risk)
 
 from report_model import SURFACE_LABELS, maturity_note
 
@@ -105,54 +106,20 @@ def render_issue_profile(df_issues, module_codes, top_n=12, key="issue_profile")
 
 def build_accessibility_risk_list(df):
     """
-    The accessibility priority list, ranked by harm rather than by score.
-
-    Replaces a flat "below 70%" cut, which ranked a module with four students
-    above one with four hundred and — now that the year rolls over with every
-    course at template content — would have been swamped by untouched shells
-    scoring 99%. Untouched shells are excluded outright: there is nothing to
-    remediate in a course nobody has started populating yet.
+    The accessibility priority list, ranked by harm rather than by score. The
+    rule is processing.lens_accessibility_risk(), shared with the Django
+    alignment page; this adds the Streamlit column configs.
 
     Returns (DataFrame, column_config, status_message, status_type) so the
     School and Faculty views can render it however they already do.
     """
-    if df is None or df.empty:
-        return None, {}, "No modules in scope.", "info"
-
-    scope = scoreable(df)
-    skipped = len(df) - len(scope)
-    if scope.empty:
-        return (None, {},
-                "No courses have content beyond their template yet, so there is nothing "
-                "to remediate. Build progress is the thing to watch at this stage.", "info")
-
-    work = scope.copy()
-    work['_severe'] = pd.to_numeric(work.get('Ally Severe'), errors='coerce').fillna(0)
-    work['_major'] = pd.to_numeric(work.get('Ally Major'), errors='coerce').fillna(0)
-    work['_students'] = pd.to_numeric(work.get('Ally Students'), errors='coerce').fillna(0)
-    work['_score'] = pd.to_numeric(work.get('Ally Overall'), errors='coerce')
-
-    at_risk = work[(work['_severe'] > 0) | (work['_major'] > 0) | (work['_score'] < 0.7)]
-    if at_risk.empty:
-        return (None, {},
-                f"No accessibility risks found across {len(scope)} module(s) with content.",
-                "success")
-
-    # Severe first, then how many students meet it, then how much major work sits
-    # behind it. Score alone is a poor ranking: a module can score well overall
-    # and still hide an unreadable scanned document.
-    at_risk = at_risk.sort_values(['_severe', '_students', '_major'], ascending=False)
+    at_risk, note, status_type = lens_accessibility_risk(df)
+    if at_risk is None:
+        return None, {}, note, status_type
     # Left numeric and formatted by column_config rather than pre-formatted into
     # a string: st.dataframe sorts a text column lexicographically, which puts
     # "9.1%" above "94.9%" the moment a reader clicks the header. Same bug, and
     # the same fix, as the Ally Score column in views/school_dashboard.py.
-    at_risk['Score'] = at_risk['_score'] * 100
-    at_risk['Severe'] = at_risk['_severe'].astype(int)
-    at_risk['Major'] = at_risk['_major'].astype(int)
-    at_risk['Students'] = at_risk['_students'].astype(int)
-
-    cols = [c for c in ['New module code', 'Module name', 'Mod. lead',
-                        'Severe', 'Major', 'Students', 'Score'] if c in at_risk.columns]
     configs = {
         "New module code": "Code", "Module name": "Module Name", "Mod. lead": "Lead",
         "Severe": st.column_config.NumberColumn("Severe", format="%d",
@@ -161,13 +128,4 @@ def build_accessibility_risk_list(df):
         "Students": st.column_config.NumberColumn("Students", format="%d"),
         "Score": st.column_config.NumberColumn("Ally Overall", format="%.1f%%"),
     }
-    # What "Severe" means, carried in the status note rather than a trailing
-    # st.caption() - the callers render this text above the table, where a
-    # caption after the return statement never rendered at all.
-    note = (f"🎯 {len(at_risk)} module(s) with content need accessibility work, worst first. "
-            "Severe issues are unreadable scans, corrupt files, documents locked against "
-            "screen readers, and images that can trigger seizures - these block access "
-            "outright rather than making it harder.")
-    if skipped:
-        note += f" {skipped} module(s) not yet started are excluded."
-    return at_risk[cols].reset_index(drop=True), configs, note, "warning"
+    return at_risk, configs, note, status_type
