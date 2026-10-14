@@ -437,3 +437,29 @@ def test_ally_analytics_filters_narrow_the_table_and_ignore_junk():
 def test_ally_analytics_without_issue_data():
     out = report_model.build_ally_analytics(_ally_school(), pd.DataFrame())
     assert not out["has_issue_data"] and out["profile"] == [] and len(out["modules"]) == 2
+
+
+# --- The Blackboard item tree ------------------------------------------------
+
+def test_tree_guides_follow_siblings_and_depth():
+    def row(depth, kind="section"):
+        return {"kind": kind, "depth": depth}
+    rows = [row(0), row(1), row(1), row(2), row(2), row(1), row(0), row(1)]
+    rows.insert(5, {"kind": "note", "depth": 1})              # a note is not a tree node
+    out = report_model.add_tree_guides(rows)
+    shapes = [(r["depth"], r.get("tree")) for r in out if r["kind"] != "note"]
+    assert shapes[0] == (0, None) and shapes[6] == (0, None)
+    assert shapes[1][1] == {"cont": [], "last": False}        # first of three children
+    assert shapes[3][1] == {"cont": [True], "last": False}    # its parent has a sibling after it
+    assert shapes[4][1] == {"cont": [True], "last": True}     # last grandchild, line above still runs on
+    assert shapes[5][1] == {"cont": [], "last": True}         # last child of the first heading
+    assert shapes[7][1] == {"cont": [], "last": True}         # the second heading's only child
+    # the note sits under a depth-1 item with another depth-1 item still to come, so the
+    # level-1 line runs through it and it draws no elbow of its own
+    assert out[5]["tree"] == {"cont": [True], "last": True}
+
+
+def test_tree_guides_empty_and_flat():
+    assert report_model.add_tree_guides([]) == []
+    flat = report_model.add_tree_guides([{"kind": "section", "depth": 0}] * 3)
+    assert all("tree" not in r for r in flat)

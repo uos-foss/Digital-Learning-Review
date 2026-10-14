@@ -1,0 +1,1 @@
+{% if row.depth %}{% for more in row.tree.cont %}{% if more %}<span class="tg full" style="--k:{{ forloop.counter }}" aria-hidden="true"></span>{% endif %}{% endfor %}<span class="tg{% if not row.tree.last %} full{% endif %}" style="--k:{{ row.depth }}" aria-hidden="true"></span><span class="th" style="--k:{{ row.depth }}" aria-hidden="true"></span>{% endif %}

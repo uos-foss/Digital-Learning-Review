@@ -359,6 +359,9 @@ def main():
           gauges == len(re.findall(r'data-gauge="[^"]+" role="img" aria-label="[^"]+: (?:[\d.]+%|no score)"', acc_page)),
           f"{gauges} gauges")
     comments_html = client.get(f"/schools/{school}/?view=comments").content.decode("utf-8", "replace")
+    tab_html = client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
+    check("the Blackboard item table draws its tree, with no content-type icons",
+          'class="tree"' in tab_html and 'class="th"' in tab_html and 'class="ico"' not in tab_html.split("Blackboard item")[-1].split("</table>")[0])
     check("the comment search and status controls are labelled",
           'for="cq"' in comments_html and 'for="cstatus"' in comments_html)
     check("the sign-in page carries the theme too, with no light-only greys left",

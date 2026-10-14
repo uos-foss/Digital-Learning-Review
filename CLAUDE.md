@@ -311,6 +311,15 @@ new page should use those variables, not literal colours (the only literals left
 are Google's sign-in blue and the severity bar colours). Charts read
 `window.plotTheme()` on the `themechange` event. Streamlit is unchanged.
 
+**The module report's Blackboard item table is a drawn tree, not icons.** The
+content-type icons were dropped 14-10-2026 (the user's call, to try it plain) and
+`report_model.add_tree_guides()` works out, from each row's `depth`, which
+ancestor lines carry on past a row and whether it is the last of its siblings;
+`_tree.html` and the `.tg`/`.th` rules in `base.html` draw them. A note row (the
+SGA one) lets the lines run through it but has no elbow. The icon template tags
+and SVGs in `report_model.py` are now unused by that table, and kept in case the
+icons come back.
+
 **Accessibility conventions on those pages** (audited in a browser on
 14-10-2026, both themes and at phone width, with `web/smoke.py` pinning the
 cheap parts): a skip link to `#content`; the view and report tab bars are
