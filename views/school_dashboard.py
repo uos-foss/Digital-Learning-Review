@@ -417,7 +417,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     "Actionable Items",
                     help="Outstanding items for this module - checklist, Leganto "
                          "reading lists, Ally accessibility, and template readiness "
-                         "findings combined.")
+                         "findings combined. Select a row to see which items.")
                 
                 if 'Leganto Missing' in display_df.columns:
                     def _leganto_display(r):
@@ -504,6 +504,18 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     selected_codes = clean_display_df.iloc[selected_rows]['New module code'].tolist()
 
                     st.divider()
+                    # A dataframe cell cannot carry its own tooltip, so the
+                    # items behind the count are listed for the selected rows.
+                    with st.expander("📌 Outstanding actionable items for the selected "
+                                     f"module{'s' if len(selected_codes) > 1 else ''}",
+                                     expanded=len(selected_codes) == 1):
+                        for _code in selected_codes:
+                            _items = checklist_sums.get(_code, {}).get('Pending Items', [])
+                            if _items:
+                                st.markdown(f"**{html.escape(str(_code))}** ({len(_items)})\n\n"
+                                            + "\n".join(f"- {html.escape(str(i))}" for i in _items))
+                            else:
+                                st.markdown(f"**{html.escape(str(_code))}**: nothing outstanding.")
                     if len(selected_codes) == 1:
                         clicked_code = selected_codes[0]
                         st.info(f"🚀 Quick Action Launch: **{clicked_code}**")
