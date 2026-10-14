@@ -244,6 +244,9 @@ def main():
     check("lenses: several lenses narrow, never widen, and say how many flag",
           len(narrowed["rows"]) <= len(every["rows"]) and narrowed["filtered"]
           and "flagged by at least one of 3 lenses" in narrowed["status"] and len(narrowed["notes"]) == 3)
+    check("lenses: the lens names carry no icons",
+          all(o["label"].isascii() for o in narrowed["lens_options"])
+          and all(n[0].isascii() for n in narrowed["notes"]))
     risk_only = data.load_school_lenses(school, "Autumn", user, ["risk"], [])
     focused = data.load_school_lenses(school, "Autumn", user, ["alignment"], [every["columns"][0]])
     check("lenses: a lens keeps only the columns it speaks to",
