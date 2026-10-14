@@ -1,9 +1,10 @@
 from django.contrib import admin
 from django.urls import include, path
-from django.views.generic import RedirectView
+
+from modules.views import home
 
 urlpatterns = [
-    path("", RedirectView.as_view(pattern_name="modules:index", permanent=False)),
+    path("", home, name="home"),
     path("modules/", include("modules.urls")),
     path("schools/", include("modules.school_urls")),
     # Sign-in, sign-out and the Google callback. allauth owns these URLs; the

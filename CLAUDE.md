@@ -246,8 +246,21 @@ buttons were left out.
   so do not "fix" the gap by counting it. When someone reports a badge lower
   than the page by exactly one, check whether the module has been audited first.
 
-Next: which of the remaining School Dashboard views, if any, are worth porting.
-Writes, and anything resembling the Audit Portal, stay in Streamlit.
+**Module leads get a basic school page** (14-10-2026). An account without
+`view_school_dashboard` (ML holds `view_school` only, via `seed_roles`) sees
+`/schools/<code>/` as the modules list and nothing else: any `?view=` is
+ignored, and the Template Alignment, Spot-Check Comments and Reported Fixes
+tabs are not offered or served. Decided with the user, not an oversight: the
+Streamlit exclusion of ML from the School Dashboard was about the DLA tool, and
+leads already read every report in scope. `accounts.models.has_basic_school_view()`
+is the test. Signing in lands on `home` (`/`): one aligned school goes straight
+to its page, several (or the whole faculty) to the school list. Not done: an
+"own modules first" ordering, which needs the name matching in the lead
+ownership notes and a human confirming the uncertain matches.
+
+Next: which of the remaining School Dashboard views, if any, are worth porting
+(Ally Analytics, Trends, the per-lens filters). Writes, and anything
+resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data
 

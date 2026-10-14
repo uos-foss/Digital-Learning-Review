@@ -208,6 +208,17 @@ def main():
                                               or "No fixes have been reported" in fx.content.decode("utf-8", "replace"))))
     check("own school sees its dashboard",
           aligned_client.get(f"/schools/{school}/").status_code == 200)
+    ml_page = aligned_client.get(f"/schools/{school}/?view=comments").content.decode("utf-8", "replace")
+    ml_matrix = aligned_client.get(f"/schools/{school}/?view=alignment").content.decode("utf-8", "replace")
+    check("a module lead gets the modules list only, whatever view is asked for",
+          "Outstanding actionable items" in ml_page and "Spot-Check Comments" not in ml_page
+          and "Template Alignment" not in ml_matrix and "Reported Fixes" not in ml_page
+          and "<th>Spot-check</th>" in ml_page)
+    ml_home = aligned_client.get("/")
+    check("signing in sends a one-school account straight to its school",
+          ml_home.status_code == 302 and ml_home.url == f"/schools/{school}/", str(ml_home.url))
+    check("a faculty-wide account lands on the school list",
+          client.get("/").url == "/schools/")
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",

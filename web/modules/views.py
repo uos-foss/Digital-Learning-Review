@@ -23,9 +23,9 @@ import processing
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 
-from accounts.models import may_view_module, may_view_school
+from accounts.models import has_basic_school_view, may_view_module, may_view_school
 from auditdata.models import AuditField
 import report_model
 from modules import charts, data
@@ -76,6 +76,19 @@ SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes")
 
 
 @login_required
+def home(request):
+    """
+    Where signing in lands. An account with exactly one school goes straight to
+    it, which is every module lead and any DLA aligned with a single school;
+    anyone with several (or the whole faculty) chooses from the list.
+    """
+    schools = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
+    if len(schools) == 1:
+        return redirect("schools:dashboard", school=schools[0])
+    return redirect("schools:index")
+
+
+@login_required
 def school_index(request):
     """The schools this account may open."""
     schools = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
@@ -100,16 +113,20 @@ def school_dashboard(request, school):
     semester = request.GET.get("semester", "Autumn")
     if semester not in report_model.SEMESTERS:
         semester = "Autumn"
+    # A module lead gets the basic page: the modules list, whatever view is
+    # asked for. Reading is not restricted (they read every report in scope);
+    # this only keeps the DLA's matrix, comments and fix queue out of their way.
+    basic = has_basic_school_view(request.user)
     view = request.GET.get("view", "modules")
-    if view not in SCHOOL_VIEWS:
+    if view not in SCHOOL_VIEWS or basic:
         view = "modules"
-    fixes_on = data.fixes_enabled(school)
+    fixes_on = data.fixes_enabled(school) and not basic
     if view == "fixes" and not fixes_on:
         view = "modules"
 
     context = {
         "school": school, "semester": semester, "view": view,
-        "semesters": report_model.SEMESTERS, "fixes_on": fixes_on,
+        "semesters": report_model.SEMESTERS, "fixes_on": fixes_on, "basic": basic,
         "show_options": (("all", "All"), ("awaiting", "Awaiting check"),
                          ("checked", "Checked")),
         "dashboard": data.load_school(school, semester, request.user),

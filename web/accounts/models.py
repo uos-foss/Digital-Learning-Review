@@ -131,6 +131,16 @@ def capabilities_of(user):
             if user.has_perm(f"accounts.{codename}")]
 
 
+def has_basic_school_view(user):
+    """
+    Whether this account gets the basic school page: the modules list and
+    nothing else. That is anyone without `view_school_dashboard`, which is how
+    a module lead is told apart from the DLA tool's users (ML holds
+    `view_school` only). A superuser holds every permission, so is never basic.
+    """
+    return user.is_authenticated and not user.has_perm("accounts.view_school_dashboard")
+
+
 def may_view_school(user, school):
     """Whether this user may see this school: `view_all` wins outright, as in
     may_view_module(), otherwise the school must be on their alignment."""
