@@ -233,6 +233,26 @@ def main():
           'action="/accounts/logout/"' in sd_body
           and leaving.post("/accounts/logout/").status_code == 302
           and leaving.get(f"/schools/{school}/").status_code == 302)
+    ally_all = data.load_school_ally(school, "Autumn", [], [])
+    ally_sev = data.load_school_ally(school, "Autumn", ["Severe"], [])
+    check("ally analytics: modules and issue profile are built",
+          bool(ally_all["modules"]) and len(ally_all["modules"]) <= len(listed) + 5,
+          f"{len(ally_all['modules'])} modules, {len(ally_all['profile'])} issue types")
+    check("ally analytics: a severity filter only narrows",
+          len(ally_sev["modules"]) <= len(ally_all["modules"])
+          and all(r["severity"] == "Severe" for r in ally_sev["profile"]))
+    check("ally analytics: the issue filter narrows the module table",
+          not ally_all["issue_options"] or len(data.load_school_ally(
+              school, "Autumn", [], ally_all["issue_options"][:1])["modules"])
+          <= len(ally_all["modules"]))
+    check("ally analytics renders for a DLA, and survives odd filters",
+          client.get(f"/schools/{school}/?view=ally&sev=Severe&sev=bogus&issue=nope")
+          .status_code == 200
+          and "What to fix" in client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
+          and "Ally Analytics" in client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
+    check("ally analytics is not offered to a module lead",
+          "What to fix" not in aligned_client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
+          and "Ally Analytics" not in aligned_client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",

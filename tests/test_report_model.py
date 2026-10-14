@@ -373,3 +373,67 @@ def test_reported_fixes_rows_and_counts():
     assert waiting["reporter"] == "login2" and waiting["note"] == "" and waiting["checked_on"] == ""
     assert waiting["section"] == "Learning Materials"
     assert report_model.build_reported_fixes(pd.DataFrame(), {}, [])["rows"] == []
+
+
+# --- School Dashboard: Ally Analytics ---------------------------------------
+
+def _ally_school():
+    return pd.DataFrame([
+        {"New module code": "TST001", "Module name": "Alpha", "Mod. lead": "ADA LOVELACE",
+         "Content Maturity": "In progress", "Ally Overall": 0.619, "Ally Files": 0.4,
+         "Ally WYSIWYG": 0.98, "Total Files": 87, "Ally WYSIWYG Items": 47,
+         "Ally Severe": 9, "Ally Major": 101, "Ally Minor": 84, "Ally Students": 51},
+        {"New module code": "TST002", "Module name": "Beta", "Mod. lead": "",
+         "Content Maturity": "Not yet built", "Ally Overall": 1.0, "Ally Files": 1.0,
+         "Ally WYSIWYG": 1.0, "Total Files": 2, "Ally WYSIWYG Items": 3,
+         "Ally Severe": 0, "Ally Major": 0, "Ally Minor": 0, "Ally Students": 0},
+    ])
+
+
+def _ally_issues():
+    return pd.DataFrame([
+        {"module_code": "TST001", "check_name": "PDFImageOnly", "severity": 1, "items": 24},
+        {"module_code": "TST001", "check_name": "ImageNoAlt", "severity": 2, "items": 10},
+        {"module_code": "TST002", "check_name": "ImageNoAlt", "severity": 2, "items": 4},
+        {"module_code": "OTHER9", "check_name": "ImageNoAlt", "severity": 2, "items": 99},
+    ])
+
+
+def test_maturity_note_only_when_under_half_started():
+    half = _ally_school()                                    # 1 of 2 started
+    assert report_model.maturity_note(half) == ""
+    low = pd.concat([half, half.assign(**{"New module code": "X"}).iloc[1:]])   # 1 of 3
+    note = report_model.maturity_note(low)
+    assert note.startswith("1 of 3 modules have content beyond their template. ")
+    assert report_model.maturity_note(pd.DataFrame()) == ""
+
+
+def test_ally_analytics_scopes_issues_to_the_school_and_counts_items():
+    out = report_model.build_ally_analytics(_ally_school(), _ally_issues())
+    by_issue = {r["items"]: r for r in out["profile"]}
+    assert sorted(by_issue) == [14, 24] or sorted(by_issue) == [24, 14]   # OTHER9's 99 excluded
+    assert out["profile"][0]["severity"] == "Severe"                      # severity first
+    assert max(r["bar"] for r in out["profile"]) == 100
+    first = out["modules"][0]
+    assert first["code"] == "TST001" and first["overall"] == "61.9%" and first["lead"] == "Ada Lovelace"
+    assert first["matching"] is None and not out["filters_active"]
+
+
+def test_ally_analytics_filters_narrow_the_table_and_ignore_junk():
+    out = report_model.build_ally_analytics(_ally_school(), _ally_issues(), severities=["Severe"])
+    assert out["filters_active"] and [m["code"] for m in out["modules"]] == ["TST001"]
+    assert out["modules"][0]["matching"] == 24
+    assert all(r["severity"] == "Severe" for r in out["profile"])
+    junk = report_model.build_ally_analytics(
+        _ally_school(), _ally_issues(), severities=["bogus"], issues=["nope"])
+    assert not junk["filters_active"] and len(junk["modules"]) == 2
+    both = report_model.build_ally_analytics(
+        _ally_school(), _ally_issues(), issues=[out_label for out_label in
+                                                 report_model.build_ally_analytics(
+                                                     _ally_school(), _ally_issues())["issue_options"]][:1])
+    assert both["filters_active"] and both["modules"]
+
+
+def test_ally_analytics_without_issue_data():
+    out = report_model.build_ally_analytics(_ally_school(), pd.DataFrame())
+    assert not out["has_issue_data"] and out["profile"] == [] and len(out["modules"]) == 2

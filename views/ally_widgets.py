@@ -19,29 +19,18 @@ import streamlit as st
 from processing import (  # noqa: F401 - the first three re-exported for the views
     SCOREABLE_MATURITY, mean_score, scoreable, summarise_ally_issues)
 
+from report_model import SURFACE_LABELS, maturity_note
+
 MATURITY_ORDER = ["In progress", "Not yet built", "Empty", "No data"]
-SURFACE_LABELS = {
-    'editor': "Fix in the Blackboard editor",
-    'image': "Fix in the browser via Ally feedback",
-    'file': "Re-author and re-upload the file",
-}
 
 
 def render_maturity_banner(df):
     """A one-line honesty statement about how much of the scope has content
     beyond its template yet."""
-    if df is None or df.empty or 'Content Maturity' not in df.columns:
-        return
-    counts = df['Content Maturity'].value_counts()
-    started = int(counts.get("In progress", 0))
-    total = int(len(df))
-    if total and started / total < 0.5:
-        st.info(
-            f"📋 **{started} of {total} modules have content beyond their template.** "
-            "Accessibility scores below cover only those; the rest are reported as "
-            "build progress instead, because scoring an empty template says nothing "
-            "about the module."
-        )
+    note = maturity_note(df)
+    if note:
+        headline, rest = note.split(". ", 1)
+        st.info(f"📋 **{headline}.** {rest}")
 
 
 def render_maturity_breakdown(df, caption=None):

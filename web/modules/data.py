@@ -94,6 +94,24 @@ def load_report(code: str, user) -> dict | None:
     )
 
 
+def _school_frame(school: str, semester: str) -> pd.DataFrame:
+    """One school's module records for a semester."""
+    df_aut, df_spr = _frames()
+    target = processing.resolve_semester_df(df_aut, df_spr, semester)
+    if target is None or target.empty:
+        return pd.DataFrame(columns=["New module code"])
+    return target[processing.school_series(target["New module code"]) == school]
+
+
+def load_school_ally(school: str, semester: str, severities, issues) -> dict:
+    """Ally Analytics for one school and semester (see report_model). The
+    module records are cached with the sources; the issue rows come from the
+    same cached sources, so an import shows within the TTL."""
+    return report_model.build_ally_analytics(
+        _school_frame(school, semester), _sources().df_ally_issues,
+        severities=severities, issues=issues)
+
+
 def load_school(school: str, semester: str, user) -> dict:
     """
     One school's dashboard for a semester, as plain data (see
@@ -101,12 +119,7 @@ def load_school(school: str, semester: str, user) -> dict:
     everything a DLA can change (audit answers, fix claims, spot-checks) is
     read fresh, so it never lags.
     """
-    df_aut, df_spr = _frames()
-    target = processing.resolve_semester_df(df_aut, df_spr, semester)
-    if target is None or target.empty:
-        school_df = pd.DataFrame(columns=["New module code"])
-    else:
-        school_df = target[processing.school_series(target["New module code"]) == school]
+    school_df = _school_frame(school, semester)
 
     rows = {str(r["New module code"]).strip().upper(): r
             for r in school_df.to_dict("records")}

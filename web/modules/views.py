@@ -72,7 +72,7 @@ def module_report(request, code):
     return render(request, "modules/report.html", context)
 
 
-SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes")
+SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes", "ally")
 
 
 @login_required
@@ -120,13 +120,16 @@ def school_dashboard(request, school):
     view = request.GET.get("view", "modules")
     if view not in SCHOOL_VIEWS or basic:
         view = "modules"
+    # Ally Analytics is for everyone who gets more than the basic page. The
+    # Streamlit page keeps it admin-only, for no reason on record.
+    ally_on = not basic
     fixes_on = data.fixes_enabled(school) and not basic
     if view == "fixes" and not fixes_on:
         view = "modules"
 
     context = {
         "school": school, "semester": semester, "view": view,
-        "semesters": report_model.SEMESTERS, "fixes_on": fixes_on, "basic": basic,
+        "semesters": report_model.SEMESTERS, "fixes_on": fixes_on, "basic": basic, "ally_on": ally_on,
         "show_options": (("all", "All"), ("awaiting", "Awaiting check"),
                          ("checked", "Checked")),
         "dashboard": data.load_school(school, semester, request.user),
@@ -145,6 +148,9 @@ def school_dashboard(request, school):
             cards=report_model.filter_comment_cards(
                 comments["cards"], status=status, search=search,
                 include_empty=include_empty))
+    elif view == "ally":
+        context["ally"] = data.load_school_ally(
+            school, semester, request.GET.getlist("sev"), request.GET.getlist("issue"))
     elif view == "fixes":
         fixes = data.load_school_fixes(school)
         show = request.GET.get("show", "all")
