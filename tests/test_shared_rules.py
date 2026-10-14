@@ -284,3 +284,38 @@ class TestMappedFieldProducesOneFinding:
                      and f.get("audit_field_id") == "welcome_outline"]
         assert len(readiness) == 1
         assert readiness[0]["state"] == "pending"
+
+
+# --- Ally trend --------------------------------------------------------------
+
+def _history():
+    import pandas as pd
+    def row(date, course, module, files, pages, score):
+        return {"snapshot_date": date, "course_id": course, "module_code": module,
+                "total_files": files, "total_wysiwyg": pages, "overall_score": score}
+    return pd.DataFrame([
+        row("2026-08-01", "c1", "TST001", 10, 0, 1.0),
+        row("2026-08-01", "c2", "TST002", 10, 0, 0.5),
+        row("2026-08-01", "c9", "OTHER1", 99, 0, 0.1),
+        # Later snapshot records only the course that changed.
+        row("2026-09-01", "c1", "TST001", 20, 0, 0.8),
+    ])
+
+
+def test_ally_trend_carries_unchanged_courses_forward():
+    from processing import ally_trend
+    trend, message = ally_trend(_history(), ["TST001", "tst002"])
+    assert message == ""
+    assert list(trend["Files uploaded"]) == [20, 30]      # not 20 -> 20 (c2 dropped)
+    assert list(trend["Courses"]) == [2, 2]
+    assert round(trend["Overall score"].iloc[0], 3) == 0.75    # (10*1.0 + 10*0.5) / 20
+    assert round(trend["Overall score"].iloc[1], 3) == round((20 * 0.8 + 10 * 0.5) / 30, 3)
+
+
+def test_ally_trend_says_why_there_is_nothing_to_plot():
+    import pandas as pd
+    from processing import (ally_trend, ALLY_TREND_NO_HISTORY, ALLY_TREND_NO_SCHOOL,
+                            ALLY_TREND_ONE_SNAPSHOT)
+    assert ally_trend(pd.DataFrame(), ["TST001"]) == (None, ALLY_TREND_NO_HISTORY)
+    assert ally_trend(_history().iloc[:3], ["TST001"]) == (None, ALLY_TREND_ONE_SNAPSHOT)
+    assert ally_trend(_history(), ["NOPE99"]) == (None, ALLY_TREND_NO_SCHOOL)

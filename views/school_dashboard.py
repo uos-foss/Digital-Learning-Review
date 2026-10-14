@@ -6,7 +6,7 @@ from processing import (title_case_name, short_field_label, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
-                        module_alignment_status,
+                        module_alignment_status, ally_trend, ALLY_TREND_CAPTION,
                         format_comment_markdown, fmt_report_date,
                         reading_list_verdict, can_view_sga, sga_blocks_sga_field, FIX_CLAIM_FEATURE,
                         TEMPLATE_SECTIONS, SECTION_KEY_BY_AUDIT_FIELD)
@@ -646,38 +646,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 except Exception:
                     history = pd.DataFrame()
 
-                if history.empty:
-                    st.info("Historical Ally data is not yet available.")
-                elif history['snapshot_date'].nunique() < 2:
-                    st.info(
-                        "Only one Ally snapshot has been imported so far, so there is no "
-                        "trend to plot yet. Import the report again after Ally next runs "
-                        "and this fills in."
-                    )
+                trend, trend_message = ally_trend(history, school_codes)
+                if trend is None:
+                    st.info(trend_message)
                 else:
-                    school_history = history[history['module_code'].isin(school_codes)].copy()
-                    if school_history.empty:
-                        st.info("No historical Ally data for this school.")
-                    else:
-                        school_history['items'] = (school_history['total_files']
-                                                   + school_history['total_wysiwyg'])
-                        grouped = school_history.groupby('snapshot_date')
-                        trend = pd.DataFrame({
-                            'Overall score': grouped.apply(
-                                lambda g: (g['overall_score'] * g['items']).sum()
-                                / max(g['items'].sum(), 1), include_groups=False),
-                            'Files uploaded': grouped['total_files'].sum(),
-                        })
-                        trend.index = pd.to_datetime(trend.index)
-                        st.markdown("**Average accessibility score over time**")
-                        st.line_chart(trend['Overall score'], height=260)
-                        st.markdown("**Content uploaded over time**")
-                        st.line_chart(trend['Files uploaded'], height=220)
-                        st.caption(
-                            "A course is only re-recorded when its content actually changes, "
-                            "so each point is a real movement. Early in the year the upload "
-                            "line matters more than the score line."
-                        )
+                    st.markdown("**Average accessibility score over time**")
+                    st.line_chart(trend['Overall score'], height=260)
+                    st.markdown("**Content uploaded over time**")
+                    st.line_chart(trend['Files uploaded'], height=220)
+                    st.caption(ALLY_TREND_CAPTION)
             elif selected_view == "✅ Template Alignment":
                 st.subheader(f"Template Alignment Analysis ({semester})")
                 st.caption(

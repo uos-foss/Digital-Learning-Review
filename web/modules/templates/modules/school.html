@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load report_extras %}
 {% block title %}{{ school }} dashboard{% endblock %}
+{% block head %}{% if view == "trends" and trend_figures %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}
 {% with d=dashboard %}
@@ -23,7 +24,31 @@
   {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
   {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
   {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
-  {% if ally_on %}{% if view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
+  {% if ally_on %}{% if view == "trends" %}
+  {% if not trend_figures %}
+    <p class="muted" style="margin:0;">{{ trend_message }}</p>
+  {% else %}
+    {% for f in trend_figures %}
+      <div data-trend="{{ f.data_id }}" style="width:100%;"></div>
+      {{ f.figure|json_script:f.data_id }}
+    {% endfor %}
+    <script>
+      document.querySelectorAll("[data-trend]").forEach(function (el) {
+        var figure = JSON.parse(document.getElementById(el.dataset.trend).textContent);
+        Plotly.newPlot(el, figure.data, figure.layout, {displayModeBar: false, responsive: true});
+      });
+    </script>
+    <p class="muted">{{ trend_caption }}</p>
+    <details>
+      <summary>The figures behind the charts</summary>
+      <table class="grid">
+        <tr><th>Snapshot</th><th>Average score</th><th>Files uploaded</th><th>Courses</th></tr>
+        {% for r in trend_rows %}<tr><td>{{ r.date }}</td><td>{{ r.score }}</td><td>{{ r.files }}</td><td>{{ r.courses }}</td></tr>{% endfor %}
+      </table>
+    </details>
+  {% endif %}
+{% elif view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
+  {% if ally_on %}{% if view == "trends" %}<strong>Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
   {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
 </p>{% endif %}
 

@@ -72,7 +72,7 @@ def module_report(request, code):
     return render(request, "modules/report.html", context)
 
 
-SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes", "ally")
+SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes", "ally", "trends")
 
 
 @login_required
@@ -148,6 +148,16 @@ def school_dashboard(request, school):
             cards=report_model.filter_comment_cards(
                 comments["cards"], status=status, search=search,
                 include_empty=include_empty))
+    elif view == "trends":
+        trend, message = data.load_school_trend(school, semester)
+        context["trend_message"] = message
+        if trend is not None:
+            context["trend_figures"] = charts.trend_figures(trend)
+            context["trend_rows"] = [
+                {"date": d.strftime("%d-%m-%Y"), "score": f"{r['Overall score'] * 100:.1f}%",
+                 "files": int(r["Files uploaded"]), "courses": int(r["Courses"])}
+                for d, r in trend.iloc[::-1].iterrows()]
+            context["trend_caption"] = processing.ALLY_TREND_CAPTION
     elif view == "ally":
         context["ally"] = data.load_school_ally(
             school, semester, request.GET.getlist("sev"), request.GET.getlist("issue"))

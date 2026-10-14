@@ -41,3 +41,31 @@ def gauges_for(ally):
     """One gauge per score in report_model.ally_summary()'s `scores`."""
     return [{"data_id": f"gauge-{i}-data", "sub": sub, "figure": gauge(label, pct, colour)}
             for i, (label, pct, sub, colour) in enumerate(ally.get("scores", []))]
+
+
+def _line(title, dates, values, colour, percent):
+    figure = go.Figure(go.Scatter(
+        x=dates, y=values, mode="lines+markers",
+        line={"color": colour, "width": 2}, marker={"size": 7},
+        hovertemplate="%{x|%d-%m-%Y}: %{y:.1f}" + ("%" if percent else "") + "<extra></extra>"))
+    figure.update_layout(
+        title={"text": title, "font": {"size": 13}}, height=260,
+        margin=dict(l=50, r=20, t=40, b=40), paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)", font={"color": "#6B7280"},
+        xaxis={"type": "date", "tickformat": "%d-%m-%Y"},
+        yaxis={"ticksuffix": "%" if percent else "", "rangemode": "tozero" if not percent else "normal"})
+    return json.loads(figure.to_json())
+
+
+def trend_figures(trend):
+    """The two Trends charts from processing.ally_trend()'s frame: the weighted
+    score (as a percentage) and the files uploaded. Dates are ISO strings."""
+    dates = [d.strftime("%Y-%m-%d") for d in trend.index]
+    return [
+        {"data_id": "trend-score-data", "figure": _line(
+            "Average accessibility score over time", dates,
+            [round(v * 100, 2) for v in trend["Overall score"]], "#2563EB", True)},
+        {"data_id": "trend-files-data", "figure": _line(
+            "Content uploaded over time", dates,
+            [int(v) for v in trend["Files uploaded"]], "#059669", False)},
+    ]

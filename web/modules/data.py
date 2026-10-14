@@ -103,6 +103,14 @@ def _school_frame(school: str, semester: str) -> pd.DataFrame:
     return target[processing.school_series(target["New module code"]) == school]
 
 
+def load_school_trend(school: str, semester: str):
+    """Trends for one school: (frame or None, message), see
+    processing.ally_trend(). The history is read fresh; it is small."""
+    codes = _school_frame(school, semester)["New module code"]
+    return processing.ally_trend(
+        database.get_ally_history(academic_year=processing.CURRENT_ACADEMIC_YEAR), codes)
+
+
 def load_school_ally(school: str, semester: str, severities, issues) -> dict:
     """Ally Analytics for one school and semester (see report_model). The
     module records are cached with the sources; the issue rows come from the
