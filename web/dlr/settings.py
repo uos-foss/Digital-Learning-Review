@@ -123,6 +123,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "accounts.context.signin_state",
                 "accounts.context.site_name",
+                "accounts.context.nav_state",
             ],
         },
     },

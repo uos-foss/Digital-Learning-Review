@@ -23,3 +23,15 @@ def signin_state(request):
 def site_name(request):
     """The site's name for every template (settings.SITE_NAME)."""
     return {"site_name": settings.SITE_NAME}
+
+
+def nav_state(request):
+    """What the header needs: the schools the signed-in account can see, and the
+    one of them when there is exactly one (the link then reads "My school" and
+    goes straight there)."""
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return {}
+    from accounts.models import schools_of
+    schools = schools_of(user)
+    return {"nav_one_school": schools[0] if len(schools) == 1 else ""}

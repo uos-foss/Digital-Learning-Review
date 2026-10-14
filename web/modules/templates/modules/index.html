@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% load report_extras %}
-{% block title %}Find a module - {{ site_name }}{% endblock %}
+{% block title %}Module finder - {{ site_name }}{% endblock %}
 
 {% block content %}
 {% with f=finder %}
-<h1>Find a module</h1>
+<h1>Module finder</h1>
 <p class="muted">Search by module code, name or lead. Every word you type has to match somewhere, so "geography bryant" finds that lead's geography modules. An exact code opens the report straight away.</p>
 
 <form method="get" class="filterbar finder">

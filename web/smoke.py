@@ -343,7 +343,7 @@ def main():
     rep = client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
     check("accessibility basics: skip link, landmarks, one current tab, header scopes, chart text",
           all('<a class="skip" href="#content">' in h and '<main id="content"' in h
-              and '<nav aria-label="Main">' in h and "<th>" not in h
+              and '<nav aria-label="Main" class="mainnav">' in h and "<th>" not in h
               for h in (page, rep))
           and page.count('aria-current="page"') == 1 and rep.count('aria-current="page"') == 1
           and 'aria-label="School views"' in page and 'aria-label="Report sections"' in rep)
@@ -369,7 +369,7 @@ def main():
     sample_name = listed[0]["name"].split()[0] if listed and listed[0]["name"] else listed[0]["code"]
     found_page = client.get(f"/modules/?q={sample_name}").content.decode("utf-8", "replace")
     check("the finder lists modules by a word of their name, linking to each report",
-          f"/modules/{listed[0]['code']}/" in found_page and "module" in found_page and "Find a module" in found_page)
+          f"/modules/{listed[0]['code']}/" in found_page and "module" in found_page and "Module finder" in found_page)
     exact = client.get(f"/modules/?q={listed[0]['code'].lower()}")
     check("an exact module code goes straight to its report",
           exact.status_code == 302 and exact.url == f"/modules/{listed[0]['code']}/", str(exact.url))
@@ -425,6 +425,25 @@ def main():
           and all(real not in p for p in list(pages.values()) + [login_probe, admin_probe]))
     check("the real name is FoSS Module Reports",
           real == "FoSS Module Reports" and "Digital Learning Review" not in page)
+    # The header: the current section is marked, the account items sit in a menu, and a
+    # one-school account gets "My school" going straight to its dashboard.
+    on_modules = client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
+    on_schools = client.get("/schools/").content.decode("utf-8", "replace")
+    check("the header marks the current section and exact page",
+          'class="active" aria-current="true">Module finder<' in on_modules
+          and 'class="active" aria-current="page">Schools<' in on_schools
+          and 'aria-current="true">Schools<' not in on_modules)
+    menu = on_modules.split('<details class="account">')[1].split("</details>")[0]
+    check("Admin and Sign out live in the account menu, not the main nav",
+          'action="/accounts/logout/"' in menu
+          and 'href="/admin/"' not in on_modules.split('<details class="account">')[0]
+          and "Account menu for" in menu)
+    mine = aligned_client.get("/schools/").content.decode("utf-8", "replace")
+    check("an account with one school sees My school, linking straight to it",
+          f'href="/schools/{school}/"' in mine.split('class="mainnav"')[1].split("</nav>")[0]
+          and ">My school<" in mine and ">Schools<" not in mine.split("</header>")[0])
+    check("the theme control is still in the header for everyone, including signed-out visitors",
+          Client().get("/accounts/login/").content.decode("utf-8", "replace").count("data-theme=") == 3)
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",

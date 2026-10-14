@@ -328,6 +328,16 @@ the sign-in heading, and the admin's header and title. A new template should use
 `{{ site_name }}`, never the literal. The Streamlit app, `docs/` and the repo
 still say "Digital Learning Review"; that is the project's name, not the site's.
 
+**The header on the Django pages** (14-10-2026): the site name (a link home), a main
+nav of Module finder and Schools with the current section marked (`aria-current`, and a
+soft indigo background), then on the right the theme control and the account menu.
+The theme control stays out in the open, as on the landing site, with that site's own
+sun, moon and monitor icons. The account menu is a `<details>` holding Admin (staff)
+and Sign out, closed by Escape (focus returns to its button) or a click elsewhere. An
+account with exactly one school sees "My school", linking straight to it, in place of
+"Schools"; `accounts.models.schools_of()` is the one place the allowed-schools rule is
+worked out, and the home redirect, the school list, the finder and this nav all use it.
+
 **School names are read from SITS, not typed in.** `processing.school_names_from_rows()`
 takes each module's department name (SITS "Department name", keyed by "CIS unit
 code", which is the code the app calls the module code; SITS's own "Module code" is
