@@ -247,6 +247,16 @@ def main():
     check("lenses: the lens names carry no icons",
           all(o["label"].isascii() for o in narrowed["lens_options"])
           and all(n[0].isascii() for n in narrowed["notes"]))
+    risk_only = data.load_school_lenses(school, "Autumn", user, ["risk"], [])
+    focused = data.load_school_lenses(school, "Autumn", user, ["alignment"], [every["columns"][0]])
+    check("lenses: a lens keeps only the columns it speaks to",
+          risk_only["columns"] == ["Accessibility"] and risk_only["columns_narrowed"]
+          and focused["columns"] == [every["columns"][0]] and not every["columns_narrowed"])
+    check("lenses: show all columns restores every one, in the same order",
+          data.load_school_lenses(school, "Autumn", user, ["risk"], [], True)["columns"] == every["columns"])
+    cols_page = client.get(f"/schools/{school}/?view=alignment&lens=risk").content.decode("utf-8", "replace")
+    check("lenses: the page says columns are narrowed and offers the switch",
+          "Show all columns" in cols_page and "cols=all" in cols_page)
     check("lenses: every flagged module is one the school has",
           {r["code"] for r in narrowed["rows"]} <= {r["code"] for r in every["rows"]})
     check("lenses: the SGA lens is not offered to an account without view_sga_analytics",

@@ -149,9 +149,16 @@ def school_dashboard(request, school):
                 comments["cards"], status=status, search=search,
                 include_empty=include_empty))
     elif view == "alignment":
+        all_columns = request.GET.get("cols") == "all"
         context["lenses"] = data.load_school_lenses(
             school, semester, request.user,
-            request.GET.getlist("lens"), request.GET.getlist("item"))
+            request.GET.getlist("lens"), request.GET.getlist("item"), all_columns)
+        toggled = request.GET.copy()
+        if all_columns:
+            toggled.pop("cols", None)
+        else:
+            toggled["cols"] = "all"
+        context["columns_toggle_url"] = "?" + toggled.urlencode()
     elif view == "trends":
         trend, message = data.load_school_trend(school, semester)
         context["trend_message"] = message

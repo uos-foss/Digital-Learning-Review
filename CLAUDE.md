@@ -293,6 +293,10 @@ switching Streamlit over, by running the old inline code verbatim against the
 new functions for every school, both semesters, every lens and every
 combination of lenses, plus the item-by-item table: 308 comparisons, 0
 differences. The SGA lens needs `view_sga_analytics`, as in Streamlit.
+With a lens on, the Django table shows only the item columns the lenses speak
+to (Accessibility for risk, the reading-list or SGA column, the focused items
+or else every item some shown module has outstanding); `?cols=all` shows every
+column. The Streamlit table still shows every column.
 `report_model.build_lens_table()` shapes it for the page. The Django modules
 list's Spot-check column now breaks a same-day tie on `id`, as Streamlit does.
 

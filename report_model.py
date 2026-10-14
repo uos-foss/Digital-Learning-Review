@@ -20,6 +20,8 @@ import pandas as pd
 from processing import (
     CURRENT_ACADEMIC_YEAR,
     LENS_ALIGNMENT,
+    READING_LIST_FIELD_ID,
+    SGA_SECTION,
     LENS_READING,
     LENS_RISK,
     LENS_SGA,
@@ -1096,7 +1098,7 @@ LENS_PLAIN = {LENS_RISK: "Accessibility Risk", LENS_ALIGNMENT: "Template Alignme
 
 
 def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_status, *,
-                     lenses=(), focus=(), can_view_sga=False):
+                     lenses=(), focus=(), can_view_sga=False, all_columns=False):
     """
     The Template Alignment page's item-by-item table, narrowed by lenses, as
     plain data. With no lens every module is listed; with lenses, only modules
@@ -1108,6 +1110,11 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
     lens is offered only when `can_view_sga`. `focus` narrows the Template
     Alignment lens to those short item labels and applies only while that lens
     is selected. `summaries` is loaders.load_audit_summaries() for the school.
+
+    With lenses on, only the columns they speak to are shown: Accessibility
+    for the risk lens, the reading-list and SGA columns for theirs, and for
+    Template Alignment the focused items, or else every item at least one
+    shown module has outstanding. `all_columns` shows every column regardless.
     """
     available = [(k, label) for k, label in LENS_KEYS if k != 'sga' or can_view_sga]
     selected = [label for k, label in available if k in set(lenses)]
@@ -1140,6 +1147,22 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
         if codes else pd.DataFrame()
     fixed = {'New module code', 'Module name', 'Mod. lead', 'Spot-Check', 'Auditor Comments'}
     columns = [c for c in table.columns if c not in fixed]
+    every_column = list(columns)
+    if selected and not all_columns and columns:
+        labels = {f['id']: short_field_label(f['id'], f['label']) for f in active_fields}
+        wanted = set()
+        if LENS_RISK in selected:
+            wanted.add('Accessibility')
+        if LENS_READING in selected:
+            wanted.add(labels.get(READING_LIST_FIELD_ID))
+        if LENS_SGA in selected:
+            wanted.add(labels.get(TEMPLATE_SECTIONS[SGA_SECTION][2]))
+        if LENS_ALIGNMENT in selected:
+            wanted |= set(focus) if focus else {
+                c for c in columns if c != 'Accessibility'
+                and any(r.get(c) == '❌' for r in table.to_dict('records'))}
+        kept = [c for c in columns if c in wanted]
+        columns = kept or columns
     rows = []
     for r in table.to_dict('records'):
         rows.append({
@@ -1154,6 +1177,8 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
         'show_items': LENS_ALIGNMENT in selected,
         'status': status, 'status_type': status_type, 'notes': notes,
         'columns': columns, 'rows': rows,
+        'columns_narrowed': len(columns) < len(every_column),
+        'columns_total': len(every_column), 'all_columns': all_columns,
         'has_comments': any(r['comment'] for r in rows),
         'filtered': bool(selected),
     }
