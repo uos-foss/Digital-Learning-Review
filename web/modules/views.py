@@ -120,10 +120,9 @@ def school_dashboard(request, school):
     view = request.GET.get("view", "modules")
     if view not in SCHOOL_VIEWS or basic:
         view = "modules"
-    # Ally Analytics is admin-only in Streamlit too (access_admin_panel).
-    ally_on = request.user.has_perm("accounts.access_admin_panel")
-    if view == "ally" and not ally_on:
-        view = "modules"
+    # Ally Analytics is for everyone who gets more than the basic page. The
+    # Streamlit page keeps it admin-only, for no reason on record.
+    ally_on = not basic
     fixes_on = data.fixes_enabled(school) and not basic
     if view == "fixes" and not fixes_on:
         view = "modules"

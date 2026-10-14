@@ -67,7 +67,7 @@ def main():
     # The smoke account is put in the DLA group, which seed_roles gives
     # view_all, because scoping is real now and an unaligned account would
     # (correctly) be refused every module below.
-    from django.contrib.auth.models import Group, Permission
+    from django.contrib.auth.models import Group
 
     user, _ = User.objects.get_or_create(username="spike-smoke")
     dla, _ = Group.objects.get_or_create(name="DLA")
@@ -245,21 +245,12 @@ def main():
           not ally_all["issue_options"] or len(data.load_school_ally(
               school, "Autumn", [], ally_all["issue_options"][:1])["modules"])
           <= len(ally_all["modules"]))
-    admin_group, _ = Group.objects.get_or_create(name="admin")
-    admin_user, _ = User.objects.get_or_create(username="spike-admin")
-    admin_group.permissions.add(*Permission.objects.filter(
-        content_type__app_label="accounts",
-        codename__in=["view_all", "access_admin_panel", "view_school_dashboard"]))
-    admin_user.groups.add(admin_group)
-    admin_client = Client()
-    admin_client.force_login(User.objects.get(pk=admin_user.pk))
-    check("ally analytics renders for an admin, and survives odd filters",
-          admin_client.get(f"/schools/{school}/?view=ally&sev=Severe&sev=bogus&issue=nope")
+    check("ally analytics renders for a DLA, and survives odd filters",
+          client.get(f"/schools/{school}/?view=ally&sev=Severe&sev=bogus&issue=nope")
           .status_code == 200
-          and "What to fix" in admin_client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace"))
-    check("ally analytics is not served to a DLA without the admin panel",
-          "What to fix" not in client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace"))
-    check("ally analytics is not offered to accounts without the admin panel",
+          and "What to fix" in client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
+          and "Ally Analytics" in client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
+    check("ally analytics is not offered to a module lead",
           "What to fix" not in aligned_client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
           and "Ally Analytics" not in aligned_client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
     check("other school is refused its dashboard",

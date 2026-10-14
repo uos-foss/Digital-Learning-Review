@@ -260,9 +260,10 @@ ownership notes and a human confirming the uncertain matches.
 
 **Ally Analytics was added 14-10-2026** as `?view=ally`: the "what to fix" issue
 profile (content items affected, not modules) and the per-module table, both
-narrowed by the severity and issue filters. Gated on `access_admin_panel`, as
-Streamlit gates it on `is_admin`; any other account has the view quietly fall
-back to Modules. Shaped by `report_model.build_ally_analytics()`;
+narrowed by the severity and issue filters. Open to anyone with `view_school_dashboard` (DLAs, FOSS, admin, SA, SL), so
+not to module leads, whose basic page falls back to Modules. Streamlit still
+gates it and Trends on `is_admin` with no reason on record; the Django side
+deliberately differs. Shaped by `report_model.build_ally_analytics()`;
 `SURFACE_LABELS` and the maturity banner's wording (`maturity_note()`) moved
 there from `views/ally_widgets.py`, which now reads them, so the two front ends
 share one copy. The issue chart is a table with plain bars, not Altair.
