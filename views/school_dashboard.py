@@ -917,6 +917,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         # item-by-item table: one tick/cross column per item.
                         pl_fields = get_active_audit_fields()
                         pl_claims = get_all_active_fix_claims()
+                        pl_sc_status = _spot_check_status_by_code(school)
                         pl_rows_by_code = {}
                         for _, r in school_df.iterrows():
                             pl_rows_by_code.setdefault(str(r['New module code']).strip(), r.to_dict())
@@ -928,6 +929,8 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 'New module code': code,
                                 'Module name': active_row.get('Module name', ''),
                                 'Mod. lead': title_case_name(active_row.get('Mod. lead', '')),
+                                'Spot-Check': {'pending': "⏳ Pending", 'checked': "✅ Checked"}.get(
+                                    pl_sc_status.get(c_str.upper()), ""),
                             }
                             row['Auditor Comments'] = " ".join(format_comment_markdown(
                                 checklist_sums.get(c_str, {}).get('Responses', {}).get('comments')
@@ -941,6 +944,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             render_df = render_df.drop(columns=['Auditor Comments'])
                         render_configs = {"New module code": "Code", "Module name": "Module Name",
                                           "Mod. lead": "Lead",
+                                          "Spot-Check": st.column_config.TextColumn(
+                                              "Spot-Check",
+                                              help="⏳ Pending - flagged and waiting to be audited. "
+                                                   "✅ Checked - audited this year. Blank - neither."),
                                           "Auditor Comments": st.column_config.TextColumn(
                                               "Auditor Comments", width="large")}
 
