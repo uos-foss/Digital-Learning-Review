@@ -23,11 +23,66 @@
   {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
   {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
   {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
+  {% if ally_on %}{% if view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
   {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
 </p>{% endif %}
 
 <section class="panel">
-{% if view == "comments" %}
+{% if view == "ally" %}
+  {% with a=ally %}
+  {% if a.note %}<p class="note">{{ a.note }}</p>{% endif %}
+  <p class="muted" style="margin-top:0;">Counted in content items rather than modules, because that is the size of the job. One session on exporting tagged PDFs can clear hundreds of items at once.</p>
+  <form method="get" style="margin-bottom:1rem;">
+    <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="ally">
+    <strong>Severity</strong>
+    {% for opt in a.severity_options %}<label style="margin-right:.6rem;"><input type="checkbox" name="sev" value="{{ opt }}"{% if opt in a.severities %} checked{% endif %}> {{ opt }}</label>{% endfor %}
+    {% if a.issue_options %}
+    <details style="margin:.5rem 0;"{% if a.issues %} open{% endif %}>
+      <summary>Narrow the module table to modules with particular issues{% if a.issues %} ({{ a.issues|length }} chosen){% endif %}</summary>
+      {% for opt in a.issue_options %}<label style="display:block;"><input type="checkbox" name="issue" value="{{ opt }}"{% if opt in a.issues %} checked{% endif %}> {{ opt }}</label>{% endfor %}
+    </details>
+    {% endif %}
+    <button type="submit">Filter</button>
+    {% if a.filters_active %}<a href="?semester={{ semester|urlencode }}&view=ally">Clear</a>{% endif %}
+  </form>
+
+  <h2 style="font-size:1.05rem;">What to fix</h2>
+  {% if not a.has_issue_data %}
+    <p class="muted">No Ally issue data has been imported yet.</p>
+  {% elif not a.profile %}
+    <p class="muted">Ally has found no accessibility issues in this scope.</p>
+  {% else %}
+    <table class="grid">
+      <tr><th>Issue</th><th>Severity</th><th colspan="2">Items affected</th><th>Modules</th><th>Where it gets fixed</th></tr>
+      {% for r in a.profile %}
+        <tr title="{{ r.advice }}"><td class="wide">{{ r.label }}</td><td class="nw">{{ r.severity }}</td>
+            <td style="width:9rem;"><div class="sev-{{ r.severity|lower }}" style="height:.7rem; width:{{ r.bar }}%; min-width:2px; border-radius:2px;"></div></td>
+            <td>{{ r.items }}</td><td>{{ r.modules }}</td><td>{{ r.where }}</td></tr>
+      {% endfor %}
+    </table>
+    <p class="muted">Hover a row for what to do about it.</p>
+  {% endif %}
+
+  <h2 style="font-size:1.05rem;">Modules</h2>
+  {% if not a.has_scores %}
+    <p class="muted">No Ally data found for this school.</p>
+  {% elif not a.modules %}
+    <p class="muted">No modules match the selected filters.</p>
+  {% else %}
+    <div class="scroll">
+      <table class="grid">
+        <tr><th>Code</th><th>Module</th><th>Lead</th><th>Build stage</th><th>Overall</th><th>Files</th><th>Pages</th><th># Files</th><th># Pages</th><th>Severe</th><th>Major</th><th>Minor</th><th>Students</th>{% if a.filters_active %}<th>Matching items</th>{% endif %}</tr>
+        {% for m in a.modules %}
+          <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td><td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td><td class="nw">{{ m.stage }}</td>
+              <td>{{ m.overall }}</td><td>{{ m.files_score }}</td><td>{{ m.pages_score }}</td><td>{{ m.files }}</td><td>{{ m.pages }}</td>
+              <td>{{ m.severe }}</td><td>{{ m.major }}</td><td>{{ m.minor }}</td><td>{{ m.students }}</td>{% if a.filters_active %}<td>{{ m.matching }}</td>{% endif %}</tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% endif %}
+  <style>.sev-severe{background:#7F1D1D}.sev-major{background:#DC2626}.sev-minor{background:#F97316}.sev-other{background:#EAB308}.note{background:var(--amber);border-left:3px solid var(--amber-line);padding:.5rem .75rem;}</style>
+  {% endwith %}
+{% elif view == "comments" %}
   <p class="muted" style="margin-top:0;">What advisors wrote in &ldquo;{{ comments.label }}&rdquo; when they audited this school's spot-checked modules, newest first. Each comment is the module's current audit answer, so revising an audit changes what appears here.</p>
   {% if not comments.flagged %}
     <p class="muted" style="margin:0;">No modules flagged yet this year, so there is nothing to read.</p>

@@ -214,7 +214,7 @@ there from `views/ally_widgets.py`, `module_alignment_status()`,
 `reading_list_verdict()`). Scoping is the module report's: a school outside an
 account's alignment is a 403, checked before the code is validated. Not ported:
 spot-check flagging, removal and checking (writes), the Audit Portal jumps,
-Ally Analytics, Trends and the per-lens filters. **Spot-Check Comments and
+Trends and the per-lens filters. **Spot-Check Comments and
 Reported Fixes were added 14-10-2026** as `?view=comments` and `?view=fixes`
 (read-only; their shaping is `report_model.build_spot_check_comments()` /
 `build_reported_fixes()`, so a reworded rule changes one place). Reported Fixes
@@ -258,8 +258,17 @@ to its page, several (or the whole faculty) to the school list. Not done: an
 "own modules first" ordering, which needs the name matching in the lead
 ownership notes and a human confirming the uncertain matches.
 
+**Ally Analytics was added 14-10-2026** as `?view=ally`: the "what to fix" issue
+profile (content items affected, not modules) and the per-module table, both
+narrowed by the severity and issue filters. Gated on `access_admin_panel`, as
+Streamlit gates it on `is_admin`; any other account has the view quietly fall
+back to Modules. Shaped by `report_model.build_ally_analytics()`;
+`SURFACE_LABELS` and the maturity banner's wording (`maturity_note()`) moved
+there from `views/ally_widgets.py`, which now reads them, so the two front ends
+share one copy. The issue chart is a table with plain bars, not Altair.
+
 Next: which of the remaining School Dashboard views, if any, are worth porting
-(Ally Analytics, Trends, the per-lens filters). Writes, and anything
+(Trends, the per-lens filters). Writes, and anything
 resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data

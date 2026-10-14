@@ -22,6 +22,7 @@ from processing import (
     derive_module_findings,
     format_comment_markdown,
     mean_score,
+    prepare_ally_issues,
     module_alignment_status,
     readiness_created_date,
     reading_list_verdict,
@@ -963,3 +964,110 @@ def build_reported_fixes(fixes, names, active_fields):
         })
     checked = sum(r['checked'] for r in rows)
     return {'rows': rows, 'awaiting': len(rows) - checked, 'checked': checked}
+
+
+SURFACE_LABELS = {
+    'editor': "Fix in the Blackboard editor",
+    'image': "Fix in the browser via Ally feedback",
+    'file': "Re-author and re-upload the file",
+}
+ALLY_SEVERITY_OPTIONS = ["Severe", "Major", "Minor", "Other"]
+
+
+def maturity_note(df):
+    """The honesty statement about how much of a scope has content beyond its
+    template, or '' when most of it does. Read by the Streamlit banner and the
+    Django Ally Analytics page, so the wording cannot drift."""
+    if df is None or df.empty or 'Content Maturity' not in df.columns:
+        return ""
+    started = int((df['Content Maturity'] == "In progress").sum())
+    total = int(len(df))
+    if total and started / total < 0.5:
+        return (f"{started} of {total} modules have content beyond their template. "
+                "Accessibility scores below cover only those; the rest are reported as "
+                "build progress instead, because scoring an empty template says nothing "
+                "about the module.")
+    return ""
+
+
+def _percent(value):
+    if value is None or pd.isna(value):
+        return "—"
+    return f"{float(value) * 100:.1f}%"
+
+
+def _count(value):
+    number = pd.to_numeric(value, errors='coerce')
+    return 0 if pd.isna(number) else int(number)
+
+
+def build_ally_analytics(school_df, df_issues, *, severities=None, issues=None):
+    """
+    The School Dashboard's Ally Analytics view as plain data: what to fix (issue
+    types by content items affected, not modules) and a module table, both
+    narrowed by the same severity and issue filters.
+
+    `school_df` is the school's module records for the semester; `df_issues`
+    is the latest Ally issue rows (loaders' `df_ally_issues`). Scores are
+    Ally's own, shown unmodified. An empty `severities` means all of them, as
+    in Streamlit. `issues` narrows the module table (not the chart) to modules
+    carrying any selected issue.
+    """
+    codes = [str(c).strip().upper() for c in school_df.get('New module code', [])]
+    severities = [s for s in (severities or []) if s in ALLY_SEVERITY_OPTIONS]         or list(ALLY_SEVERITY_OPTIONS)
+    scoped = prepare_ally_issues(df_issues, codes)
+    severity_scoped = scoped[scoped['severity_label'].isin(severities)]
+    issue_options = sorted(severity_scoped['label'].unique())
+    issues = [i for i in (issues or []) if i in issue_options]
+    filters_active = set(severities) != set(ALLY_SEVERITY_OPTIONS) or bool(issues)
+
+    profile = []
+    if df_issues is not None and not df_issues.empty:
+        summary = summarise_ally_issues(severity_scoped, module_codes=codes, top_n=8)
+        top = int(summary['items'].max()) if not summary.empty else 0
+        for r in summary.to_dict('records'):
+            profile.append({
+                'label': r['label'], 'items': int(r['items']),
+                'severity': r['severity_label'], 'modules': int(r['modules']),
+                'where': SURFACE_LABELS.get(r['surface'], ''), 'advice': r['advice'],
+                'bar': round(100 * r['items'] / top) if top else 0,
+            })
+
+    modules = []
+    has_scores = not school_df.empty and 'Ally Overall' in school_df.columns
+    if has_scores:
+        table = school_df.copy()
+        table['_code'] = table['New module code'].astype(str).str.strip().str.upper()
+        if filters_active:
+            table_issues = severity_scoped
+            if issues:
+                table_issues = table_issues[table_issues['label'].isin(issues)]
+            matched = table_issues.groupby('module_code')['items'].sum()
+            table = table[table['_code'].isin(matched.index)].copy()
+            table['Matching Items'] = table['_code'].map(matched).fillna(0).astype(int)
+            table = table.sort_values(['Matching Items', 'Ally Severe'], ascending=False)
+        else:
+            table = table.sort_values(['Ally Severe', 'Ally Major'], ascending=False)
+        for r in table.to_dict('records'):
+            lead = _clean(r.get('Mod. lead'))
+            modules.append({
+                'code': r['_code'], 'name': _clean(r.get('Module name')),
+                'lead': title_case_name(lead) if lead else '',
+                'stage': _clean(r.get('Content Maturity')),
+                'overall': _percent(r.get('Ally Overall')),
+                'files_score': _percent(r.get('Ally Files')),
+                'pages_score': _percent(r.get('Ally WYSIWYG')),
+                'files': _count(r.get('Total Files')), 'pages': _count(r.get('Ally WYSIWYG Items')),
+                'severe': _count(r.get('Ally Severe')), 'major': _count(r.get('Ally Major')),
+                'minor': _count(r.get('Ally Minor')), 'students': _count(r.get('Ally Students')),
+                'matching': _count(r.get('Matching Items')) if filters_active else None,
+            })
+
+    return {
+        'note': maturity_note(school_df),
+        'has_issue_data': df_issues is not None and not df_issues.empty,
+        'severity_options': ALLY_SEVERITY_OPTIONS, 'severities': severities,
+        'issue_options': issue_options, 'issues': issues,
+        'filters_active': filters_active,
+        'profile': profile, 'modules': modules, 'has_scores': has_scores,
+    }
