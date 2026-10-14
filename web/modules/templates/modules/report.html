@@ -6,11 +6,11 @@
 {% block content %}
 <h1>{{ code }} <span class="muted">{{ report.name }}</span></h1>
 <table class="kv" style="margin-bottom:1rem;">
-  <tr><th style="width:9rem;">School</th><td><a href="{% url 'schools:dashboard' report.school %}">{{ report.school }}</a></td></tr>
-  <tr><th>Module Lead</th><td>{% if report.lead %}{{ report.lead }}{% else %}--{% endif %}</td></tr>
-  <tr><th>Level</th><td>{% if report.level %}{{ report.level }}{% else %}--{% endif %}</td></tr>
-  <tr><th>Module Site</th><td>{% if report.site_url %}<a href="{{ report.site_url }}" target="_blank" rel="noopener">Open Module Site</a>{% else %}--{% endif %}</td></tr>
-  <tr><th title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor, and when that check was last saved.">Audit Status</th><td>{{ report.audit_status }}</td></tr>
+  <tr><th scope="row" style="width:9rem;">School</th><td><a href="{% url 'schools:dashboard' report.school %}">{{ report.school }}</a></td></tr>
+  <tr><th scope="row">Module Lead</th><td>{% if report.lead %}{{ report.lead }}{% else %}--{% endif %}</td></tr>
+  <tr><th scope="row">Level</th><td>{% if report.level %}{{ report.level }}{% else %}--{% endif %}</td></tr>
+  <tr><th scope="row">Module Site</th><td>{% if report.site_url %}<a href="{{ report.site_url }}" target="_blank" rel="noopener">Open Module Site</a>{% else %}--{% endif %}</td></tr>
+  <tr><th scope="row" title="Whether this module's report rests on data alone, has a spot-check flagged, or has been spot-checked by a Digital Learning Advisor, and when that check was last saved.">Audit Status</th><td>{{ report.audit_status }}</td></tr>
 </table>
 
 {% if report.comment %}
@@ -44,17 +44,17 @@
     {% endif %}
 </aside>
 
-<p class="tabs-links">
-  {% if tab == "template" %}<strong>Module Checks and Readiness</strong>{% else %}<a href="?tab=template">Module Checks and Readiness</a>{% endif %}
-  {% if tab == "accessibility" %}<strong>Accessibility Report</strong>{% else %}<a href="?tab=accessibility">Accessibility Report</a>{% endif %}
-</p>
+<nav class="tabs-links" aria-label="Report sections">
+  {% if tab == "template" %}<strong aria-current="page">Module Checks and Readiness</strong>{% else %}<a href="?tab=template">Module Checks and Readiness</a>{% endif %}
+  {% if tab == "accessibility" %}<strong aria-current="page">Accessibility Report</strong>{% else %}<a href="?tab=accessibility">Accessibility Report</a>{% endif %}
+</nav>
 
 {% if tab == "template" %}
   <section class="panel">
     {% if report.template %}
       <p class="muted">{{ text.TEMPLATE_INTRO }}</p>
-      <table class="kv">
-        <tr><th style="width:30%;">Blackboard item</th><th style="width:14%;">Type</th><th style="width:22%;">Status</th><th>Details</th></tr>
+      <div class="scroll"><table class="kv">
+        <tr><th scope="col" style="width:30%;">Blackboard item</th><th scope="col" style="width:14%;">Type</th><th scope="col" style="width:22%;">Status</th><th scope="col">Details</th></tr>
         {% for row in report.template %}
           {% if row.kind == "section" %}
             <tr><td><span class="ico">{{ row.key|section_icon }}</span>{{ row.label }}</td>
@@ -68,7 +68,7 @@
             <tr><td colspan="4" class="muted">🎓 {{ row.text }}</td></tr>
           {% endif %}
         {% endfor %}
-      </table>
+      </table></div>
     {% else %}
       <p class="muted" style="margin:0;">No Template Alignment data for this module yet.</p>
     {% endif %}
@@ -97,7 +97,7 @@
         <div class="gauges">
           {% for g in gauges %}
             <div class="gauge">
-              <div data-gauge="{{ g.data_id }}" style="width:170px;height:110px;"></div>
+              <div data-gauge="{{ g.data_id }}" role="img" aria-label="{{ g.alt }}" style="width:170px;height:110px;"></div>
               {{ g.figure|json_script:g.data_id }}
               <div class="sub">{{ g.sub }}</div>
             </div>
@@ -108,6 +108,17 @@
             var figure = JSON.parse(document.getElementById(el.dataset.gauge).textContent);
             Plotly.newPlot(el, figure.data, figure.layout, {displayModeBar: false});
           });
+          /* The band colours are chosen for a white card; on the dark card the darkest
+             green and the reds read dimly, so each swaps to a lighter shade there. */
+          var lighter = {"#047857": "#34d399", "#10B981": "#34d399", "#F59E0B": "#fbbf24", "#EF4444": "#f87171"};
+          document.addEventListener("themechange", function () {
+            var dark = document.documentElement.classList.contains("dark");
+            document.querySelectorAll("[data-gauge]").forEach(function (el) {
+              var figure = JSON.parse(document.getElementById(el.dataset.gauge).textContent);
+              var base = figure.data[0].gauge.bar.color, c = dark ? (lighter[base] || base) : base;
+              Plotly.restyle(el, {"number.font.color": c, "title.font.color": c, "gauge.bar.color": c});
+            });
+          });
         </script>
 
         {% if ally.disabled %}<p><strong>⚠️ {{ text.ALLY_OFF_WARNING }}</strong></p>{% endif %}
@@ -117,7 +128,7 @@
             <p class="muted" style="margin-bottom:0;">{% if ally.is_template %}{{ text.ALLY_TEMPLATE_ONLY }}{% else %}✅ {{ text.ALLY_NO_ISSUES }}{% endif %}</p>
           {% else %}
             <table class="kv">
-              <tr><th style="width:28%;">Summary of accessibility issues<br><span class="muted">{{ issues.total_items }} items across {{ issues.categories|length }} area{{ issues.categories|length|pluralize }}</span></th><th style="width:18%;">Items</th><th>Why it matters</th></tr>
+              <tr><th scope="col" style="width:28%;">Summary of accessibility issues<br><span class="muted">{{ issues.total_items }} items across {{ issues.categories|length }} area{{ issues.categories|length|pluralize }}</span></th><th scope="col" style="width:18%;">Items</th><th scope="col">Why it matters</th></tr>
               {% for c in issues.categories %}
                 <tr><td><span class="dot" style="background:{{ c.colour }};"></span>{{ c.icon }} {{ c.title }}</td>
                     <td>{{ c.items }} across {{ c.checks }} {{ c.checks_word }}</td>
@@ -129,7 +140,7 @@
                 <summary>Full technical detail ({{ issues.detail_count }} issue types, for auditors)</summary>
                 <div class="scroll">
                   <table class="kv">
-                    <tr><th style="width:auto;">Severity</th><th style="width:auto;">Issue</th><th style="width:auto;">Items</th><th style="width:auto;">Where</th><th style="width:auto;">Advice</th></tr>
+                    <tr><th scope="col" style="width:auto;">Severity</th><th scope="col" style="width:auto;">Issue</th><th scope="col" style="width:auto;">Items</th><th scope="col" style="width:auto;">Where</th><th scope="col" style="width:auto;">Advice</th></tr>
                     {% for tier in issues.detail %}{% for r in tier.rows %}
                       <tr><td><span class="dot" style="background:{{ r.colour }};"></span>{{ tier.name }}</td><td>{{ r.label }}</td><td>{{ r.items }}</td><td>{{ r.icon }} {{ r.where }}</td><td class="muted">{{ r.advice }}</td></tr>
                     {% endfor %}{% endfor %}

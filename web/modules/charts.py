@@ -39,7 +39,8 @@ def gauge(label, pct, colour):
 
 def gauges_for(ally):
     """One gauge per score in report_model.ally_summary()'s `scores`."""
-    return [{"data_id": f"gauge-{i}-data", "sub": sub, "figure": gauge(label, pct, colour)}
+    return [{"data_id": f"gauge-{i}-data", "sub": sub, "figure": gauge(label, pct, colour),
+             "alt": f"{label}: {pct:.1f}%" if pct is not None else f"{label}: no score"}
             for i, (label, pct, sub, colour) in enumerate(ally.get("scores", []))]
 
 
@@ -62,10 +63,14 @@ def trend_figures(trend):
     score (as a percentage) and the files uploaded. Dates are ISO strings."""
     dates = [d.strftime("%Y-%m-%d") for d in trend.index]
     return [
-        {"data_id": "trend-score-data", "figure": _line(
+        {"data_id": "trend-score-data",
+         "alt": "Line chart of the average accessibility score over time. The figures are in the table below.",
+         "figure": _line(
             "Average accessibility score over time", dates,
             [round(v * 100, 2) for v in trend["Overall score"]], "#2563EB", True)},
-        {"data_id": "trend-files-data", "figure": _line(
+        {"data_id": "trend-files-data",
+         "alt": "Line chart of files uploaded over time. The figures are in the table below.",
+         "figure": _line(
             "Content uploaded over time", dates,
             [int(v) for v in trend["Files uploaded"]], "#059669", False)},
     ]

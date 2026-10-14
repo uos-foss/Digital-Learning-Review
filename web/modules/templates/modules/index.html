@@ -17,7 +17,7 @@
     read path works end to end.
   </p>
   <table class="kv">
-    <tr><th>Field</th><th>Type</th></tr>
+    <tr><th scope="col">Field</th><th scope="col">Type</th></tr>
     {% for field in fields %}
       <tr><td>{{ field.label|default:field.id }}</td><td>{{ field.field_type }}</td></tr>
     {% empty %}

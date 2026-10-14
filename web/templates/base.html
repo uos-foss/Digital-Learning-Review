@@ -22,7 +22,7 @@
      slate greys follow the team's landing site, so the two read as one product. */
   :root {
     color-scheme: light;
-    --bg: #f8fafc; --panel: #ffffff; --ink: #1e293b; --muted: #64748b;
+    --bg: #f8fafc; --panel: #ffffff; --ink: #1e293b; --muted: #5b6a80;
     --line: #e2e8f0; --card-line: #e2e8f0;
     --accent: #4f46e5; --accent-hover: #4338ca; --link: #4f46e5;
     --accent-soft: rgba(99,102,241,.10); --accent-line: rgba(99,102,241,.25);
@@ -47,6 +47,13 @@
          background: var(--bg); color: var(--ink); line-height: 1.5; position: relative;
          transition: background-color .3s, color .3s; }
   h1, h2, h3 { font-family: Outfit, Inter, system-ui, sans-serif; letter-spacing: -.01em; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+             clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .skip { position: absolute; left: .75rem; top: -4rem; z-index: 10; padding: .5rem .9rem;
+          background: var(--accent); color: #fff; border-radius: .5rem; text-decoration: none; }
+  .skip:focus { top: .5rem; }
+  main:focus { outline: none; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   ::selection { background: var(--accent); color: #fff; }
   /* Two soft blurred glows behind the page, as on the landing site. */
   body::before, body::after { content: ""; position: fixed; z-index: 0; pointer-events: none;
@@ -56,12 +63,13 @@
   header.site, main, footer.site { position: relative; z-index: 1; }
 
   header.site { background: var(--panel); border-bottom: 1px solid var(--line);
-                padding: .6rem 1.25rem; display: flex; gap: 1rem; align-items: center; }
+                padding: .6rem 1.25rem; display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; }
   header.site .brand { font-family: Outfit, Inter, system-ui, sans-serif; font-weight: 700;
-                font-size: 1.05rem; display: inline-flex; align-items: center; gap: .5rem; }
+                font-size: 1.05rem; display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
   header.site .brand::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%;
                 background: var(--accent); }
-  header.site nav { margin-left: auto; font-size: .9rem; display: flex; align-items: center; gap: .75rem; }
+  header.site nav { margin-left: auto; font-size: .9rem; display: flex; flex-wrap: wrap;
+                    justify-content: flex-end; align-items: center; gap: .3rem .75rem; }
   header.site nav form { display: inline; margin: 0; }
   header.site nav button { background: none; border: 0; padding: 0; font: inherit;
                            color: var(--link); text-decoration: underline; cursor: pointer; }
@@ -135,7 +143,7 @@
   .filterbar h3 { margin: 0 0 .15rem; font-size: .95rem; }
   .filterbar .sub { margin: .75rem 0 0; padding-top: .6rem; border-top: 1px dashed var(--line); }
   .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 0; }
-  .chip { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .65rem; cursor: pointer;
+  .chip { position: relative; display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .65rem; cursor: pointer;
           border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
           color: var(--ink); font-size: .82rem; font-weight: 500; user-select: none; transition: border-color .2s; }
   .chip:hover { border-color: var(--muted); }
@@ -155,9 +163,10 @@
 {% block head %}{% endblock %}
 </head>
 <body>
+<a class="skip" href="#content">Skip to main content</a>
 <header class="site">
   <span class="brand">Digital Learning Review</span>
-  <nav>
+  <nav aria-label="Main">
     {% if user.is_authenticated %}<a href="{% url 'modules:index' %}">Modules</a><a href="{% url 'schools:index' %}">Schools</a><span class="muted">{{ user.username }}</span>
       {% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
       <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button type="submit">Sign out</button></form>
@@ -169,11 +178,22 @@
     </span>
   </nav>
 </header>
-<main>
+<main id="content" tabindex="-1">
 {% block content %}{% endblock %}
 </main>
 <footer class="site">Digital Learning Review &middot; Faculty of Social Sciences</footer>
 <script>
+  /* A filter form with data-autosubmit applies as chips are ticked with a mouse or
+     touch. A keyboard user ticks several and presses Apply: a page reload on each
+     tick would move them without warning. */
+  (function () {
+    var byKeyboard = false;
+    document.addEventListener("keydown", function () { byKeyboard = true; }, true);
+    document.addEventListener("pointerdown", function () { byKeyboard = false; }, true);
+    document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
+      form.addEventListener("change", function () { if (!byKeyboard) form.submit(); });
+    });
+  })();
   /* Light / dark / system. The choice is kept in this browser only. Pages with
      charts listen for "themechange" to recolour them. */
   (function () {

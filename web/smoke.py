@@ -221,7 +221,7 @@ def main():
     check("a module lead gets the modules list only, whatever view is asked for",
           "Outstanding actionable items" in ml_page and "Spot-Check Comments" not in ml_page
           and "Template Alignment" not in ml_matrix and "Reported Fixes" not in ml_page
-          and "<th>Spot-check</th>" in ml_page)
+          and ">Spot-check</th>" in ml_page)
     ml_home = aligned_client.get("/")
     check("signing in sends a one-school account straight to its school",
           ml_home.status_code == 302 and ml_home.url == f"/schools/{school}/", str(ml_home.url))
@@ -279,8 +279,8 @@ def main():
     problems = []
     for view_name, marker in panel_marker.items():
         html = client.get(f"/schools/{school}/?view={view_name}").content.decode("utf-8", "replace")
-        bar = html[html.index('<p class="tabs-links">'):]
-        bar = bar[:bar.index("</p>")]
+        bar = html[html.index('<nav class="tabs-links"'):]
+        bar = bar[:bar.index("</nav>")]
         panel = html[html.index('<section class="panel">'):]
         if any(tag in bar for tag in ("<div", "<table", "<script", "<form")):
             problems.append(f"{view_name}: content inside the tab bar")
@@ -294,9 +294,9 @@ def main():
           bool(ally_all["modules"]) and len(ally_all["modules"]) <= len(listed) + 5,
           f"{len(ally_all['modules'])} modules, {len(ally_all['profile'])} issue types")
     ally_html = client.get(f"/schools/{school}/?view=ally&sev=Severe").content.decode("utf-8", "replace")
-    check("ally analytics: the filters are chips that apply as ticked, with no Filter button",
-          'class="chip"' in ally_html and 'onchange="this.submit()"' in ally_html
-          and ">Filter</button>" not in ally_html)
+    check("ally analytics: the filters are chips that apply as ticked with a mouse, with an Apply button for the keyboard",
+          'class="chip"' in ally_html and "data-autosubmit" in ally_html
+          and ">Apply filters</button>" in ally_html)
     check("ally analytics: a severity filter only narrows",
           len(ally_sev["modules"]) <= len(ally_all["modules"])
           and all(r["severity"] == "Severe" for r in ally_sev["profile"]))
@@ -340,6 +340,27 @@ def main():
           page.count('data-theme=') == 3 and 'classList.toggle("dark"' in page
           and "family=Inter" in page and "family=Outfit" in page and 'class="site"' in page)
     login_html = Client().get("/accounts/login/").content.decode("utf-8", "replace")
+    rep = client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
+    check("accessibility basics: skip link, landmarks, one current tab, header scopes, chart text",
+          all('<a class="skip" href="#content">' in h and '<main id="content"' in h
+              and '<nav aria-label="Main">' in h and "<th>" not in h
+              for h in (page, rep))
+          and page.count('aria-current="page"') == 1 and rep.count('aria-current="page"') == 1
+          and 'aria-label="School views"' in page and 'aria-label="Report sections"' in rep)
+    trend_page = client.get(f"/schools/{school}/?view=trends").content.decode("utf-8", "replace")
+    acc_page = client.get(f"/modules/{code}/?tab=accessibility").content.decode("utf-8", "replace")
+    import re
+    trend_frame, _ = data.load_school_trend(school, "Autumn")
+    check("the trend charts have a spoken description and the figures behind them",
+          trend_frame is None or (trend_page.count('role="img" aria-label="Line chart') == 2
+                                  and "figures behind the charts" in trend_page))
+    gauges = len(re.findall(r'data-gauge="', acc_page))
+    check("every gauge has a spoken score",
+          gauges == len(re.findall(r'data-gauge="[^"]+" role="img" aria-label="[^"]+: (?:[\d.]+%|no score)"', acc_page)),
+          f"{gauges} gauges")
+    comments_html = client.get(f"/schools/{school}/?view=comments").content.decode("utf-8", "replace")
+    check("the comment search and status controls are labelled",
+          'for="cq"' in comments_html and 'for="cstatus"' in comments_html)
     check("the sign-in page carries the theme too, with no light-only greys left",
           'data-theme=' in login_html and "#4B5563" not in login_html and "#6B7280" not in login_html)
     check("other school is refused its dashboard",
