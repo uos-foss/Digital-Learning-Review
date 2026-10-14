@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load report_extras %}
-{% block title %}{{ school }} {% if view == "alignment" %}Template Alignment{% elif view == "comments" %}Spot-Check Comments{% elif view == "ally" %}Ally Analytics{% elif view == "trends" %}Trends{% elif view == "fixes" %}Reported Fixes{% else %}Modules{% endif %} - Digital Learning Review{% endblock %}
+{% block title %}{{ school|school_name }}: {% if view == "alignment" %}Template Alignment{% elif view == "comments" %}Spot-Check Comments{% elif view == "ally" %}Ally Analytics{% elif view == "trends" %}Trends{% elif view == "fixes" %}Reported Fixes{% else %}Modules{% endif %} - {{ site_name }}{% endblock %}
 {% block head %}{% if view == "trends" and trend_figures %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}
@@ -12,7 +12,10 @@
   td.comment { min-width: 14rem; font-size: .85rem; }
   table.grid td { vertical-align: top; }
 </style>
-<h1>{{ school }} <span class="muted">School Dashboard</span></h1>
+{% with name=school|school_name %}
+<h1>{{ name }}{% if name == school %} <span class="muted">School Dashboard</span>{% endif %}</h1>
+{% if name != school %}<p class="muted" style="margin-top:-.6rem;">{{ school }} &middot; School Dashboard</p>{% endif %}
+{% endwith %}
 
 <p>
   {% for s in semesters %}

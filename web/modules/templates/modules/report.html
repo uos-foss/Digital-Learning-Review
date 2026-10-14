@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% load report_extras %}
-{% block title %}{{ code }} report{% endblock %}
+{% block title %}{{ code }} report - {{ site_name }}{% endblock %}
 {% block head %}{% if tab == "accessibility" %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}
 <h1>{{ code }} <span class="muted">{{ report.name }}</span></h1>
 <table class="kv" style="margin-bottom:1rem;">
-  <tr><th scope="row" style="width:9rem;">School</th><td><a href="{% url 'schools:dashboard' report.school %}">{{ report.school }}</a></td></tr>
+  <tr><th scope="row" style="width:9rem;">School</th><td><a href="{% url 'schools:dashboard' report.school %}">{{ report.school|school_name }}</a></td></tr>
   <tr><th scope="row">Module Lead</th><td>{% if report.lead %}{{ report.lead }}{% else %}--{% endif %}</td></tr>
   <tr><th scope="row">Level</th><td>{% if report.level %}{{ report.level }}{% else %}--{% endif %}</td></tr>
   <tr><th scope="row">Module Site</th><td>{% if report.site_url %}<a href="{{ report.site_url }}" target="_blank" rel="noopener">Open Module Site</a>{% else %}--{% endif %}</td></tr>

@@ -39,6 +39,15 @@ def markdown_html(value):
     return mark_safe(_markdown.render(value or ""))
 
 
+@register.filter
+def school_name(code):
+    """A school's full name from SITS ("School of Education"), or the code
+    itself when SITS has not given one."""
+    from modules import data
+    code = str(code or "")
+    return data.school_names().get(code.upper(), code)
+
+
 STATUS_WORDS = {
     "✅": "done", "❌": "outstanding", "🔧": "reported fixed, awaiting check",
     "🟢": "accessibility good", "🟠": "major accessibility issues",

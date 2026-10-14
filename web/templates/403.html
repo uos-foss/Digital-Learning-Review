@@ -10,7 +10,7 @@ Only shown when DEBUG is off. With DEBUG on, Django's own debug page wins,
 which is why this is easy to forget exists.
 {% endcomment %}
 
-{% block title %}No access to that module{% endblock %}
+{% block title %}No access to that module - {{ site_name }}{% endblock %}
 
 {% block content %}
 <div class="denied">

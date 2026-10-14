@@ -320,6 +320,23 @@ SGA one) lets the lines run through it but has no elbow. The icon template tags
 and SVGs in `report_model.py` are now unused by that table, and kept in case the
 icons come back.
 
+**The Django site is called "FoSS Module Reports"** (from
+14-10-2026; it was "Digital Learning Review"). The name is one setting,
+`SITE_NAME` in `web/dlr/settings.py`, read by a context processor
+(`site_name`) into the header brand (now a link home), the footer, every tab title,
+the sign-in heading, and the admin's header and title. A new template should use
+`{{ site_name }}`, never the literal. The Streamlit app, `docs/` and the repo
+still say "Digital Learning Review"; that is the project's name, not the site's.
+
+**School names are read from SITS, not typed in.** `processing.school_names_from_rows()`
+takes each module's department name (SITS "Department name", keyed by "CIS unit
+code", which is the code the app calls the module code; SITS's own "Module code" is
+the legacy format) and a school's name is the one most of its rows carry. The Django
+pages show "School of Education" with the code as a smaller label
+(`{{ code|school_name }}`, which falls back to the code when SITS has no name), and
+`web/modules/data.py::school_names()` caches the map like the module sources.
+Streamlit still shows codes.
+
 **`/modules/` is a module finder** (14-10-2026; it was the first spike's page listing
 checklist questions). Search by code, name or lead: every word must match
 somewhere (`report_model.build_module_finder()`), an exact code redirects to the

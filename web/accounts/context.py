@@ -18,3 +18,8 @@ def signin_state(request):
                                   and (app.get("secret") or "").strip()),
         "allowed_email_domain": getattr(settings, "ALLOWED_EMAIL_DOMAIN", ""),
     }
+
+
+def site_name(request):
+    """The site's name for every template (settings.SITE_NAME)."""
+    return {"site_name": settings.SITE_NAME}

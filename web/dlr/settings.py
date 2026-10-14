@@ -122,6 +122,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "accounts.context.signin_state",
+                "accounts.context.site_name",
             ],
         },
     },
@@ -254,6 +255,9 @@ SOCIALACCOUNT_PROVIDERS = {
 
 # URL names, not paths, so the script prefix is applied wherever they resolve.
 LOGIN_URL = "account_login"
+# What the site is called, in the header, the footer, every tab title, the sign-in
+# page and the admin. Change it here and nowhere else.
+SITE_NAME = "FoSS Module Reports"
 LOGIN_REDIRECT_URL = "home"
 ACCOUNT_LOGOUT_REDIRECT_URL = "account_login"
 ACCOUNT_LOGOUT_ON_GET = False            # logging out is a POST, so a link cannot do it

@@ -388,6 +388,32 @@ def main():
     check("the staff platform check is shown to staff only",
           "Platform check" in staff_client.get("/modules/").content.decode("utf-8", "replace")
           and "Platform check" not in client.get("/modules/").content.decode("utf-8", "replace"))
+    names = data.school_names()
+    check("every faculty school has a full name from SITS",
+          all(names.get(sc) for sc in processing.FACULTY_SCHOOLS), str(sorted(names)))
+    full = names.get(school, school)
+    check("the school list, dashboard and module report use the full name",
+          full in client.get("/schools/").content.decode("utf-8", "replace")
+          and f"<h1>{full}" in page and f"{school} &middot; School Dashboard" in page
+          and full in rep and full in page.split("<title>")[1].split("</title>")[0])
+    check("the module finder names schools in full, and a code with no name falls back to itself",
+          full in client.get("/modules/?school=" + school).content.decode("utf-8", "replace")
+          and data.school_names().get("ZZZ", "ZZZ") == "ZZZ")
+    from django.conf import settings as dj_settings
+    from django.test import override_settings
+    real = dj_settings.SITE_NAME
+    probe = "Probe Site Name 123"
+    with override_settings(SITE_NAME=probe):
+        pages = {u: client.get(u).content.decode("utf-8", "replace")
+                 for u in ("/schools/", f"/schools/{school}/", f"/modules/{code}/", "/modules/")}
+        login_probe = Client().get("/accounts/login/").content.decode("utf-8", "replace")
+        admin_probe = staff_client.get("/admin/").content.decode("utf-8", "replace")
+    check("the site name is one setting: header, footer, tab title, sign-in and admin all follow it",
+          all(p.count(probe) >= 3 and probe in p.split("<title>")[1].split("</title>")[0] for p in pages.values())
+          and probe in login_probe and probe in admin_probe
+          and all(real not in p for p in list(pages.values()) + [login_probe, admin_probe]))
+    check("the real name is FoSS Module Reports",
+          real == "FoSS Module Reports" and "Digital Learning Review" not in page)
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",

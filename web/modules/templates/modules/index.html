@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Find a module - Digital Learning Review{% endblock %}
+{% load report_extras %}
+{% block title %}Find a module - {{ site_name }}{% endblock %}
 
 {% block content %}
 {% with f=finder %}
@@ -13,7 +14,7 @@
     <label for="finder-school" class="sr-only">School</label>
     <select id="finder-school" name="school">
       <option value="">All my schools</option>
-      {% for s in f.schools %}<option value="{{ s }}"{% if s == f.school %} selected{% endif %}>{{ s }}</option>{% endfor %}
+      {% for s in f.schools %}<option value="{{ s }}"{% if s == f.school %} selected{% endif %}>{{ s|school_name }}</option>{% endfor %}
     </select>
   {% endif %}
   <button type="submit">Search</button>
@@ -24,9 +25,9 @@
   <p class="muted">Your account is not aligned with any school yet, so there are no modules to search. A Digital Learning Advisor or an administrator can set that.</p>
 {% elif not f.searched %}
   <p class="muted">Or browse a school:</p>
-  <p>{% for s in f.schools %}<a class="chip" href="?school={{ s }}">{{ s }}</a> {% endfor %}</p>
+  <p>{% for s in f.schools %}<a class="chip" href="?school={{ s }}">{{ s|school_name }}</a> {% endfor %}</p>
 {% elif not f.results %}
-  <p role="status">No modules match{% if f.query %} &ldquo;{{ f.query }}&rdquo;{% endif %}{% if f.school %} in {{ f.school }}{% endif %}.</p>
+  <p role="status">No modules match{% if f.query %} &ldquo;{{ f.query }}&rdquo;{% endif %}{% if f.school %} in {{ f.school|school_name }}{% endif %}.</p>
 {% else %}
   <p role="status" class="muted">
     {% if f.truncated %}Showing the first {{ f.results|length }} of {{ f.total }} modules. Add more of the code, name or lead to narrow it.{% else %}{{ f.total }} module{{ f.total|pluralize }} found.{% endif %}
@@ -37,7 +38,7 @@
       {% for m in f.results %}
         <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>
             <td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td>
-            <td><a href="{% url 'schools:dashboard' m.school %}">{{ m.school }}</a></td>
+            <td><a href="{% url 'schools:dashboard' m.school %}">{{ m.school|school_name }}</a></td>
             <td>{{ m.level }}</td><td class="nw">{{ m.semesters|join:" and " }}</td></tr>
       {% endfor %}
     </table>

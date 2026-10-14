@@ -32,6 +32,28 @@ def school_of(code):
     return str(code).strip().upper()[:SCHOOL_CODE_LENGTH]
 
 
+def school_names_from_rows(rows):
+    """
+    {school code: full school name} from SITS's own department names.
+
+    `rows` is (module code, department name, how many assessment rows). Each
+    module code gives its school, and a school's name is the department name
+    most of its rows carry, so a stray name on one row cannot rename a school.
+    Codes outside the faculty are left out, as everywhere else. Reading the
+    names from the data keeps them right if a school is renamed, instead of a
+    table here that would go stale.
+    """
+    tally = {}
+    for code, name, count in rows:
+        school = school_of(code)
+        name = str(name or '').strip()
+        if school in FACULTY_SCHOOLS and name:
+            tally.setdefault(school, {})
+            tally[school][name] = tally[school].get(name, 0) + int(count or 0)
+    return {school: max(names.items(), key=lambda kv: (kv[1], kv[0]))[0]
+            for school, names in tally.items()}
+
+
 def school_series(codes):
     """school_of() for a pandas Series of module codes."""
     return (codes.astype(str).str.strip().str.upper()
