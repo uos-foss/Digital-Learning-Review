@@ -172,16 +172,41 @@
   </div>
   <p class="muted" style="margin-bottom:0;">Items are the module's outstanding actionable items. Ally score shows the build stage instead until a course has content beyond its template.</p>
 {% else %}
-  <p class="muted">{{ text.ALIGNMENT_LEGEND }}</p>
+  {% with l=lenses %}
+  <p class="muted" style="margin-top:0;">{{ text.ALIGNMENT_LEGEND }}</p>
+  <form method="get" style="margin-bottom:1rem;">
+    <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">
+    <strong>Lens</strong> <span class="muted">(none shows every module)</span><br>
+    {% for o in l.lens_options %}<label style="margin-right:.8rem;"><input type="checkbox" name="lens" value="{{ o.key }}"{% if o.on %} checked{% endif %}> {{ o.label }}</label>{% endfor %}
+    {% if l.show_items %}
+      <details style="margin:.5rem 0;"{% for i in l.item_options %}{% if i.on %} open{% endif %}{% endfor %}>
+        <summary>Template Alignment: only these items (none means any outstanding item)</summary>
+        {% for i in l.item_options %}<label style="display:inline-block;margin-right:.8rem;"><input type="checkbox" name="item" value="{{ i.label }}"{% if i.on %} checked{% endif %}> {{ i.label }}</label>{% endfor %}
+      </details>
+    {% endif %}
+    <button type="submit">Filter</button>
+    {% if l.filtered %}<a href="?semester={{ semester|urlencode }}&view=alignment">Clear</a>{% endif %}
+  </form>
+  {% if l.status %}<p class="{% if l.status_type == 'success' %}ok{% else %}note{% endif %}">{{ l.status }}</p>{% endif %}
+  {% if l.notes %}
+    <details style="margin-bottom:1rem;"><summary>Per-lens notes</summary>
+      {% for lens, note in l.notes %}<p><strong>{{ lens }}</strong>: {{ note|default:"No result." }}</p>{% endfor %}
+    </details>
+  {% endif %}
+  {% if l.rows %}
   <div class="scroll">
     <table class="grid">
-      <tr><th>Code</th><th>Module</th>{% for c in d.matrix.columns %}<th>{{ c }}</th>{% endfor %}</tr>
-      {% for r in d.matrix.rows %}
-        <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td>
-            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}</tr>
+      <tr><th>Code</th><th>Module</th><th>Lead</th><th>Spot-check</th>{% for c in l.columns %}<th>{{ c }}</th>{% endfor %}{% if l.has_comments %}<th>Auditor comments</th>{% endif %}</tr>
+      {% for r in l.rows %}
+        <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td><td class="nw">{{ r.spot }}</td>
+            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}{% if l.has_comments %}<td>{{ r.comment }}</td>{% endif %}</tr>
       {% endfor %}
     </table>
   </div>
+  <p class="muted">{{ l.rows|length }} module{{ l.rows|length|pluralize }} shown.</p>
+  {% endif %}
+  <style>.ok{background:#ecfdf5;border-left:3px solid #059669;padding:.5rem .75rem;}</style>
+  {% endwith %}
 {% endif %}
 </section>
 {% endwith %}

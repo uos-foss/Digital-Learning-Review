@@ -19,6 +19,17 @@ import pandas as pd
 
 from processing import (
     CURRENT_ACADEMIC_YEAR,
+    LENS_ALIGNMENT,
+    LENS_READING,
+    LENS_RISK,
+    LENS_SGA,
+    combine_lenses,
+    item_status_table,
+    lens_accessibility_risk,
+    lens_missing_reading_lists,
+    lens_no_sgas,
+    lens_template_alignment,
+    short_field_label,
     derive_module_findings,
     format_comment_markdown,
     mean_score,
@@ -1070,4 +1081,76 @@ def build_ally_analytics(school_df, df_issues, *, severities=None, issues=None):
         'issue_options': issue_options, 'issues': issues,
         'filters_active': filters_active,
         'profile': profile, 'modules': modules, 'has_scores': has_scores,
+    }
+
+
+# The School Dashboard's lenses, as the alignment page offers them. The keys
+# are what a URL carries (?lens=risk&lens=reading); the labels are the
+# Streamlit multiselect's own wording.
+LENS_KEYS = (("risk", LENS_RISK), ("alignment", LENS_ALIGNMENT),
+             ("reading", LENS_READING), ("sga", LENS_SGA))
+
+
+def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_status, *,
+                     lenses=(), focus=(), can_view_sga=False):
+    """
+    The Template Alignment page's item-by-item table, narrowed by lenses, as
+    plain data. With no lens every module is listed; with lenses, only modules
+    at least one flags, most lenses first (processing.combine_lenses()). Each
+    row carries a tick or cross per template item, the spot-check state and
+    the advisor's comment on one line, as the Streamlit table does.
+
+    `lenses` are keys from LENS_KEYS; unknown ones are ignored, and the SGA
+    lens is offered only when `can_view_sga`. `focus` narrows the Template
+    Alignment lens to those short item labels and applies only while that lens
+    is selected. `summaries` is loaders.load_audit_summaries() for the school.
+    """
+    available = [(k, label) for k, label in LENS_KEYS if k != 'sga' or can_view_sga]
+    selected = [label for k, label in available if k in set(lenses)]
+    item_labels = [short_field_label(f['id'], f['label']) for f in active_fields
+                   if f['field_type'] in ('boolean', 'yes/no')]
+    focus = [f for f in focus if f in item_labels] if LENS_ALIGNMENT in selected else []
+
+    status, status_type, notes = "", "info", []
+    if selected:
+        results = {}
+        for lens in selected:
+            source = school_df.copy()
+            if lens == LENS_RISK:
+                results[lens] = lens_accessibility_risk(source)
+            elif lens == LENS_ALIGNMENT:
+                results[lens] = lens_template_alignment(
+                    source, summaries, active_fields, fix_claims, focus)
+            elif lens == LENS_READING:
+                results[lens] = lens_missing_reading_lists(source, summaries)
+            elif lens == LENS_SGA:
+                results[lens] = lens_no_sgas(source)
+        flagged, status, status_type, notes = combine_lenses(selected, results)
+        codes = [] if flagged is None else list(flagged['New module code'])
+        if len(selected) == 1:
+            notes = []
+    else:
+        codes = (school_df[['New module code']].drop_duplicates()
+                 .sort_values('New module code')['New module code'].tolist())
+
+    table = item_status_table(codes, school_df, summaries, active_fields, fix_claims, spot_status) \
+        if codes else pd.DataFrame()
+    fixed = {'New module code', 'Module name', 'Mod. lead', 'Spot-Check', 'Auditor Comments'}
+    columns = [c for c in table.columns if c not in fixed]
+    rows = []
+    for r in table.to_dict('records'):
+        rows.append({
+            'code': str(r['New module code']).strip().upper(), 'name': _clean(r.get('Module name')),
+            'lead': _clean(r.get('Mod. lead')), 'spot': r.get('Spot-Check', ''),
+            'comment': r.get('Auditor Comments', ''),
+            'cells': [r.get(c, '') for c in columns]})
+    return {
+        'lens_options': [{'key': k, 'label': label, 'on': label in selected}
+                         for k, label in available],
+        'item_options': [{'label': i, 'on': i in focus} for i in item_labels],
+        'show_items': LENS_ALIGNMENT in selected,
+        'status': status, 'status_type': status_type, 'notes': notes,
+        'columns': columns, 'rows': rows,
+        'has_comments': any(r['comment'] for r in rows),
+        'filtered': bool(selected),
     }

@@ -2646,6 +2646,243 @@ def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
         grouped = grouped.head(top_n)
     return grouped[columns].reset_index(drop=True)
 
+# --- The School Dashboard's lenses -------------------------------------------
+# Four filters over a school's modules, each answering "which of these need
+# attention for X". Pure frames in, frame and a one-line verdict out, so the
+# Streamlit table and the Django alignment page read the same rule. The
+# Streamlit view adds its own column configs; nothing here knows about a UI.
+
+LENS_RISK = "⚠️ Accessibility Risk"
+LENS_ALIGNMENT = "🔍 Template Alignment"
+LENS_READING = "📚 Missing Reading Lists"
+LENS_SGA = "🎓 No SGAs Mapped"
+LENS_COLUMNS = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
+
+
+def lens_accessibility_risk(df):
+    """
+    The accessibility priority list, ranked by harm rather than by score.
+
+    Replaces a flat "below 70%" cut, which ranked a module with four students
+    above one with four hundred and - now that the year rolls over with every
+    course at template content - would have been swamped by untouched shells
+    scoring 99%. Untouched shells are excluded outright: there is nothing to
+    remediate in a course nobody has started populating yet.
+
+    Returns (frame or None, note, status_type). Scores stay numeric (0-100 in
+    'Score') so a UI can format them without breaking its own sort.
+    """
+    if df is None or df.empty:
+        return None, "No modules in scope.", "info"
+
+    scope = scoreable(df)
+    skipped = len(df) - len(scope)
+    if scope.empty:
+        return (None,
+                "No courses have content beyond their template yet, so there is nothing "
+                "to remediate. Build progress is the thing to watch at this stage.", "info")
+
+    work = scope.copy()
+    work['_severe'] = pd.to_numeric(work.get('Ally Severe'), errors='coerce').fillna(0)
+    work['_major'] = pd.to_numeric(work.get('Ally Major'), errors='coerce').fillna(0)
+    work['_students'] = pd.to_numeric(work.get('Ally Students'), errors='coerce').fillna(0)
+    work['_score'] = pd.to_numeric(work.get('Ally Overall'), errors='coerce')
+
+    at_risk = work[(work['_severe'] > 0) | (work['_major'] > 0) | (work['_score'] < 0.7)]
+    if at_risk.empty:
+        return (None,
+                f"No accessibility risks found across {len(scope)} module(s) with content.",
+                "success")
+
+    # Severe first, then how many students meet it, then how much major work sits
+    # behind it. Score alone is a poor ranking: a module can score well overall
+    # and still hide an unreadable scanned document.
+    at_risk = at_risk.sort_values(['_severe', '_students', '_major'], ascending=False)
+    at_risk['Score'] = at_risk['_score'] * 100
+    at_risk['Severe'] = at_risk['_severe'].astype(int)
+    at_risk['Major'] = at_risk['_major'].astype(int)
+    at_risk['Students'] = at_risk['_students'].astype(int)
+
+    cols = [c for c in ['New module code', 'Module name', 'Mod. lead',
+                        'Severe', 'Major', 'Students', 'Score'] if c in at_risk.columns]
+    note = (f"🎯 {len(at_risk)} module(s) with content need accessibility work, worst first. "
+            "Severe issues are unreadable scans, corrupt files, documents locked against "
+            "screen readers, and images that can trigger seizures - these block access "
+            "outright rather than making it harder.")
+    if skipped:
+        note += f" {skipped} module(s) not yet started are excluded."
+    return at_risk[cols].reset_index(drop=True), note, "warning"
+
+
+def lens_template_alignment(school_df, checklist_sums, active_fields, fix_claims, focus=()):
+    """
+    Modules with at least one template item outstanding, by the same rule as
+    the alignment matrix (module_alignment_status()): flagged when any item
+    reads '❌'; '🔧' (reported fixed) and the accessibility light are not
+    outstanding. `focus` narrows it to those short item labels. Learning
+    Materials has no template section, so it reads as outstanding for every
+    module nobody has audited and is dropped for those.
+
+    Returns (frame or None, status, status_type).
+    """
+    labels = {f['id']: short_field_label(f['id'], f['label']) for f in active_fields}
+    rows = []
+    n_checked = 0
+    for _, r in school_df.drop_duplicates('New module code').iterrows():
+        c_str = str(r['New module code']).strip()
+        entry = checklist_sums.get(c_str, {})
+        audited = entry.get('Auditor') not in (None, '', 'System')
+        n_checked += 1
+        status = dict(module_alignment_status(
+            r.to_dict(), entry.get('Responses', {}), active_fields,
+            fix_claims.get(c_str.upper())))
+        if not audited:
+            status.pop(labels.get('learning_materials'), None)
+        outstanding = [k for k, v in status.items() if v == '❌'
+                       and (not focus or k in focus)]
+        if outstanding:
+            rows.append({
+                'New module code': r['New module code'],
+                'Module name': r.get('Module name', ''),
+                'Mod. lead': r.get('Mod. lead', ''),
+                'Outstanding': len(outstanding),
+                'DisplayValue': ", ".join(outstanding)})
+
+    if rows:
+        gap_df = (pd.DataFrame(rows)
+                  .sort_values(['Outstanding', 'New module code'], ascending=[False, True]))
+        status_line = (
+            f"🎯 Displaying {len(gap_df)} of {n_checked} modules "
+            + (f"with {', '.join(focus)} outstanding."
+               if focus else "with at least one template item outstanding."))
+        return gap_df[LENS_COLUMNS].copy(), status_line, "warning"
+    return None, (f"All {n_checked} modules have {', '.join(focus)} done or reported fixed."
+                  if focus else
+                  f"All {n_checked} modules have every template item done or reported fixed."), "success"
+
+
+def lens_missing_reading_lists(school_df, checklist_sums):
+    """Modules Leganto lists as having no reading list at all, minus those a DLA
+    has ticked as done (a recorded answer overrides Leganto)."""
+    if 'Leganto Missing' not in school_df.columns:
+        return None, "Leganto reading-list data hasn't been imported for this school yet.", "error"
+    missing = school_df[school_df['Leganto Missing'] == True].copy()  # noqa: E712
+    missing = missing[[reading_list_verdict(checklist_sums, c) is not True
+                       for c in missing['New module code']]]
+    if missing.empty:
+        return None, "Zero modules are flagged as missing Leganto reading lists in the current view! 🎉", "success"
+    missing['DisplayValue'] = "Missing"
+    return (missing[LENS_COLUMNS].copy(),
+            f"🎯 Found {len(missing)} modules explicitly flagged as missing a Leganto list.",
+            "warning")
+
+
+def lens_no_sgas(school_df):
+    """Modules the SGA tool lists with no attributes mapped."""
+    if 'SGA Attributes' not in school_df.columns \
+            or not school_df['SGA Attributes'].notna().any():
+        return None, "SGA data hasn't been imported yet.", "error"
+    none_mapped = school_df[[sga_blocks_sga_field(v) for v in school_df['SGA Attributes']]].copy()
+    if none_mapped.empty:
+        return None, "Every module listed in the SGA tool has attributes mapped. 🎉", "success"
+    none_mapped['DisplayValue'] = "None mapped"
+    return (none_mapped[LENS_COLUMNS].copy(),
+            f"🎯 Found {len(none_mapped)} modules listed in the SGA tool with no attributes mapped.",
+            "warning")
+
+
+def combine_lenses(selected, results):
+    """
+    Several lenses at once: modules flagged by at least one, most lenses
+    first, then most severe accessibility issues, then code. `results` maps
+    each selected lens to its (frame, status, status_type). Returns
+    (frame or None, status, status_type, notes) where notes is each lens's own
+    one-line verdict. A single lens passes straight through.
+    """
+    notes = [(lens, results[lens][1]) for lens in selected]
+    if len(selected) == 1:
+        frame, status, status_type = results[selected[0]]
+        return frame, status, status_type, notes
+
+    key_col = 'New module code'
+    lens_cols = {}
+    combined = None
+    for lens_name in selected:
+        l_df = results[lens_name][0]
+        if l_df is None or l_df.empty:
+            continue
+        part = l_df[[c for c in (key_col, 'Module name', 'Mod. lead') if c in l_df.columns]].copy()
+        if 'Severe' in l_df.columns:
+            part[lens_name] = (l_df['Severe'].astype(int).astype(str) + " severe, "
+                               + l_df['Major'].astype(int).astype(str) + " major, "
+                               + l_df['Score'].map(lambda v: f"{v:.1f}%" if pd.notna(v) else "n/a"))
+            part['_severe'] = l_df['Severe'].astype(int)
+        else:
+            part[lens_name] = l_df['DisplayValue'].astype(str)
+        lens_cols[lens_name] = lens_name
+        if combined is None:
+            combined = part
+        else:
+            combined = combined.merge(part, on=key_col, how='outer', suffixes=('', '_n'))
+            for c in ('Module name', 'Mod. lead'):
+                if c + '_n' in combined.columns:
+                    combined[c] = combined[c].fillna(combined[c + '_n'])
+                    combined = combined.drop(columns=[c + '_n'])
+            if '_severe_n' in combined.columns:
+                combined['_severe'] = combined['_severe'].fillna(combined['_severe_n'])
+                combined = combined.drop(columns=['_severe_n'])
+
+    if combined is None or combined.empty:
+        return None, "No modules are flagged by any of the selected lenses.", "success", notes
+    n_sel = len(selected)
+    combined['Lenses Flagged'] = combined[list(lens_cols)].notna().sum(axis=1).astype(int)
+    if '_severe' not in combined.columns:
+        combined['_severe'] = 0
+    combined['_severe'] = combined['_severe'].fillna(0)
+    combined = combined.sort_values(
+        ['Lenses Flagged', '_severe', key_col], ascending=[False, False, True])
+    n_all = int((combined['Lenses Flagged'] == n_sel).sum())
+    status = (f"🎯 {len(combined)} modules flagged by at least one of {n_sel} lenses "
+              f"({n_all} by all {n_sel}).")
+    cols = [key_col, 'Module name', 'Mod. lead'] + list(lens_cols)
+    frame = combined[cols].fillna("").reset_index(drop=True).rename(
+        columns={LENS_ALIGNMENT: "Areas Needing Attention"})
+    return frame, status, "warning", notes
+
+
+def item_status_table(codes, school_df, checklist_sums, active_fields, fix_claims, spot_status):
+    """
+    One row per module code, laid out like the alignment matrix: a tick or
+    cross per template item, plus the spot-check state and the advisor's
+    comment on one line. 'Auditor Comments' is dropped when no row has one.
+    `spot_status` maps an upper-case code to 'pending' or 'checked'.
+    """
+    rows_by_code = {}
+    for _, r in school_df.iterrows():
+        rows_by_code.setdefault(str(r['New module code']).strip(), r.to_dict())
+    rows = []
+    for code in codes:
+        c_str = str(code).strip()
+        active_row = rows_by_code.get(c_str, {})
+        responses = checklist_sums.get(c_str, {}).get('Responses', {})
+        row = {
+            'New module code': code,
+            'Module name': active_row.get('Module name', ''),
+            'Mod. lead': title_case_name(active_row.get('Mod. lead', '')),
+            'Spot-Check': {'pending': "⏳ Pending", 'checked': "✅ Checked"}.get(
+                spot_status.get(c_str.upper()), ""),
+        }
+        row['Auditor Comments'] = " ".join(format_comment_markdown(
+            responses.get('comments')).replace("**", "").split())
+        row.update(module_alignment_status(
+            active_row, responses, active_fields, fix_claims.get(c_str.upper())))
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    if not table['Auditor Comments'].astype(bool).any():
+        table = table.drop(columns=['Auditor Comments'])
+    return table
+
+
 ALLY_TREND_NO_HISTORY = "Historical Ally data is not yet available."
 ALLY_TREND_ONE_SNAPSHOT = (
     "Only one Ally snapshot has been imported so far, so there is no trend to plot "

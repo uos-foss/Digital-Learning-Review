@@ -319,3 +319,59 @@ def test_ally_trend_says_why_there_is_nothing_to_plot():
     assert ally_trend(pd.DataFrame(), ["TST001"]) == (None, ALLY_TREND_NO_HISTORY)
     assert ally_trend(_history().iloc[:3], ["TST001"]) == (None, ALLY_TREND_ONE_SNAPSHOT)
     assert ally_trend(_history(), ["NOPE99"]) == (None, ALLY_TREND_NO_SCHOOL)
+
+
+# --- The School Dashboard's lenses -------------------------------------------
+
+def _lens_school():
+    import pandas as pd
+    return pd.DataFrame([
+        {"New module code": "TST001", "Module name": "Alpha", "Mod. lead": "A",
+         "Content Maturity": "In progress", "Ally Overall": 0.5, "Ally Severe": 3,
+         "Ally Major": 1, "Ally Students": 40, "Leganto Missing": True, "SGA Attributes": 0},
+        {"New module code": "TST002", "Module name": "Beta", "Mod. lead": "B",
+         "Content Maturity": "In progress", "Ally Overall": 0.99, "Ally Severe": 0,
+         "Ally Major": 0, "Ally Students": 10, "Leganto Missing": True, "SGA Attributes": 4},
+        {"New module code": "TST003", "Module name": "Gamma", "Mod. lead": "C",
+         "Content Maturity": "Not yet built", "Ally Overall": 1.0, "Ally Severe": 0,
+         "Ally Major": 0, "Ally Students": 0, "Leganto Missing": False, "SGA Attributes": None},
+    ])
+
+
+def test_lens_accessibility_risk_excludes_untouched_shells_and_ranks_by_harm():
+    frame, note, kind = processing.lens_accessibility_risk(_lens_school())
+    assert list(frame["New module code"]) == ["TST001"]        # TST002 scores 99%, TST003 unbuilt
+    assert kind == "warning" and "1 module(s) not yet started are excluded" in note
+    assert frame["Score"].iloc[0] == 50.0                       # numeric, not a formatted string
+    assert processing.lens_accessibility_risk(None)[0] is None
+
+
+def test_lens_reading_lists_respects_a_recorded_answer():
+    school = _lens_school()
+    frame, status, kind = processing.lens_missing_reading_lists(school, {})
+    assert list(frame["New module code"]) == ["TST001", "TST002"] and kind == "warning"
+    ticked = {"TST001": {"Responses": {"reading_list": True}}}
+    frame, _, _ = processing.lens_missing_reading_lists(school, ticked)
+    assert list(frame["New module code"]) == ["TST002"]         # a DLA's tick overrides Leganto
+    assert processing.lens_missing_reading_lists(school.drop(columns=["Leganto Missing"]), {})[2] == "error"
+
+
+def test_lens_no_sgas_only_flags_a_count_of_zero():
+    frame, _, kind = processing.lens_no_sgas(_lens_school())
+    assert list(frame["New module code"]) == ["TST001"] and kind == "warning"   # None is no evidence
+    assert processing.lens_no_sgas(_lens_school().assign(**{"SGA Attributes": None}))[2] == "error"
+
+
+def test_combine_lenses_ranks_by_how_many_flag_a_module():
+    school = _lens_school()
+    results = {
+        processing.LENS_RISK: processing.lens_accessibility_risk(school),
+        processing.LENS_READING: processing.lens_missing_reading_lists(school, {}),
+    }
+    frame, status, kind, notes = processing.combine_lenses(
+        [processing.LENS_RISK, processing.LENS_READING], results)
+    assert list(frame["New module code"]) == ["TST001", "TST002"]   # TST001 is flagged by both
+    assert "2 modules flagged by at least one of 2 lenses (1 by all 2)" in status
+    assert [n[0] for n in notes] == [processing.LENS_RISK, processing.LENS_READING]
+    empty = {processing.LENS_SGA: (None, "x", "success"), processing.LENS_READING: (None, "y", "success")}
+    assert processing.combine_lenses([processing.LENS_SGA, processing.LENS_READING], empty)[0] is None

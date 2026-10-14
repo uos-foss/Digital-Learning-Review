@@ -148,6 +148,10 @@ def school_dashboard(request, school):
             cards=report_model.filter_comment_cards(
                 comments["cards"], status=status, search=search,
                 include_empty=include_empty))
+    elif view == "alignment":
+        context["lenses"] = data.load_school_lenses(
+            school, semester, request.user,
+            request.GET.getlist("lens"), request.GET.getlist("item"))
     elif view == "trends":
         trend, message = data.load_school_trend(school, semester)
         context["trend_message"] = message
