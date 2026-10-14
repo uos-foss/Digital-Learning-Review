@@ -1004,6 +1004,22 @@ counterpart and are never suggested on).
   always wins over the data" rule `derive_module_findings()` already
   applies - so this metric can never disagree with what an advisor has
   actually verified.
+- **School Dashboard's "🔍 Template Alignment" lens reads
+  `module_alignment_status()`, the same rule as the matrix** (14-10-2026). It
+  used to count audited modules with fewer than `max_items - 2` ticks in
+  `audit_responses` (`calculate_module_compliance()`, inner-joined to the
+  school), so a never-audited module with a missing TellUs report never
+  appeared: one school showed 22 modules when many more had that section
+  outstanding. It now flags any module with at least one `'❌'` item, audited
+  or not. `'🔧'` (reported fixed) and the accessibility light are not
+  outstanding. A second multiselect, shown only while that lens is selected,
+  narrows it to chosen items by their short labels (e.g. TellUs Report); empty
+  means any item. Learning Materials is dropped for a module with no real
+  auditor, as for the badge (see "A never-audited module's checklist fields"
+  above), or it would flag nearly every module. Reading List includes Leganto,
+  so it overlaps the "📚 Missing Reading Lists" lens. `calculate_module_compliance()`
+  and `module_gap_areas()` stay in `processing.py` for Faculty Overview; do not
+  point this lens back at them.
 
 ## Spot-check flagging
 
