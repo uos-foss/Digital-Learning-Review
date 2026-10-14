@@ -301,6 +301,16 @@ column. The Streamlit table still shows every column.
 `report_model.build_lens_table()` shapes it for the page. The Django modules
 list's Spot-check column now breaks a same-day tie on `id`, as Streamlit does.
 
+**The Django pages follow the team's landing site (`Fossdigital-Landing`)** since
+14-10-2026: indigo accent, Inter body and Outfit headings (loaded from Google
+Fonts, as the landing page does), rounded cards, solid-indigo filter chips, and
+a light / dark / system switch kept in `localStorage` under `theme`. All colour
+goes through the variables at the top of `web/templates/base.html`; the dark
+values apply under `html.dark`, set before first paint by an inline script. A
+new page should use those variables, not literal colours (the only literals left
+are Google's sign-in blue and the severity bar colours). Charts read
+`window.plotTheme()` on the `themechange` event. Streamlit is unchanged.
+
 Nothing on the School Dashboard is left to port except what stays in
 Streamlit on purpose: flagging, removal and checking spot-checks, and the Audit
 Portal jumps. Writes, and anything

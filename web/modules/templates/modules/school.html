@@ -50,6 +50,11 @@
         var figure = JSON.parse(document.getElementById(el.dataset.trend).textContent);
         Plotly.newPlot(el, figure.data, figure.layout, {displayModeBar: false, responsive: true});
       });
+      /* Recolour the axes and text for the current theme, now and when it changes. */
+      document.addEventListener("themechange", function () {
+        if (!window.plotTheme) return;
+        document.querySelectorAll("[data-trend]").forEach(function (el) { Plotly.relayout(el, window.plotTheme()); });
+      });
     </script>
     <p class="muted">{{ trend_caption }}</p>
     <details>
@@ -117,7 +122,7 @@
       </table>
     </div>
   {% endif %}
-  <style>.sev-severe{background:#7F1D1D}.sev-major{background:#DC2626}.sev-minor{background:#F97316}.sev-other{background:#EAB308}.note{background:var(--amber);border-left:3px solid var(--amber-line);padding:.5rem .75rem;}</style>
+  <style>.sev-severe{background:#7F1D1D}.sev-major{background:#DC2626}.sev-minor{background:#F97316}.sev-other{background:#EAB308}</style>
   {% endwith %}
 {% elif view == "comments" %}
   <p class="muted" style="margin-top:0;">What advisors wrote in &ldquo;{{ comments.label }}&rdquo; when they audited this school's spot-checked modules, newest first. Each comment is the module's current audit answer, so revising an audit changes what appears here.</p>
@@ -141,7 +146,7 @@
     {% else %}
       <p class="muted">Showing {{ cards|length }} of {{ comments.flagged }}.</p>
       {% for c in cards %}
-        <div style="border-top:1px solid #ddd; padding:.6rem 0;">
+        <div class="comment-card">
           <strong><a href="{% url 'modules:report' c.code %}">{{ c.code }}</a></strong>{% if c.name %} &middot; {{ c.name }}{% endif %} &middot; {{ c.status_label }}
           {% if c.body %}<div class="md">{{ c.body|markdown_html }}</div>{% else %}<div class="muted">Nothing written against this module yet.</div>{% endif %}
           {% if c.trail %}<div class="muted" style="font-size:.85rem;">{{ c.trail }}</div>{% endif %}
@@ -228,7 +233,6 @@
   </div>
   <p class="muted">{{ l.rows|length }} module{{ l.rows|length|pluralize }} shown.</p>
   {% endif %}
-  <style>.ok{background:#ecfdf5;border-left:3px solid #059669;padding:.5rem .75rem;}</style>
   {% endwith %}
 {% endif %}
 </section>

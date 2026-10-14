@@ -335,6 +335,13 @@ def main():
           and admin_href not in client.get("/schools/").content.decode("utf-8", "replace"))
     check("a non-staff account still cannot open the admin",
           aligned_client.get("/admin/").status_code == 302)
+    page = client.get(f"/schools/{school}/").content.decode("utf-8", "replace")
+    check("the theme switch, the no-flash script and the fonts are on the page",
+          page.count('data-theme=') == 3 and 'classList.toggle("dark"' in page
+          and "family=Inter" in page and "family=Outfit" in page and 'class="site"' in page)
+    login_html = Client().get("/accounts/login/").content.decode("utf-8", "replace")
+    check("the sign-in page carries the theme too, with no light-only greys left",
+          'data-theme=' in login_html and "#4B5563" not in login_html and "#6B7280" not in login_html)
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",
