@@ -138,7 +138,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
     # and st.switch_page raises on an unregistered page - so hide the jump button
     # from everyone else rather than letting it fail on click.
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
-    is_admin = any(c.lower() == "access_admin_panel" for c in user_caps)
     show_sga = can_view_sga(user_caps)
 
     # A school handed over from the Faculty School Comparison table. Consumed
@@ -310,9 +309,6 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
             # disabled - add them back to this list to restore. Their view code
             # below is untouched.
             view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "🎯 Spot-Checks", "💬 Spot-Check Comments", "✅ Reported Fixes"]
-            if not is_admin:
-                view_options = [v for v in view_options
-                                 if v not in ("📊 Ally Analytics", "📈 Trends")]
             # Reported Fixes is rolled out school by school (Admin Panel, Role
             # Capabilities), so it is hidden wherever it is not switched on.
             if not feature_enabled_for(FIX_CLAIM_FEATURE, school):
