@@ -129,3 +129,34 @@ def load_school(school: str, semester: str, user) -> dict:
         spot_check_status=spot_status, fix_claims_by_module=claims,
         active_fields=active_fields,
         can_view_sga=processing.can_view_sga(capabilities_of(user)))
+
+
+def _school_names(school: str) -> dict:
+    """Module code to name for one school, across both semesters."""
+    names = {}
+    for frame in _frames():
+        if frame is None or frame.empty:
+            continue
+        mine = frame[processing.school_series(frame["New module code"]) == school]
+        for code, name in zip(mine["New module code"], mine["Module name"]):
+            names.setdefault(str(code).strip().upper(), name)
+    return names
+
+
+def load_school_comments(school: str) -> dict:
+    """Spot-Check Comments for one school (see report_model). Read fresh."""
+    return report_model.build_spot_check_comments(
+        database.get_spot_check_comments(school, processing.CURRENT_ACADEMIC_YEAR),
+        _school_names(school), database.get_active_audit_fields())
+
+
+def fixes_enabled(school: str) -> bool:
+    """Reported Fixes is rolled out school by school (feature_schools)."""
+    return database.feature_enabled_for(processing.FIX_CLAIM_FEATURE, school)
+
+
+def load_school_fixes(school: str) -> dict:
+    """Reported Fixes for one school (see report_model). Read fresh."""
+    return report_model.build_reported_fixes(
+        database.get_fix_claims_for_school(school),
+        _school_names(school), database.get_active_audit_fields())

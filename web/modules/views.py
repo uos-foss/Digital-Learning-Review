@@ -72,7 +72,7 @@ def module_report(request, code):
     return render(request, "modules/report.html", context)
 
 
-SCHOOL_VIEWS = ("modules", "alignment")
+SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes")
 
 
 @login_required
@@ -103,10 +103,37 @@ def school_dashboard(request, school):
     view = request.GET.get("view", "modules")
     if view not in SCHOOL_VIEWS:
         view = "modules"
+    fixes_on = data.fixes_enabled(school)
+    if view == "fixes" and not fixes_on:
+        view = "modules"
 
-    return render(request, "modules/school.html", {
+    context = {
         "school": school, "semester": semester, "view": view,
-        "semesters": report_model.SEMESTERS,
+        "semesters": report_model.SEMESTERS, "fixes_on": fixes_on,
+        "show_options": (("all", "All"), ("awaiting", "Awaiting check"),
+                         ("checked", "Checked")),
         "dashboard": data.load_school(school, semester, request.user),
         "text": report_model,
-    })
+    }
+    if view == "comments":
+        comments = data.load_school_comments(school)
+        status = request.GET.get("status", "all").lower()
+        if status not in ("all", "checked", "pending"):
+            status = "all"
+        search = request.GET.get("q", "")[:200]
+        include_empty = request.GET.get("empty") == "1"
+        context.update(
+            comments=comments, status=status, search=search,
+            include_empty=include_empty,
+            cards=report_model.filter_comment_cards(
+                comments["cards"], status=status, search=search,
+                include_empty=include_empty))
+    elif view == "fixes":
+        fixes = data.load_school_fixes(school)
+        show = request.GET.get("show", "all")
+        if show not in ("all", "awaiting", "checked"):
+            show = "all"
+        rows = [r for r in fixes["rows"]
+                if show == "all" or (show == "checked") == r["checked"]]
+        context.update(fixes=fixes, show=show, fix_rows=rows)
+    return render(request, "modules/school.html", context)

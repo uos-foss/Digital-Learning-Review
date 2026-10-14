@@ -30,6 +30,7 @@ from processing import (
     summarise_ally_issue_categories,
     summarise_ally_issues,
     title_case_name,
+    SECTION_KEY_BY_AUDIT_FIELD,
     SECTION_STATES,
     SGA_SECTION,
     TEMPLATE_SECTIONS,
@@ -849,3 +850,116 @@ def build_school(school, semester, school_df, summaries, *, spot_check_status,
     return {'school': school, 'semester': semester, 'headline': headline,
             'modules': modules, 'show_sga': show_sga,
             'matrix': {'columns': columns, 'rows': matrix_rows}}
+
+
+SPOT_CHECK_COMMENT_FIELD = 'comments'
+
+
+def comment_field_label(active_fields):
+    """The active label for the free-text comment field, or its stock name if
+    an administrator has deactivated it. Same rule as the Streamlit School
+    Dashboard's comment_field_label()."""
+    for field in active_fields:
+        if field['id'] == SPOT_CHECK_COMMENT_FIELD:
+            return field['label']
+    return "Additional Comments"
+
+
+def _text(value):
+    return '' if value is None or pd.isna(value) else str(value).strip()
+
+
+def build_spot_check_comments(comments, names, active_fields):
+    """
+    The School Dashboard's Spot-Check Comments view as plain data.
+
+    `comments` is database.get_spot_check_comments() (one row per flag, newest
+    flag first); `names` maps module code to name. A module flagged more than
+    once in a year has one row per flag but only one comment to read, so it
+    collapses to one card keeping the most recent flag. Cards are ordered
+    newest-written first (comment_on is stored ISO, so a string sort is
+    chronological); modules with no comment fall to the bottom. The body goes
+    through format_comment_markdown() so it reads as it does in Streamlit, and
+    is plain text for the template to escape. `filter_cards()` narrows them.
+    """
+    label = comment_field_label(active_fields)
+    if comments is None or comments.empty:
+        return {'label': label, 'cards': [], 'flagged': 0, 'with_comment': 0,
+                'without_comment': 0}
+
+    df = comments.copy()
+    df['comment'] = df['comment'].fillna('').astype(str).str.strip()
+    df = df.drop_duplicates(subset='module_code', keep='first')
+    df = df.sort_values('comment_on', ascending=False, na_position='last')
+
+    cards = []
+    for r in df.to_dict('records'):
+        code = _text(r['module_code']).upper()
+        body = format_comment_markdown(r['comment'])
+        author = _text(r.get('comment_by'))
+        written_on = fmt_report_date(r.get('comment_on'))
+        flagged_by = _text(r.get('flagged_by'))
+        flagged_on = fmt_report_date(r.get('flagged_on'))
+        trail = []
+        if body and author:
+            trail.append(f"Audited by {author}" + (f" on {written_on}" if written_on else ""))
+        if flagged_by:
+            trail.append(f"Flagged by {flagged_by}" + (f" on {flagged_on}" if flagged_on else ""))
+        cards.append({
+            'code': code, 'name': _text(names.get(code, '')),
+            'status': r['status'],
+            'status_label': "✅ Checked" if r['status'] == 'checked' else "⏳ Pending",
+            'body': body, 'has_comment': bool(r['comment']),
+            'trail': " · ".join(trail),
+        })
+    with_comment = sum(c['has_comment'] for c in cards)
+    return {'label': label, 'cards': cards, 'flagged': len(cards),
+            'with_comment': with_comment, 'without_comment': len(cards) - with_comment}
+
+
+def filter_comment_cards(cards, *, status='All', search='', include_empty=False):
+    """The cards a reader's filters leave: flag status, a search over code and
+    comment text, and whether flags with nothing written yet are shown."""
+    needle = search.strip().lower()
+    out = []
+    for c in cards:
+        if not include_empty and not c['has_comment']:
+            continue
+        if status in ('checked', 'pending') and c['status'] != status:
+            continue
+        if needle and needle not in c['code'].lower() and needle not in c['body'].lower():
+            continue
+        out.append(c)
+    return out
+
+
+def build_reported_fixes(fixes, names, active_fields):
+    """
+    The School Dashboard's Reported Fixes view as plain data.
+
+    `fixes` is database.get_fix_claims_for_school(). A section is named by its
+    template label when the field maps to one, else by the checklist label.
+    The reporter is the signed-in email stored as `submitter_name`, falling
+    back to the raw login. `awaiting` and `checked` count claims an advisor
+    has and has not yet re-saved since.
+    """
+    if fixes is None or fixes.empty:
+        return {'rows': [], 'awaiting': 0, 'checked': 0}
+    labels = {f['id']: f['label'] for f in active_fields}
+    rows = []
+    for r in fixes.to_dict('records'):
+        code = _text(r['module_code']).upper()
+        field = r['field_id']
+        section = (TEMPLATE_SECTIONS[SECTION_KEY_BY_AUDIT_FIELD[field]][0]
+                   if field in SECTION_KEY_BY_AUDIT_FIELD else labels.get(field, field))
+        checked = bool(r['checked'])
+        rows.append({
+            'code': code, 'name': _text(names.get(code, '')), 'section': section,
+            'reporter': _text(r.get('submitter_name')) or _text(r.get('claimed_by')),
+            'reported_on': fmt_report_date(r['claimed_on']),
+            'note': _text(r.get('note')), 'checked': checked,
+            'status': "✅ Checked by advisor" if checked else "⏳ Awaiting check",
+            'checked_on': fmt_report_date(r['checked_on']) if checked else '',
+        })
+    checked = sum(r['checked'] for r in rows)
+    return {'rows': rows, 'awaiting': len(rows) - checked, 'checked': checked}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load report_extras %}
 {% block title %}{{ school }} dashboard{% endblock %}
 
 {% block content %}
@@ -21,10 +22,61 @@
 <p class="tabs-links">
   {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
   {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
+  {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
+  {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
 </p>
 
 <section class="panel">
-{% if not d.modules %}
+{% if view == "comments" %}
+  <p class="muted" style="margin-top:0;">What advisors wrote in &ldquo;{{ comments.label }}&rdquo; when they audited this school's spot-checked modules, newest first. Each comment is the module's current audit answer, so revising an audit changes what appears here.</p>
+  {% if not comments.flagged %}
+    <p class="muted" style="margin:0;">No modules flagged yet this year, so there is nothing to read.</p>
+  {% else %}
+    <p>{{ comments.flagged }} flagged &middot; {{ comments.with_comment }} with a comment &middot; {{ comments.without_comment }} with none yet</p>
+    <form method="get" style="margin-bottom:1rem;">
+      <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="comments">
+      <input type="search" name="q" value="{{ search }}" placeholder="Module code or any word">
+      <select name="status">
+        <option value="all"{% if status == "all" %} selected{% endif %}>All flags</option>
+        <option value="checked"{% if status == "checked" %} selected{% endif %}>Checked</option>
+        <option value="pending"{% if status == "pending" %} selected{% endif %}>Pending</option>
+      </select>
+      <label><input type="checkbox" name="empty" value="1"{% if include_empty %} checked{% endif %}> Include flags with no comment yet</label>
+      <button type="submit">Filter</button>
+    </form>
+    {% if not cards %}
+      <p class="muted">No spot-check comments match those filters.</p>
+    {% else %}
+      <p class="muted">Showing {{ cards|length }} of {{ comments.flagged }}.</p>
+      {% for c in cards %}
+        <div style="border-top:1px solid #ddd; padding:.6rem 0;">
+          <strong><a href="{% url 'modules:report' c.code %}">{{ c.code }}</a></strong>{% if c.name %} &middot; {{ c.name }}{% endif %} &middot; {{ c.status_label }}
+          {% if c.body %}<div class="md">{{ c.body|markdown_html }}</div>{% else %}<div class="muted">Nothing written against this module yet.</div>{% endif %}
+          {% if c.trail %}<div class="muted" style="font-size:.85rem;">{{ c.trail }}</div>{% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endif %}
+{% elif view == "fixes" %}
+  <p class="muted" style="margin-top:0;">Template sections a module lead has reported as fixed after an advisor recorded them as not complete. Reporting a fix changes nothing in the audit; it is checked once an advisor saves that section's answer again.</p>
+  {% if not fixes.rows %}
+    <p class="muted" style="margin:0;">No fixes have been reported for this school yet.</p>
+  {% else %}
+    <p>{{ fixes.awaiting }} awaiting check &middot; {{ fixes.checked }} checked by an advisor</p>
+    <p>{% for key, label in show_options %}{% if key == show %}<strong>{{ label }}</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes&show={{ key }}">{{ label }}</a>{% endif %}{% if not forloop.last %} &middot; {% endif %}{% endfor %}</p>
+    {% if not fix_rows %}<p class="muted">Nothing matches that filter.</p>{% else %}
+    <div class="scroll">
+      <table class="grid">
+        <tr><th>Module</th><th>Name</th><th>Section</th><th>Reporter</th><th>Reported on</th><th>Note</th><th>Status</th><th>Checked on</th></tr>
+        {% for r in fix_rows %}
+          <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td>{{ r.section }}</td>
+              <td class="nw">{{ r.reporter }}</td><td class="nw">{{ r.reported_on }}</td><td>{{ r.note }}</td><td class="nw">{{ r.status }}</td><td class="nw">{{ r.checked_on }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+  {% endif %}
+{% elif not d.modules %}
   <p class="muted" style="margin:0;">No modules for {{ school }} in the {{ semester }} semester.</p>
 {% elif view == "modules" %}
   <div class="scroll">

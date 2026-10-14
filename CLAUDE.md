@@ -83,8 +83,8 @@ genuinely sheet-managed.
 ## Django platform (web/)
 
 `web/` holds a Django project that renders the same data through a second
-front end. Merged to `main` 09-10-2026 as non-deployed code. Since
-12-10-2026 it is **deployable but not yet deployed**: `Dockerfile.django`, a
+front end. Merged to `main` 09-10-2026 as non-deployed code. **Live since
+12-10-2026** at https://fossdigital.shef.ac.uk/module-reports: `Dockerfile.django`, a
 `dlr-platform` compose service on 127.0.0.1:8600 and a Caddy block
 (`deploy/caddy-django.example`) serve it at `/module-reports`, with steps in
 `deploy/README.md`. Nothing in the Streamlit app imports it. It sits on `main` rather than a branch deliberately - a long-lived
@@ -214,8 +214,13 @@ there from `views/ally_widgets.py`, `module_alignment_status()`,
 `reading_list_verdict()`). Scoping is the module report's: a school outside an
 account's alignment is a 403, checked before the code is validated. Not ported:
 spot-check flagging, removal and checking (writes), the Audit Portal jumps,
-Ally Analytics, Trends, the per-lens filters, Spot-Check Comments and Reported
-Fixes.
+Ally Analytics, Trends and the per-lens filters. **Spot-Check Comments and
+Reported Fixes were added 14-10-2026** as `?view=comments` and `?view=fixes`
+(read-only; their shaping is `report_model.build_spot_check_comments()` /
+`build_reported_fixes()`, so a reworded rule changes one place). Reported Fixes
+is hidden, and falls back to Modules, for a school `feature_schools` has not
+rolled `fix_claims` out to, as in Streamlit. The CSV exports and the jump
+buttons were left out.
 
 - **One count of outstanding items, in `loaders.audit_summary()`.**
   `load_audit_summaries()` serves the Django School Dashboard and

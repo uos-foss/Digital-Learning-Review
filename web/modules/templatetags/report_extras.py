@@ -1,12 +1,16 @@
-import re
-
 from django import template
-from django.utils.html import escape
 from django.utils.safestring import mark_safe
+
+from markdown_it import MarkdownIt
 
 import report_model
 
 register = template.Library()
+
+# CommonMark with raw HTML switched off, so typed tags are shown as text, and
+# markdown-it's own link check refuses javascript: URLs. A single newline is a
+# line break, which is how advisors type in the Audit Portal's text area.
+_markdown = MarkdownIt("commonmark", {"html": False, "breaks": True})
 
 
 @register.filter
@@ -23,15 +27,12 @@ def learning_module_icon():
 
 
 @register.filter
-def comment_html(value):
+def markdown_html(value):
     """
-    An advisor's comment (processing.format_comment_markdown()'s output) as
-    HTML. That output uses exactly two pieces of markdown, **bold** and
-    trailing-space line breaks, so this handles those and nothing else. The
-    text is escaped first and the tags added after, so typed HTML stays text.
+    A comment as full markdown (lists, emphasis, links, headings) rendered to
+    HTML, as st.markdown shows it on the Streamlit page. Used for the module
+    report's advisor comment and the School Dashboard's Spot-Check Comments, so
+    one comment reads the same on both. Input is
+    processing.format_comment_markdown()'s output.
     """
-    text = escape(value or "")
-    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
-    paragraphs = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
-    return mark_safe("".join(
-        "<p>" + p.strip().replace("\n", "<br>") + "</p>" for p in paragraphs))
+    return mark_safe(_markdown.render(value or ""))
