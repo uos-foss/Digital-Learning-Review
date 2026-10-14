@@ -4,7 +4,7 @@ import contextlib
 import pandas as pd
 import logging
 from processing import parse_custom_observations  # noqa: F401 - re-exported, see below
-from processing import school_series, school_of
+from processing import school_series, school_of, school_names_from_rows
 
 def get_database_path():
     """
@@ -1624,6 +1624,20 @@ def get_open_spot_check(module_code: str, academic_year: str):
             return None
         cols = [d[0] for d in conn.execute("SELECT * FROM spot_checks LIMIT 0").description]
         return dict(zip(cols, row))
+
+def get_school_names():
+    """{school code: full name}, from the SITS table's department names (see
+    processing.school_names_from_rows()). The code is the CIS unit code, the one the
+    app calls the module code; SITS's own "Module code" is the legacy format.
+    Empty before SITS has been imported."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'sits_assessment_2026_27'):
+            return {}
+        rows = conn.execute(
+            'SELECT "CIS unit code", "Department name", COUNT(*) '
+            'FROM sits_assessment_2026_27 GROUP BY "CIS unit code", "Department name"').fetchall()
+    return school_names_from_rows(rows)
+
 
 def get_school_spot_checks(school: str, academic_year: str = None):
     """Every spot-check flagged for modules in one school - not just the

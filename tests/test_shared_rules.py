@@ -375,3 +375,20 @@ def test_combine_lenses_ranks_by_how_many_flag_a_module():
     assert [n[0] for n in notes] == [processing.LENS_RISK, processing.LENS_READING]
     empty = {processing.LENS_SGA: (None, "x", "success"), processing.LENS_READING: (None, "y", "success")}
     assert processing.combine_lenses([processing.LENS_SGA, processing.LENS_READING], empty)[0] is None
+
+
+# --- School names ------------------------------------------------------------
+
+def test_school_names_come_from_the_most_common_department_name():
+    rows = [
+        ("GPL130", "School of Geography and Planning", 40),
+        ("GPL225", "School of Geography and Planning", 30),
+        ("GPL999", "A stray name", 2),                       # one odd row cannot rename a school
+        ("EDC004", "School of Education", 5),
+        ("ECN357", "", 9),                                   # blank names are ignored
+        ("AF4F1001", "Sheffield University Management School", 7),   # legacy code, not a faculty school
+        ("SCS100", "Some other faculty", 3),
+    ]
+    assert processing.school_names_from_rows(rows) == {
+        "GPL": "School of Geography and Planning", "EDC": "School of Education"}
+    assert processing.school_names_from_rows([]) == {}

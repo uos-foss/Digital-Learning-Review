@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load report_extras %}
 {% block title %}Schools{% endblock %}
 
 {% block content %}
@@ -6,7 +7,7 @@
 {% if schools %}
   <p class="muted">Choose a school to see its modules and template alignment.</p>
   <ul>
-    {% for s in schools %}<li><a href="{% url 'schools:dashboard' s %}">{{ s }}</a></li>{% endfor %}
+    {% for s in schools %}<li><a href="{% url 'schools:dashboard' s %}">{{ s|school_name }}</a>{% if s|school_name != s %} <span class="muted">{{ s }}</span>{% endif %}</li>{% endfor %}
   </ul>
 {% else %}
   <p class="muted">Your account is not aligned with any school yet. A Digital Learning Advisor or an administrator can set that.</p>

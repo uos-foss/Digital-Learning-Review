@@ -388,6 +388,17 @@ def main():
     check("the staff platform check is shown to staff only",
           "Platform check" in staff_client.get("/modules/").content.decode("utf-8", "replace")
           and "Platform check" not in client.get("/modules/").content.decode("utf-8", "replace"))
+    names = data.school_names()
+    check("every faculty school has a full name from SITS",
+          all(names.get(sc) for sc in processing.FACULTY_SCHOOLS), str(sorted(names)))
+    full = names.get(school, school)
+    check("the school list, dashboard and module report use the full name",
+          full in client.get("/schools/").content.decode("utf-8", "replace")
+          and f"<h1>{full}" in page and f"{school} &middot; School Dashboard" in page
+          and full in rep and full in page.split("<title>")[1].split("</title>")[0])
+    check("the module finder names schools in full, and a code with no name falls back to itself",
+          full in client.get("/modules/?school=" + school).content.decode("utf-8", "replace")
+          and data.school_names().get("ZZZ", "ZZZ") == "ZZZ")
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",

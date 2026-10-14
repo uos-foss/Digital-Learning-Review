@@ -94,6 +94,18 @@ def load_report(code: str, user) -> dict | None:
     )
 
 
+_names = {"at": 0.0, "map": {}}
+
+
+def school_names() -> dict:
+    """{school code: full name}, cached for SOURCES_TTL like the module sources
+    (a SITS import shows within five minutes). Empty if SITS has no names."""
+    with _lock:
+        if time.monotonic() - _names["at"] > SOURCES_TTL or not _names["at"]:
+            _names.update(map=database.get_school_names(), at=time.monotonic())
+        return _names["map"]
+
+
 def _spot_status(school: str) -> dict:
     """Latest spot-check status ('pending' / 'checked') per module code this
     year. A module re-flagged after a check has one row per flag; the most
