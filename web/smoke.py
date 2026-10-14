@@ -385,6 +385,9 @@ def main():
     check("the finder's School column shows the short code, with the full name for hover and screen readers",
           f'title="{names_all.get(school, school)}">{school}<span class="sr-only">' in wide
           and f">{names_all.get(school, school)}</a></td>" not in wide)
+    browse = client.get("/modules/").content.decode("utf-8", "replace")
+    check("the browse-a-school chips show codes, with the full name for hover and screen readers",
+          f'href="?school={school}" title="{names_all.get(school, school)}">{school}<span class="sr-only">' in browse)
     check("the finder drops the School column once a school is chosen",
           '<th scope="col">School</th>' in wide and '<th scope="col">School</th>' not in one)
     check("a module in a school you cannot see is not found, not even by exact code",
