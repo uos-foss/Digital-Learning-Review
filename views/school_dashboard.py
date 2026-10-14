@@ -106,6 +106,13 @@ def _spot_check_flag_controls(selected_codes, status_by_code, df_aut, df_spr,
     if already_pending:
         pending_ids = [r['id'] for r in (get_pending_spot_check(c, CURRENT_ACADEMIC_YEAR)
                                          for c in already_pending) if r]
+        # Reset the tick whenever the set of flags it confirms changes, before the
+        # widget is instantiated (it cannot be assigned afterwards). This also
+        # un-ticks it once the flags it covered have been deleted.
+        ids_key = f"_chk_{key}_unflag_ids"
+        if st.session_state.get(ids_key) != tuple(sorted(pending_ids)):
+            st.session_state.pop(f"chk_{key}_unflag", None)
+            st.session_state[ids_key] = tuple(sorted(pending_ids))
         unflag_ok = st.checkbox(
             f"Confirm removing {len(pending_ids)} pending flag(s)",
             key=f"chk_{key}_unflag",
@@ -114,7 +121,6 @@ def _spot_check_flag_controls(selected_codes, status_by_code, df_aut, df_spr,
         if st.button(f"🗑️ Un-flag {len(pending_ids)}", width="stretch",
                      disabled=not unflag_ok or not pending_ids, key=f"btn_{key}_unflag"):
             n = delete_spot_checks(pending_ids)
-            st.session_state[f"chk_{key}_unflag"] = False
             st.toast(f"Removed {n} pending spot-check flag(s).")
             st.rerun()
 
