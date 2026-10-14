@@ -56,8 +56,33 @@
   .gauge .sub { margin-top: -.3rem; font-size: .8rem; color: var(--muted); }
   .advisor-comment { border-left: 3px solid var(--line); padding-left: .9rem; margin: 1rem 0; }
   .advisor-comment p { margin: .25rem 0; }
-  .tabs-links { margin: 1.5rem 0 .75rem; }
-  .tabs-links a, .tabs-links strong { margin-right: 1.25rem; }
+  /* Tab links: a row of tabs sitting on the panel below, current one joined to it. */
+  .tabs-links { display: flex; flex-wrap: wrap; gap: .25rem; margin: 1.5rem 0 0;
+                border-bottom: 1px solid var(--line); }
+  .tabs-links a, .tabs-links strong { margin: 0; padding: .5rem .95rem; border: 1px solid transparent;
+                border-bottom: 0; border-radius: 6px 6px 0 0; text-decoration: none;
+                position: relative; top: 1px; }
+  .tabs-links a:hover { background: var(--panel); border-color: var(--line); }
+  .tabs-links strong { background: var(--panel); border-color: var(--line);
+                border-bottom: 1px solid var(--panel); color: var(--ink); }
+  .tabs-links + .panel { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+
+  /* Filter chips: a ticked one fills in, so what is applied is visible at a glance. */
+  .filterbar { border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; margin: 0 0 1rem; }
+  .filterbar h3 { margin: 0 0 .15rem; font-size: .95rem; }
+  .filterbar .sub { margin: .75rem 0 0; padding-top: .6rem; border-top: 1px dashed var(--line); }
+  .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 0; }
+  .chip { display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .75rem; cursor: pointer;
+          border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: .9rem; }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip:has(input:checked) { background: #e8f0ff; border-color: var(--link); color: #0a3fb0; font-weight: 500; }
+  .chip:has(input:focus-visible) { outline: 2px solid var(--link); outline-offset: 2px; }
+  td.comment details { max-width: 26rem; }
+  td.comment summary { cursor: pointer; color: var(--muted); }
+  td.comment summary .less { display: none; }
+  td.comment details[open] summary .preview { display: none; }
+  td.comment details[open] summary .less { display: inline; }
+  td.comment .full { margin-top: .25rem; white-space: pre-wrap; }
 </style>
 {% block head %}{% endblock %}
 </head>
