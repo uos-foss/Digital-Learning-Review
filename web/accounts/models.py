@@ -23,6 +23,8 @@ account working when Google does not.
 from django.conf import settings
 from django.db import models
 
+import processing
+
 from accounts import rules
 
 
@@ -149,3 +151,17 @@ def may_view_school(user, school):
     if user.has_perm("accounts.view_all"):
         return True
     return profile_for(user).may_view_school(school)
+
+
+def schools_of(user):
+    """
+    The faculty's schools this account may see, in the app's order. The same
+    rule as may_view_school(), worked out once instead of once per school, so the
+    header, the school list, the finder and the sign-in redirect all agree on it.
+    """
+    if not user.is_authenticated:
+        return []
+    if user.has_perm("accounts.view_all"):
+        return list(processing.FACULTY_SCHOOLS)
+    profile = profile_for(user)
+    return [s for s in processing.FACULTY_SCHOOLS if profile.may_view_school(s)]

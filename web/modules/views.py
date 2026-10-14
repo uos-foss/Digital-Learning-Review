@@ -25,7 +25,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import redirect, render
 
-from accounts.models import has_basic_school_view, may_view_module, may_view_school
+from accounts.models import has_basic_school_view, may_view_module, may_view_school, schools_of
 from auditdata.models import AuditField
 import report_model
 from modules import charts, data
@@ -40,7 +40,7 @@ def module_index(request):
     kept for staff, at the foot of the page.
     """
     q = request.GET.get("q", "").strip()[:100]
-    allowed = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
+    allowed = schools_of(request.user)
     school = request.GET.get("school", "").strip().upper()
     finder = data.find_modules(q, school, allowed)
 
@@ -98,7 +98,7 @@ def home(request):
     it, which is every module lead and any DLA aligned with a single school;
     anyone with several (or the whole faculty) chooses from the list.
     """
-    schools = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
+    schools = schools_of(request.user)
     if len(schools) == 1:
         return redirect("schools:dashboard", school=schools[0])
     return redirect("schools:index")
@@ -107,7 +107,7 @@ def home(request):
 @login_required
 def school_index(request):
     """The schools this account may open."""
-    schools = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
+    schools = schools_of(request.user)
     return render(request, "modules/schools.html", {"schools": schools})
 
 
