@@ -1054,21 +1054,24 @@ live in `views/school_dashboard.py`'s new "🎯 Spot-Checks" view; the
 snapshot/diff logic is I/O-free in `processing.py`
 (`build_spot_check_snapshot()`, `compute_spot_check_agreement()`).
 
-- **`flag_module_for_spot_check()` refuses a second open row itself, rather
-  than trusting every caller to pre-filter.** Added 29-09-2026: the function
-  used to insert unconditionally, with its own docstring disclaiming
-  responsibility ("checked by the caller... rather than enforced here") -
-  fine while School Dashboard's bulk-flag UI was the only caller and always
-  pre-filtered `flaggable`, but it meant any future caller (an import script,
-  a different UI) could recreate the exact "pending flag on an
-  already-checked module" condition that same UI's `flaggable` filter exists
-  to prevent. It now calls the new `get_open_spot_check()` (pending or
-  checked, this module/year) itself first and returns that row's id instead
-  of inserting a duplicate when one already exists - idempotent rather than
-  erroring, so an existing caller that still does its own pre-filtering
-  behaves exactly as before. Re-flagging after a real delete, or in a later
-  year, is unaffected - `get_open_spot_check()` only ever sees a row that
-  currently exists.
+- **`flag_module_for_spot_check()` refuses a second *pending* row itself,
+  but a checked module can be flagged again** (changed 14-10-2026). It used to
+  refuse any open row, pending or checked (29-09-2026), because select-all on
+  the All Modules table re-queued every checked module (25-09-2026). That left
+  "Remove Flag, then flag again" as the only way to revisit a checked module,
+  which deleted its date, checker and agreement result. Now it checks
+  `get_pending_spot_check()` only and returns that row's id if one exists;
+  otherwise it inserts a new pending row beside the checked one, which stays as
+  history. `mark_spot_check_checked()` and `get_pending_spot_check()` only touch
+  `status = 'pending'`, so closing the new flag in the Audit Portal never
+  edits the earlier result. The School Dashboard flag action still skips
+  checked modules by default and re-flags them only when "Also re-flag N
+  already-checked module(s)" is ticked, so a select-all cannot repeat the
+  original mistake. The module list's Spot-Check column and the lookups sort on
+  `flagged_on` then `id` (a date alone ties on a same-day re-flag), so the
+  latest row is what shows. `record_unflagged_spot_check()` is unchanged: it
+  still inserts only when the module has no row at all this year.
+  `get_open_spot_check()` has no caller now.
 - **A flag belongs to the school it was raised in, not to the DLA who raised
   it.** Changed 19-08-2026: any DLA currently working that school - their
   own, or one they've deliberately switched context into to cover a
@@ -1172,11 +1175,11 @@ snapshot/diff logic is I/O-free in `processing.py`
   mutation: resetting a checked module for a clean re-run is delete, then
   re-flag from "📋 All Modules" - one function covers both removing a
   mis-flagged module and resetting a checked one. The table is multi-select;
-  `delete_spot_checks(ids)` removes several at once. Since 25-09-2026 the
-  flag action skips checked modules as well as pending ones (a select-all
-  had re-queued every checked module as pending), and the Spot-Checks view
-  offers a one-click removal of any pending flag on a module already
-  checked this year, which only that mistake can produce.
+  `delete_spot_checks(ids)` removes several at once. Since 14-10-2026 deleting
+  is no longer the way to re-run a check (see above); it is for removing a
+  mis-flagged module. The "duplicate pending flag" cleanup the Spot-Checks view
+  offered from 25-09-2026 is gone: a pending flag on a checked module is now a
+  deliberate re-check, not a mistake.
 
 ## Conventions
 
