@@ -182,7 +182,7 @@
   {% with l=lenses %}
   <p class="muted" style="margin-top:0;">{{ text.ALIGNMENT_LEGEND }}</p>
   <form method="get" class="filterbar" onchange="this.submit()">
-    <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">
+    <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">{% if l.all_columns %}<input type="hidden" name="cols" value="all">{% endif %}
     <h3>Filter modules</h3>
     <div class="muted">Tick a lens to show only the modules it flags. Tick several to see modules flagged by any of them. Tick none to see every module.
       {% if l.filtered %}<a href="?semester={{ semester|urlencode }}&view=alignment">Clear filters</a>{% endif %}</div>
@@ -204,6 +204,12 @@
     <details style="margin-bottom:1rem;"><summary>Per-lens notes</summary>
       {% for lens, note in l.notes %}<p><strong>{{ lens }}</strong>: {{ note|default:"No result." }}</p>{% endfor %}
     </details>
+  {% endif %}
+  {% if l.rows and l.filtered %}
+    <p class="muted">
+      {% if l.columns_narrowed %}Showing the {{ l.columns|length }} of {{ l.columns_total }} item columns these lenses speak to. <a href="{{ columns_toggle_url }}">Show all columns</a>
+      {% elif l.all_columns %}Showing every item column. <a href="{{ columns_toggle_url }}">Show only the columns the lenses speak to</a>{% endif %}
+    </p>
   {% endif %}
   {% if l.rows %}
   <div class="scroll">

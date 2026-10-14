@@ -107,7 +107,8 @@ def _spot_status(school: str) -> dict:
             for c, s in zip(latest["module_code"], latest["status"])}
 
 
-def load_school_lenses(school: str, semester: str, user, lenses, focus) -> dict:
+def load_school_lenses(school: str, semester: str, user, lenses, focus,
+                       all_columns: bool = False) -> dict:
     """The alignment page's item-by-item table for one school and semester,
     narrowed by lenses (see report_model.build_lens_table()). The module
     records come from the cached frames; audit answers, claims and spot-checks
@@ -119,7 +120,7 @@ def load_school_lenses(school: str, semester: str, user, lenses, focus) -> dict:
     return report_model.build_lens_table(
         school_df, loaders.load_audit_summaries(rows, active_fields), active_fields,
         database.get_all_active_fix_claims(), _spot_status(school),
-        lenses=lenses, focus=focus,
+        lenses=lenses, focus=focus, all_columns=all_columns,
         can_view_sga=processing.can_view_sga(capabilities_of(user)))
 
 
