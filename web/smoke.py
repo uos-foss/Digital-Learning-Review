@@ -244,6 +244,9 @@ def main():
     check("lenses: several lenses narrow, never widen, and say how many flag",
           len(narrowed["rows"]) <= len(every["rows"]) and narrowed["filtered"]
           and "flagged by at least one of 3 lenses" in narrowed["status"] and len(narrowed["notes"]) == 3)
+    check("lenses: the lens names carry no icons",
+          all(o["label"].isascii() for o in narrowed["lens_options"])
+          and all(n[0].isascii() for n in narrowed["notes"]))
     check("lenses: every flagged module is one the school has",
           {r["code"] for r in narrowed["rows"]} <= {r["code"] for r in every["rows"]})
     check("lenses: the SGA lens is not offered to an account without view_sga_analytics",

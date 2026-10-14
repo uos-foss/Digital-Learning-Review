@@ -1089,6 +1089,10 @@ def build_ally_analytics(school_df, df_issues, *, severities=None, issues=None):
 # Streamlit multiselect's own wording.
 LENS_KEYS = (("risk", LENS_RISK), ("alignment", LENS_ALIGNMENT),
              ("reading", LENS_READING), ("sga", LENS_SGA))
+# The page's own wording. The processing labels carry an icon because Streamlit
+# stores them as its multiselect keys; here they are only read.
+LENS_PLAIN = {LENS_RISK: "Accessibility Risk", LENS_ALIGNMENT: "Template Alignment",
+              LENS_READING: "Missing Reading Lists", LENS_SGA: "No SGAs Mapped"}
 
 
 def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_status, *,
@@ -1127,8 +1131,7 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
                 results[lens] = lens_no_sgas(source)
         flagged, status, status_type, notes = combine_lenses(selected, results)
         codes = [] if flagged is None else list(flagged['New module code'])
-        if len(selected) == 1:
-            notes = []
+        notes = [(LENS_PLAIN[lens], note) for lens, note in notes] if len(selected) > 1 else []
     else:
         codes = (school_df[['New module code']].drop_duplicates()
                  .sort_values('New module code')['New module code'].tolist())
@@ -1145,7 +1148,7 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
             'comment': r.get('Auditor Comments', ''),
             'cells': [r.get(c, '') for c in columns]})
     return {
-        'lens_options': [{'key': k, 'label': label, 'on': label in selected}
+        'lens_options': [{'key': k, 'label': LENS_PLAIN[label], 'on': label in selected}
                          for k, label in available],
         'item_options': [{'label': i, 'on': i in focus} for i in item_labels],
         'show_items': LENS_ALIGNMENT in selected,
