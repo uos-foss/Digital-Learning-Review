@@ -379,6 +379,14 @@ def main():
           f"/modules/{listed[0]['code']}/" in scoped
           and all(f"/schools/{o}/" not in scoped for o in outside))
     peek = outsider_client.get(f"/modules/?q={listed[0]['code']}")
+    names_all = data.school_names()
+    wide = client.get(f"/modules/?q={sample_name}").content.decode("utf-8", "replace")
+    one = client.get(f"/modules/?school={school}").content.decode("utf-8", "replace")
+    check("the finder's School column shows the short code, with the full name for hover and screen readers",
+          f'title="{names_all.get(school, school)}">{school}<span class="sr-only">' in wide
+          and f">{names_all.get(school, school)}</a></td>" not in wide)
+    check("the finder drops the School column once a school is chosen",
+          '<th scope="col">School</th>' in wide and '<th scope="col">School</th>' not in one)
     check("a module in a school you cannot see is not found, not even by exact code",
           peek.status_code == 200 and f"/modules/{listed[0]['code']}/" not in peek.content.decode("utf-8", "replace")
           and "No modules match" in peek.content.decode("utf-8", "replace"))
