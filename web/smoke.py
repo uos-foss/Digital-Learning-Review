@@ -366,6 +366,28 @@ def main():
           'for="cq"' in comments_html and 'for="cstatus"' in comments_html)
     check("the sign-in page carries the theme too, with no light-only greys left",
           'data-theme=' in login_html and "#4B5563" not in login_html and "#6B7280" not in login_html)
+    sample_name = listed[0]["name"].split()[0] if listed and listed[0]["name"] else listed[0]["code"]
+    found_page = client.get(f"/modules/?q={sample_name}").content.decode("utf-8", "replace")
+    check("the finder lists modules by a word of their name, linking to each report",
+          f"/modules/{listed[0]['code']}/" in found_page and "module" in found_page and "Find a module" in found_page)
+    exact = client.get(f"/modules/?q={listed[0]['code'].lower()}")
+    check("an exact module code goes straight to its report",
+          exact.status_code == 302 and exact.url == f"/modules/{listed[0]['code']}/", str(exact.url))
+    scoped = aligned_client.get(f"/modules/?q={listed[0]['code'][:3]}").content.decode("utf-8", "replace")
+    outside = [c for c in processing.FACULTY_SCHOOLS if c != school][:1]
+    check("the finder shows an aligned account its own school's modules only",
+          f"/modules/{listed[0]['code']}/" in scoped
+          and all(f"/schools/{o}/" not in scoped for o in outside))
+    peek = outsider_client.get(f"/modules/?q={listed[0]['code']}")
+    check("a module in a school you cannot see is not found, not even by exact code",
+          peek.status_code == 200 and f"/modules/{listed[0]['code']}/" not in peek.content.decode("utf-8", "replace")
+          and "No modules match" in peek.content.decode("utf-8", "replace"))
+    check("the finder survives odd input and prompts when there is no search",
+          client.get("/modules/?q=%3Cscript%3E&school=nope").status_code == 200
+          and "Or browse a school" in client.get("/modules/").content.decode("utf-8", "replace"))
+    check("the staff platform check is shown to staff only",
+          "Platform check" in staff_client.get("/modules/").content.decode("utf-8", "replace")
+          and "Platform check" not in client.get("/modules/").content.decode("utf-8", "replace"))
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",

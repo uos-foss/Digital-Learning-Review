@@ -33,10 +33,26 @@ from modules import charts, data
 
 @login_required
 def module_index(request):
-    """A landing page listing the checklist questions, as a smoke test that
-    the shared database is readable through the router and the models."""
-    fields = AuditField.objects.using("audit").filter(is_active=1)
-    return render(request, "modules/index.html", {"fields": fields})
+    """
+    The module finder: search by code, name or lead across the schools this
+    account may see. An exact code goes straight to that module's report. The
+    check that the shared database is readable (the checklist questions) is
+    kept for staff, at the foot of the page.
+    """
+    q = request.GET.get("q", "").strip()[:100]
+    allowed = [s for s in processing.FACULTY_SCHOOLS if may_view_school(request.user, s)]
+    school = request.GET.get("school", "").strip().upper()
+    finder = data.find_modules(q, school, allowed)
+
+    hits = finder["results"]
+    if len(hits) == 1 and q.upper() == hits[0]["code"]:
+        return redirect("modules:report", code=hits[0]["code"])
+
+    context = {"finder": finder}
+    if request.user.is_staff:
+        context["platform_check"] = True
+        context["fields"] = AuditField.objects.using("audit").filter(is_active=1)
+    return render(request, "modules/index.html", context)
 
 
 def _require_access(request, code):

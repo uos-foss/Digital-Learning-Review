@@ -188,6 +188,15 @@ def _school_names(school: str) -> dict:
     return names
 
 
+def find_modules(query: str, school: str, allowed_schools) -> dict:
+    """The module finder (see report_model.build_module_finder()): the module
+    records come from the cached frames, so a search is instant after the
+    first."""
+    df_aut, df_spr = _frames()
+    return report_model.build_module_finder(
+        {"Autumn": df_aut, "Spring": df_spr}, query, school, allowed_schools)
+
+
 def load_school_comments(school: str) -> dict:
     """Spot-Check Comments for one school (see report_model). Read fresh."""
     return report_model.build_spot_check_comments(

@@ -320,6 +320,16 @@ SGA one) lets the lines run through it but has no elbow. The icon template tags
 and SVGs in `report_model.py` are now unused by that table, and kept in case the
 icons come back.
 
+**`/modules/` is a module finder** (14-10-2026; it was the first spike's page listing
+checklist questions). Search by code, name or lead: every word must match
+somewhere (`report_model.build_module_finder()`), an exact code redirects to the
+report, results are capped at 100 with the full count shown, and nothing is
+listed until there is a search or a school. **Access is applied before any
+matching**, to the schools `may_view_school()` allows, so a search cannot show or
+hint that a module exists in a school the account cannot see (a code outside them
+reads "no modules match", never a 403). The `audit_fields` read check that used to
+be the page moved into a collapsed "Platform check" for staff.
+
 **Accessibility conventions on those pages** (audited in a browser on
 14-10-2026, both themes and at phone width, with `web/smoke.py` pinning the
 cheap parts): a skip link to `#content`; the view and report tab bars are
