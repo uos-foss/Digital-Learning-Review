@@ -64,18 +64,23 @@
   {% with a=ally %}
   {% if a.note %}<p class="note">{{ a.note }}</p>{% endif %}
   <p class="muted" style="margin-top:0;">Counted in content items rather than modules, because that is the size of the job. One session on exporting tagged PDFs can clear hundreds of items at once.</p>
-  <form method="get" style="margin-bottom:1rem;">
+  <form method="get" class="filterbar" onchange="this.submit()">
     <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="ally">
-    <strong>Severity</strong>
-    {% for opt in a.severity_options %}<label style="margin-right:.6rem;"><input type="checkbox" name="sev" value="{{ opt }}"{% if opt in a.severities %} checked{% endif %}> {{ opt }}</label>{% endfor %}
+    <h3>Filter issues</h3>
+    <div class="muted">Tick the severities to include. Untick all to include every severity.
+      {% if a.filters_active %}<a href="?semester={{ semester|urlencode }}&view=ally">Clear filters</a>{% endif %}</div>
+    <div class="chips">
+      {% for opt in a.severity_options %}<label class="chip"><input type="checkbox" name="sev" value="{{ opt }}"{% if opt in a.severities %} checked{% endif %}>{{ opt }}</label>{% endfor %}
+    </div>
     {% if a.issue_options %}
-    <details style="margin:.5rem 0;"{% if a.issues %} open{% endif %}>
-      <summary>Narrow the module table to modules with particular issues{% if a.issues %} ({{ a.issues|length }} chosen){% endif %}</summary>
-      {% for opt in a.issue_options %}<label style="display:block;"><input type="checkbox" name="issue" value="{{ opt }}"{% if opt in a.issues %} checked{% endif %}> {{ opt }}</label>{% endfor %}
+    <details class="sub"{% if a.issues %} open{% endif %}>
+      <summary>Only modules with particular issues{% if a.issues %} ({{ a.issues|length }} chosen){% endif %} <span class="muted">(none ticked means any issue)</span></summary>
+      <div class="chips">
+        {% for opt in a.issue_options %}<label class="chip"><input type="checkbox" name="issue" value="{{ opt }}"{% if opt in a.issues %} checked{% endif %}>{{ opt }}</label>{% endfor %}
+      </div>
     </details>
     {% endif %}
-    <button type="submit">Filter</button>
-    {% if a.filters_active %}<a href="?semester={{ semester|urlencode }}&view=ally">Clear</a>{% endif %}
+    <noscript><p><button type="submit">Apply filters</button></p></noscript>
   </form>
 
   <h2 style="font-size:1.05rem;">What to fix</h2>
