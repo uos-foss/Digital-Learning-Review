@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load report_extras %}
-{% block title %}{{ school }} dashboard{% endblock %}
+{% block title %}{{ school }} {% if view == "alignment" %}Template Alignment{% elif view == "comments" %}Spot-Check Comments{% elif view == "ally" %}Ally Analytics{% elif view == "trends" %}Trends{% elif view == "fixes" %}Reported Fixes{% else %}Modules{% endif %} - Digital Learning Review{% endblock %}
 {% block head %}{% if view == "trends" and trend_figures %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}
@@ -23,18 +23,18 @@
 
 <table class="kv" style="margin-bottom:1rem;">
   {% for label, value, help in d.headline %}
-    <tr><th title="{{ help }}" style="width:16rem;">{{ label }}</th><td>{{ value }}</td></tr>
+    <tr><th scope="row" title="{{ help }}" style="width:16rem;">{{ label }}</th><td>{{ value }}</td></tr>
   {% endfor %}
 </table>
 
-{% if not basic %}<p class="tabs-links">
-  {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
-  {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
-  {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
-  {% if ally_on %}{% if view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
-  {% if ally_on %}{% if view == "trends" %}<strong>Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
-  {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
-</p>{% endif %}
+{% if not basic %}<nav class="tabs-links" aria-label="School views">
+  {% if view == "modules" %}<strong aria-current="page">Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
+  {% if view == "alignment" %}<strong aria-current="page">Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
+  {% if view == "comments" %}<strong aria-current="page">Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
+  {% if ally_on %}{% if view == "ally" %}<strong aria-current="page">Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
+  {% if ally_on %}{% if view == "trends" %}<strong aria-current="page">Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
+  {% if fixes_on %}{% if view == "fixes" %}<strong aria-current="page">Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
+</nav>{% endif %}
 
 <section class="panel">
 {% if view == "trends" %}
@@ -42,7 +42,7 @@
     <p class="muted" style="margin:0;">{{ trend_message }}</p>
   {% else %}
     {% for f in trend_figures %}
-      <div data-trend="{{ f.data_id }}" style="width:100%;"></div>
+      <div data-trend="{{ f.data_id }}" role="img" aria-label="{{ f.alt }}" style="width:100%;"></div>
       {{ f.figure|json_script:f.data_id }}
     {% endfor %}
     <script>
@@ -50,12 +50,17 @@
         var figure = JSON.parse(document.getElementById(el.dataset.trend).textContent);
         Plotly.newPlot(el, figure.data, figure.layout, {displayModeBar: false, responsive: true});
       });
+      /* Recolour the axes and text for the current theme, now and when it changes. */
+      document.addEventListener("themechange", function () {
+        if (!window.plotTheme) return;
+        document.querySelectorAll("[data-trend]").forEach(function (el) { Plotly.relayout(el, window.plotTheme()); });
+      });
     </script>
     <p class="muted">{{ trend_caption }}</p>
     <details>
       <summary>The figures behind the charts</summary>
       <table class="grid">
-        <tr><th>Snapshot</th><th>Average score</th><th>Files uploaded</th><th>Courses</th></tr>
+        <tr><th scope="col">Snapshot</th><th scope="col">Average score</th><th scope="col">Files uploaded</th><th scope="col">Courses</th></tr>
         {% for r in trend_rows %}<tr><td>{{ r.date }}</td><td>{{ r.score }}</td><td>{{ r.files }}</td><td>{{ r.courses }}</td></tr>{% endfor %}
       </table>
     </details>
@@ -64,9 +69,9 @@
   {% with a=ally %}
   {% if a.note %}<p class="note">{{ a.note }}</p>{% endif %}
   <p class="muted" style="margin-top:0;">Counted in content items rather than modules, because that is the size of the job. One session on exporting tagged PDFs can clear hundreds of items at once.</p>
-  <form method="get" class="filterbar" onchange="this.submit()">
+  <form method="get" class="filterbar" data-autosubmit>
     <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="ally">
-    <h3>Filter issues</h3>
+    <h2>Filter issues</h2>
     <div class="muted">Tick the severities to include. Untick all to include every severity.
       {% if a.filters_active %}<a href="?semester={{ semester|urlencode }}&view=ally">Clear filters</a>{% endif %}</div>
     <div class="chips">
@@ -80,7 +85,7 @@
       </div>
     </details>
     {% endif %}
-    <noscript><p><button type="submit">Apply filters</button></p></noscript>
+    <p style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
   </form>
 
   <h2 style="font-size:1.05rem;">What to fix</h2>
@@ -89,14 +94,14 @@
   {% elif not a.profile %}
     <p class="muted">Ally has found no accessibility issues in this scope.</p>
   {% else %}
-    <table class="grid">
-      <tr><th>Issue</th><th>Severity</th><th colspan="2">Items affected</th><th>Modules</th><th>Where it gets fixed</th></tr>
+    <div class="scroll"><table class="grid">
+      <tr><th scope="col">Issue</th><th scope="col">Severity</th><th scope="col" colspan="2">Items affected</th><th scope="col">Modules</th><th scope="col">Where it gets fixed</th></tr>
       {% for r in a.profile %}
         <tr title="{{ r.advice }}"><td class="wide">{{ r.label }}</td><td class="nw">{{ r.severity }}</td>
             <td style="width:9rem;"><div class="sev-{{ r.severity|lower }}" style="height:.7rem; width:{{ r.bar }}%; min-width:2px; border-radius:2px;"></div></td>
             <td>{{ r.items }}</td><td>{{ r.modules }}</td><td>{{ r.where }}</td></tr>
       {% endfor %}
-    </table>
+    </table></div>
     <p class="muted">Hover a row for what to do about it.</p>
   {% endif %}
 
@@ -108,7 +113,7 @@
   {% else %}
     <div class="scroll">
       <table class="grid">
-        <tr><th>Code</th><th>Module</th><th>Lead</th><th>Build stage</th><th>Overall</th><th>Files</th><th>Pages</th><th># Files</th><th># Pages</th><th>Severe</th><th>Major</th><th>Minor</th><th>Students</th>{% if a.filters_active %}<th>Matching items</th>{% endif %}</tr>
+        <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Build stage</th><th scope="col">Overall</th><th scope="col">Files</th><th scope="col">Pages</th><th scope="col"># Files</th><th scope="col"># Pages</th><th scope="col">Severe</th><th scope="col">Major</th><th scope="col">Minor</th><th scope="col">Students</th>{% if a.filters_active %}<th scope="col">Matching items</th>{% endif %}</tr>
         {% for m in a.modules %}
           <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td><td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td><td class="nw">{{ m.stage }}</td>
               <td>{{ m.overall }}</td><td>{{ m.files_score }}</td><td>{{ m.pages_score }}</td><td>{{ m.files }}</td><td>{{ m.pages }}</td>
@@ -117,7 +122,7 @@
       </table>
     </div>
   {% endif %}
-  <style>.sev-severe{background:#7F1D1D}.sev-major{background:#DC2626}.sev-minor{background:#F97316}.sev-other{background:#EAB308}.note{background:var(--amber);border-left:3px solid var(--amber-line);padding:.5rem .75rem;}</style>
+  <style>.sev-severe{background:#7F1D1D}.sev-major{background:#DC2626}.sev-minor{background:#F97316}.sev-other{background:#EAB308}</style>
   {% endwith %}
 {% elif view == "comments" %}
   <p class="muted" style="margin-top:0;">What advisors wrote in &ldquo;{{ comments.label }}&rdquo; when they audited this school's spot-checked modules, newest first. Each comment is the module's current audit answer, so revising an audit changes what appears here.</p>
@@ -127,8 +132,10 @@
     <p>{{ comments.flagged }} flagged &middot; {{ comments.with_comment }} with a comment &middot; {{ comments.without_comment }} with none yet</p>
     <form method="get" style="margin-bottom:1rem;">
       <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="comments">
-      <input type="search" name="q" value="{{ search }}" placeholder="Module code or any word">
-      <select name="status">
+      <label for="cq" class="sr-only">Search module code or comment text</label>
+      <input id="cq" type="search" name="q" value="{{ search }}" placeholder="Module code or any word">
+      <label for="cstatus" class="sr-only">Flag status</label>
+      <select id="cstatus" name="status">
         <option value="all"{% if status == "all" %} selected{% endif %}>All flags</option>
         <option value="checked"{% if status == "checked" %} selected{% endif %}>Checked</option>
         <option value="pending"{% if status == "pending" %} selected{% endif %}>Pending</option>
@@ -141,7 +148,7 @@
     {% else %}
       <p class="muted">Showing {{ cards|length }} of {{ comments.flagged }}.</p>
       {% for c in cards %}
-        <div style="border-top:1px solid #ddd; padding:.6rem 0;">
+        <div class="comment-card">
           <strong><a href="{% url 'modules:report' c.code %}">{{ c.code }}</a></strong>{% if c.name %} &middot; {{ c.name }}{% endif %} &middot; {{ c.status_label }}
           {% if c.body %}<div class="md">{{ c.body|markdown_html }}</div>{% else %}<div class="muted">Nothing written against this module yet.</div>{% endif %}
           {% if c.trail %}<div class="muted" style="font-size:.85rem;">{{ c.trail }}</div>{% endif %}
@@ -159,7 +166,7 @@
     {% if not fix_rows %}<p class="muted">Nothing matches that filter.</p>{% else %}
     <div class="scroll">
       <table class="grid">
-        <tr><th>Module</th><th>Name</th><th>Section</th><th>Reporter</th><th>Reported on</th><th>Note</th><th>Status</th><th>Checked on</th></tr>
+        <tr><th scope="col">Module</th><th scope="col">Name</th><th scope="col">Section</th><th scope="col">Reporter</th><th scope="col">Reported on</th><th scope="col">Note</th><th scope="col">Status</th><th scope="col">Checked on</th></tr>
         {% for r in fix_rows %}
           <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td>{{ r.section }}</td>
               <td class="nw">{{ r.reporter }}</td><td class="nw">{{ r.reported_on }}</td><td>{{ r.note }}</td><td class="nw">{{ r.status }}</td><td class="nw">{{ r.checked_on }}</td></tr>
@@ -173,7 +180,7 @@
 {% elif view == "modules" %}
   <div class="scroll">
     <table class="grid">
-      <tr><th>Code</th><th>Module</th><th>Lead</th><th>Level</th><th>Ally score</th><th>Items</th><th>Reading list</th>{% if d.show_sga %}<th>SGAs</th>{% endif %}<th>Spot-check</th></tr>
+      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Level</th><th scope="col">Ally score</th><th scope="col">Items</th><th scope="col">Reading list</th>{% if d.show_sga %}<th scope="col">SGAs</th>{% endif %}<th scope="col">Spot-check</th></tr>
       {% for m in d.modules %}
         <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>
             <td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td><td>{{ m.level }}</td>
@@ -186,9 +193,9 @@
 {% else %}
   {% with l=lenses %}
   <p class="muted" style="margin-top:0;">{{ text.ALIGNMENT_LEGEND }}</p>
-  <form method="get" class="filterbar" onchange="this.submit()">
+  <form method="get" class="filterbar" data-autosubmit>
     <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">{% if l.all_columns %}<input type="hidden" name="cols" value="all">{% endif %}
-    <h3>Filter modules</h3>
+    <h2>Filter modules</h2>
     <div class="muted">Tick a lens to show only the modules it flags. Tick several to see modules flagged by any of them. Tick none to see every module.
       {% if l.filtered %}<a href="?semester={{ semester|urlencode }}&view=alignment">Clear filters</a>{% endif %}</div>
     <div class="chips">
@@ -202,7 +209,7 @@
         </div>
       </div>
     {% endif %}
-    <noscript><p><button type="submit">Apply filters</button></p></noscript>
+    <p style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
   </form>
   {% if l.status %}<p class="{% if l.status_type == 'success' %}ok{% else %}note{% endif %}">{{ l.status }}</p>{% endif %}
   {% if l.notes %}
@@ -219,16 +226,15 @@
   {% if l.rows %}
   <div class="scroll">
     <table class="grid">
-      <tr><th>Code</th><th>Module</th><th>Lead</th><th>Spot-check</th>{% for c in l.columns %}<th>{{ c }}</th>{% endfor %}{% if l.has_comments %}<th>Auditor comments</th>{% endif %}</tr>
+      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Spot-check</th>{% for c in l.columns %}<th scope="col">{{ c }}</th>{% endfor %}{% if l.has_comments %}<th scope="col">Auditor comments</th>{% endif %}</tr>
       {% for r in l.rows %}
         <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td><td class="nw">{{ r.spot }}</td>
-            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}{% if l.has_comments %}<td class="comment">{% if r.comment %}<details><summary><span class="preview">{{ r.comment|truncatechars:60 }}</span><span class="less">Hide</span></summary><div class="full">{{ r.comment }}</div></details>{% endif %}</td>{% endif %}</tr>
+            {% for cell in r.cells %}<td style="text-align:center;">{{ cell|status_cell }}</td>{% endfor %}{% if l.has_comments %}<td class="comment">{% if r.comment %}<details><summary><span class="preview">{{ r.comment|truncatechars:60 }}</span><span class="less">Hide</span></summary><div class="full">{{ r.comment }}</div></details>{% endif %}</td>{% endif %}</tr>
       {% endfor %}
     </table>
   </div>
   <p class="muted">{{ l.rows|length }} module{{ l.rows|length|pluralize }} shown.</p>
   {% endif %}
-  <style>.ok{background:#ecfdf5;border-left:3px solid #059669;padding:.5rem .75rem;}</style>
   {% endwith %}
 {% endif %}
 </section>

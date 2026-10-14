@@ -1,4 +1,5 @@
 from django import template
+from django.utils.html import escape
 from django.utils.safestring import mark_safe
 
 from markdown_it import MarkdownIt
@@ -36,3 +37,21 @@ def markdown_html(value):
     processing.format_comment_markdown()'s output.
     """
     return mark_safe(_markdown.render(value or ""))
+
+
+STATUS_WORDS = {
+    "✅": "done", "❌": "outstanding", "🔧": "reported fixed, awaiting check",
+    "🟢": "accessibility good", "🟠": "major accessibility issues",
+    "🔴": "severe accessibility issues", "⚪": "nothing to judge yet",
+}
+
+
+@register.filter
+def status_cell(symbol):
+    """A tick, cross or traffic light with a spoken name, so the matrix does not
+    rely on colour or on how a screen reader happens to read an emoji."""
+    symbol = str(symbol or "")
+    word = STATUS_WORDS.get(symbol)
+    if not word:
+        return symbol
+    return mark_safe(f'<span role="img" aria-label="{word}">{escape(symbol)}</span>')

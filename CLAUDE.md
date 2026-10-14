@@ -301,6 +301,32 @@ column. The Streamlit table still shows every column.
 `report_model.build_lens_table()` shapes it for the page. The Django modules
 list's Spot-check column now breaks a same-day tie on `id`, as Streamlit does.
 
+**The Django pages follow the team's landing site (`Fossdigital-Landing`)** since
+14-10-2026: indigo accent, Inter body and Outfit headings (loaded from Google
+Fonts, as the landing page does), rounded cards, solid-indigo filter chips, and
+a light / dark / system switch kept in `localStorage` under `theme`. All colour
+goes through the variables at the top of `web/templates/base.html`; the dark
+values apply under `html.dark`, set before first paint by an inline script. A
+new page should use those variables, not literal colours (the only literals left
+are Google's sign-in blue and the severity bar colours). Charts read
+`window.plotTheme()` on the `themechange` event. Streamlit is unchanged.
+
+**Accessibility conventions on those pages** (audited in a browser on
+14-10-2026, both themes and at phone width, with `web/smoke.py` pinning the
+cheap parts): a skip link to `#content`; the view and report tab bars are
+`<nav aria-label=...>` with `aria-current="page"` on the current one; every
+`<th>` has a `scope`; one `h1` per page and no skipped heading levels; tick,
+cross and traffic-light symbols in the matrix go through `status_cell` so they
+have a spoken name; each chart is `role="img"` with an `aria-label` and the
+trend has its figures in a table beside it; every wide table sits in a
+`.scroll` wrapper so the page never scrolls sideways on a phone. **Filter chips
+apply as they are ticked only for a mouse or touch** (`data-autosubmit` in
+`base.html`); a keyboard user ticks several and presses the Apply button, because
+a reload on each tick would move them without warning (WCAG 3.2.2). Muted text
+is `#5b6a80` in light mode: the lighter slate failed on the amber Actions panel
+by 0.02. Gauge colours are lightened on the dark card by the report page's own
+script, because no single green passes on both backgrounds.
+
 Nothing on the School Dashboard is left to port except what stays in
 Streamlit on purpose: flagging, removal and checking spot-checks, and the Audit
 Portal jumps. Writes, and anything

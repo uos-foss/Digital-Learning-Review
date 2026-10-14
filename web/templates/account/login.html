@@ -56,14 +56,13 @@ accounts/adapters.py.
 
 <style>
   .signin { max-width: 26rem; margin: 3rem auto; }
-  .signin .lead { color: #4B5563; }
+  .signin .lead { color: var(--muted); }
   .btn-google { display: inline-block; padding: 0.6rem 1.1rem; border-radius: 6px;
                 background: #1A73E8; color: #fff; text-decoration: none; font-weight: 600; }
-  .signin .warn { background: #FEF3C7; border-left: 3px solid #D97706;
+  .signin .warn { background: var(--amber); border-left: 3px solid var(--amber-line);
                   padding: 0.6rem 0.8rem; }
   .local-signin { margin-top: 2rem; }
-  .local-signin summary { cursor: pointer; color: #4B5563; }
-  .muted { color: #6B7280; font-size: 0.9rem; }
+  .local-signin summary { cursor: pointer; color: var(--muted); }
   .messages { padding-left: 1.1rem; }
 </style>
 {% endblock %}
