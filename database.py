@@ -1575,26 +1575,22 @@ def purge_readiness(academic_year):
 def flag_module_for_spot_check(module_code: str, academic_year: str, flagged_by: str,
                                flagged_on: str, data_verdict_snapshot: str) -> int:
     """Records a DLA's own choice to spot-check a module, from the School
-    Dashboard. Returns the id of the (possibly pre-existing) open row.
+    Dashboard. Returns the id of the (possibly pre-existing) pending row.
 
-    No uniqueness constraint at the table level - a module could legitimately
-    be flagged again in a later year, or re-flagged after a prior row for
-    this year was deleted. What must never happen is a second *open* row
-    (pending or checked) for the same module/year sitting alongside one that
-    already exists - that combination is exactly the "pending flag on an
-    already-checked module" condition School Dashboard's bulk-flag UI filters
-    out before calling this. That filtering used to be the only thing
-    preventing it, which left every other caller free to reintroduce it, so
-    the check is now made here too: this function looks for an existing open
-    row itself via get_open_spot_check() and, if one exists, returns its id
-    without inserting a duplicate, rather than trusting every caller to have
-    already excluded the module.
+    No uniqueness constraint at the table level. What must never happen is a
+    second *pending* row for the same module/year, so this looks for one
+    itself via get_pending_spot_check() and returns its id instead of
+    inserting, rather than trusting every caller to have excluded it. A module
+    whose latest row is already *checked* can be flagged again to revisit it
+    (changed 14-10-2026): that adds a new pending row beside the checked one,
+    which stays as history. mark_spot_check_checked() only updates pending
+    rows, so closing the new flag leaves the old result untouched.
     """
     module_code = module_code.strip().upper()
-    existing = get_open_spot_check(module_code, academic_year)
+    existing = get_pending_spot_check(module_code, academic_year)
     if existing is not None:
-        logging.info("🎯 Spot-check flag for '%s' (%s) skipped - already %s (id=%s).",
-                     module_code, academic_year, existing['status'], existing['id'])
+        logging.info("🎯 Spot-check flag for '%s' (%s) skipped - already pending (id=%s).",
+                     module_code, academic_year, existing['id'])
         return existing['id']
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -1612,20 +1608,17 @@ def flag_module_for_spot_check(module_code: str, academic_year: str, flagged_by:
     return new_id
 
 def get_open_spot_check(module_code: str, academic_year: str):
-    """This module's spot_checks row for this year, pending or checked, if
-    any - at most one in practice, since flag_module_for_spot_check() itself
-    now refuses to create a second one. None if never flagged, or the prior
-    row was deleted. The single source of truth for "does this module already
-    have an open spot-check this year" - flag_module_for_spot_check() checks
-    it itself; a caller that wants to pre-filter a whole list before flagging
-    (School Dashboard's bulk-flag UI) can still call it per module."""
+    """The latest spot_checks row for this module this year, pending or
+    checked, or None if it was never flagged or the rows were deleted. No
+    longer used by flag_module_for_spot_check(), which only looks for a pending
+    row now so a checked module can be flagged again."""
     with get_db_connection() as conn:
         if not table_exists(conn, 'spot_checks'):
             return None
         row = conn.execute("""
             SELECT * FROM spot_checks
             WHERE module_code = ? AND academic_year = ? AND status IN ('pending', 'checked')
-            ORDER BY flagged_on DESC LIMIT 1
+            ORDER BY flagged_on DESC, id DESC LIMIT 1
         """, (module_code.strip().upper(), academic_year)).fetchone()
         if row is None:
             return None
@@ -1646,7 +1639,7 @@ def get_school_spot_checks(school: str, academic_year: str = None):
         if academic_year:
             sql += " AND academic_year = ?"
             params.append(academic_year)
-        sql += " ORDER BY flagged_on DESC"
+        sql += " ORDER BY flagged_on DESC, id DESC"
         return pd.read_sql_query(sql, conn, params=params)
 
 def get_spot_check_comments(school: str, academic_year: str = None,
@@ -1686,7 +1679,7 @@ def get_spot_check_comments(school: str, academic_year: str = None,
         if academic_year:
             sql += " AND s.academic_year = ?"
             params.append(academic_year)
-        sql += " ORDER BY s.flagged_on DESC"
+        sql += " ORDER BY s.flagged_on DESC, s.id DESC"
         return pd.read_sql_query(sql, conn, params=params)
 
 def get_spot_checks_for_schools(schools, academic_year: str = None, status: str = None):
@@ -1714,7 +1707,7 @@ def get_spot_checks_for_schools(schools, academic_year: str = None, status: str 
             params.append(status)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY flagged_on DESC"
+        sql += " ORDER BY flagged_on DESC, id DESC"
         return pd.read_sql_query(sql, conn, params=params)
 
 def get_pending_spot_check(module_code: str, academic_year: str):
@@ -1728,7 +1721,7 @@ def get_pending_spot_check(module_code: str, academic_year: str):
         row = conn.execute("""
             SELECT * FROM spot_checks
             WHERE module_code = ? AND academic_year = ? AND status = 'pending'
-            ORDER BY flagged_on DESC LIMIT 1
+            ORDER BY flagged_on DESC, id DESC LIMIT 1
         """, (module_code.strip().upper(), academic_year)).fetchone()
         if row is None:
             return None
