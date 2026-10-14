@@ -732,17 +732,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                     "📚 Missing Reading Lists"]
                     if show_sga:
                         lens_options.append("🎓 No SGAs Mapped")
-                    selected_lenses = []
-                    if is_admin:
-                        selected_lenses = st.multiselect(
-                            "Filter by lens (leave empty to show every module):",
-                            lens_options,
-                            default=[l for l in st.session_state.get("sd_lenses", []) if l in lens_options],
-                            key="school_priority_lens_selector"
-                        )
-                        st.session_state.sd_lenses = selected_lenses
-                        if len(selected_lenses) > 1:
-                            st.caption("Modules flagged by at least one selected lens, most flags first.")
+                    selected_lenses = st.multiselect(
+                        "Filter by lens (leave empty to show every module):",
+                        lens_options,
+                        default=[l for l in st.session_state.get("sd_lenses", []) if l in lens_options],
+                        key="school_priority_lens_selector"
+                    )
+                    st.session_state.sd_lenses = selected_lenses
+                    if len(selected_lenses) > 1:
+                        st.caption("Modules flagged by at least one selected lens, most flags first.")
 
                     # Narrow the Template Alignment lens to specific items (e.g.
                     # TellUs Report); empty means any outstanding item.
