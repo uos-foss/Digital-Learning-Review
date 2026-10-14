@@ -25,7 +25,7 @@
   <p class="muted">Your account is not aligned with any school yet, so there are no modules to search. A Digital Learning Advisor or an administrator can set that.</p>
 {% elif not f.searched %}
   <p class="muted">Or browse a school:</p>
-  <p>{% for s in f.schools %}<a class="chip" href="?school={{ s }}">{{ s|school_name }}</a> {% endfor %}</p>
+  <p>{% for s in f.schools %}<a class="chip" href="?school={{ s }}" title="{{ s|school_name }}">{{ s }}<span class="sr-only"> ({{ s|school_name }})</span></a> {% endfor %}</p>
 {% elif not f.results %}
   <p role="status">No modules match{% if f.query %} &ldquo;{{ f.query }}&rdquo;{% endif %}{% if f.school %} in {{ f.school|school_name }}{% endif %}.</p>
 {% else %}

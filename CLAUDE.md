@@ -337,7 +337,8 @@ pages show "School of Education" with the code as a smaller label
 `web/modules/data.py::school_names()` caches the map like the module sources.
 Streamlit still shows codes. **Use the full name where a school stands on its own
 (headings, the school list, a single "School" row, a dropdown) and the code where it
-repeats down a table column** (the finder's results), with the name kept for hover and
+repeats, down a table column or across a row of chips** (the finder's results and its
+browse links), with the name kept for hover and
 screen readers: `<a title="{name}">{code}<span class="sr-only"> ({name})</span></a>`,
 so the accessible name still contains the visible text. The finder drops that column
 once a school is chosen, since every row would say the same.
