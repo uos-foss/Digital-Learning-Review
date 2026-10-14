@@ -35,6 +35,72 @@ def comment_field_label():
             return field['label']
     return "Additional Comments"
 
+def _spot_check_status_by_code(school):
+    """Latest spot-check status ('pending' / 'checked') per module code for one
+    school this year. A module can have several flags over time (a checked one,
+    then a re-flag); the most recent row is what counts."""
+    df = get_school_spot_checks(school, CURRENT_ACADEMIC_YEAR)
+    if df.empty:
+        return {}
+    latest = df.sort_values(['flagged_on', 'id'], ascending=False)                .drop_duplicates(subset='module_code', keep='first')
+    return dict(zip(latest['module_code'], latest['status']))
+
+
+def _flag_modules_for_spot_check(codes, df_aut, df_spr, checklist_sums):
+    """Raises a pending spot-check for each code, freezing the data's current
+    verdict as the snapshot the eventual audit is compared against."""
+    flagger = str(st.session_state.get("username", "")).strip().upper()
+    flagged_on = datetime.date.today().strftime('%Y-%m-%d')
+    for code in codes:
+        active_row = resolve_active_row(code, df_aut, df_spr)
+        actionable = checklist_sums.get(code, {}).get('Actionable Items', 0)
+        snapshot = build_spot_check_snapshot(active_row, actionable)
+        flag_module_for_spot_check(code, CURRENT_ACADEMIC_YEAR, flagger, flagged_on, snapshot)
+
+
+def _spot_check_flag_controls(selected_codes, status_by_code, df_aut, df_spr,
+                              checklist_sums, key):
+    """The flag button for a set of selected modules, shared by the All Modules
+    table and the lens table. A pending module is never flagged twice. A
+    checked one can be flagged again to revisit it (the earlier checked row is
+    kept as history), but only on an explicit tick: select-all used to re-queue
+    every checked module."""
+    already_pending = [c for c in selected_codes if status_by_code.get(c) == 'pending']
+    already_checked = [c for c in selected_codes if status_by_code.get(c) == 'checked']
+    reflag_checked = False
+    if already_checked:
+        reflag_checked = st.checkbox(
+            f"Also re-flag {len(already_checked)} already-checked module(s)",
+            key=f"chk_{key}_reflag",
+            help="Raises a new pending spot-check. The earlier checked "
+                 "result is kept and shows in 🎯 Spot-Checks.")
+    flaggable = [c for c in selected_codes
+                 if c not in status_by_code or (reflag_checked and c in already_checked)]
+    label = ("🎯 Flag for Spot-Check" if len(selected_codes) == 1
+             else f"🎯 Flag {len(flaggable)} for Spot-Check")
+    if not flaggable:
+        st.button("🎯 Already flagged or checked", width="stretch",
+                  disabled=True, key=f"btn_{key}_pending",
+                  help="Every selected module is already pending"
+                       + (" or checked this year. Tick the box above to "
+                          "re-flag the checked ones." if already_checked else "."))
+        return
+    skipped_checked = 0 if reflag_checked else len(already_checked)
+    if st.button(label, width="stretch", key=f"btn_{key}",
+                 help=(f"Skips {len(already_pending)} pending and {skipped_checked} checked module(s)."
+                       if already_pending or skipped_checked else None)):
+        _flag_modules_for_spot_check(flaggable, df_aut, df_spr, checklist_sums)
+        msg = f"Flagged {len(flaggable)} module(s) for spot-check."
+        if already_pending or skipped_checked:
+            msg += (f" Skipped {len(already_pending)} already pending and "
+                    f"{skipped_checked} already checked.")
+        st.success(msg)
+        # spot_checks isn't part of the cached loaders (Actionable Items etc. are
+        # unaffected by flagging), so no st.cache_data.clear() - only a rerun to
+        # refresh the status column.
+        st.rerun()
+
+
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_freshness=None):
     schools = list(FACULTY_SCHOOLS)
     
@@ -369,12 +435,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                 # whole school rather than a query per row. A module can have
                 # more than one flag over time (see purge/re-flag notes in
                 # CLAUDE.md); the most recent one is what's shown.
-                sc_school_df = get_school_spot_checks(school, CURRENT_ACADEMIC_YEAR)
-                sc_status_by_code = {}
-                if not sc_school_df.empty:
-                    latest = sc_school_df.sort_values(['flagged_on', 'id'], ascending=False) \
-                                         .drop_duplicates(subset='module_code', keep='first')
-                    sc_status_by_code = dict(zip(latest['module_code'], latest['status']))
+                sc_status_by_code = _spot_check_status_by_code(school)
 
                 def _spot_check_display(r):
                     status = sc_status_by_code.get(r['New module code'])
@@ -441,56 +502,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         flag_col = st.container()
 
                     if can_audit:
-                        # A pending module is never flagged twice. A checked one
-                        # can be flagged again to revisit it (the earlier checked
-                        # row is kept as history), but only on an explicit tick:
-                        # select-all used to re-queue every checked module.
-                        already_pending = [c for c in selected_codes
-                                          if sc_status_by_code.get(c) == 'pending']
-                        already_checked = [c for c in selected_codes
-                                          if sc_status_by_code.get(c) == 'checked']
                         with flag_col:
-                            reflag_checked = False
-                            if already_checked:
-                                reflag_checked = st.checkbox(
-                                    f"Also re-flag {len(already_checked)} already-checked module(s)",
-                                    key="chk_school_sc_reflag",
-                                    help="Raises a new pending spot-check. The earlier checked "
-                                         "result is kept and shows in 🎯 Spot-Checks.")
-                            flaggable = [c for c in selected_codes
-                                         if c not in sc_status_by_code
-                                         or (reflag_checked and c in already_checked)]
-                            label = (f"🎯 Flag for Spot-Check" if len(selected_codes) == 1
-                                    else f"🎯 Flag {len(flaggable)} for Spot-Check")
-                            if not flaggable:
-                                st.button("🎯 Already flagged or checked", width="stretch",
-                                         disabled=True, key="btn_school_sc_pending",
-                                         help="Every selected module is already pending"
-                                              + (" or checked this year. Tick the box above to "
-                                                 "re-flag the checked ones." if already_checked else "."))
-                            elif st.button(label, width="stretch", key="btn_school_sc",
-                                           help=(f"Skips {len(already_pending)} pending"
-                                                 + ("" if reflag_checked else f" and {len(already_checked)} checked")
-                                                 + " module(s).")
-                                                if already_pending or (already_checked and not reflag_checked) else None):
-                                flagger = str(st.session_state.get("username", "")).strip().upper()
-                                flagged_on = datetime.date.today().strftime('%Y-%m-%d')
-                                for code in flaggable:
-                                    active_row = resolve_active_row(code, df_aut, df_spr)
-                                    actionable = checklist_sums.get(code, {}).get('Actionable Items', 0)
-                                    snapshot = build_spot_check_snapshot(active_row, actionable)
-                                    flag_module_for_spot_check(
-                                        code, CURRENT_ACADEMIC_YEAR, flagger, flagged_on, snapshot)
-                                msg = f"Flagged {len(flaggable)} module(s) for spot-check."
-                                skipped_checked = 0 if reflag_checked else len(already_checked)
-                                if already_pending or skipped_checked:
-                                    msg += (f" Skipped {len(already_pending)} already pending and "
-                                            f"{skipped_checked} already checked.")
-                                st.success(msg)
-                                # spot_checks isn't part of the cached loaders above (Actionable
-                                # Items etc. are unaffected by flagging), so no st.cache_data.clear()
-                                # is needed here - only a rerun to refresh the status column.
-                                st.rerun()
+                            _spot_check_flag_controls(selected_codes, sc_status_by_code, df_aut,
+                                                      df_spr, checklist_sums, key="school_sc")
                     st.divider()
 
             elif selected_view == "🎓 Graduate Attributes":
@@ -945,7 +959,7 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             hide_index=True,
                             key="school_priority_lens_dataframe",
                             on_select="rerun",
-                            selection_mode="single-row"
+                            selection_mode="multi-row"
                         )
                         st.download_button(
                             f"📥 Export {school} Item-by-item Status",
@@ -958,7 +972,15 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         # outlive a switch to a shorter one.
                         priority_rows = [i for i in selection_priority.selection.rows
                                          if i < len(clean_render_df)]
-                        if priority_rows:
+                        if can_audit and priority_rows:
+                            st.divider()
+                            lens_codes = [str(clean_render_df.iloc[i]['New module code']).strip()
+                                          for i in priority_rows]
+                            st.info(f"🎯 {len(lens_codes)} module(s) selected")
+                            _spot_check_flag_controls(
+                                lens_codes, _spot_check_status_by_code(school), df_aut, df_spr,
+                                checklist_sums, key="school_lens_sc")
+                        if len(priority_rows) == 1:
                             row_idx = priority_rows[0]
                             clicked_code = clean_render_df.iloc[row_idx]['New module code']
                         

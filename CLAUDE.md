@@ -1072,6 +1072,11 @@ snapshot/diff logic is I/O-free in `processing.py`
   latest row is what shows. `record_unflagged_spot_check()` is unchanged: it
   still inserts only when the module has no row at all this year.
   `get_open_spot_check()` has no caller now.
+  The flag button is `_spot_check_flag_controls()` in `views/school_dashboard.py`,
+  used by both the All Modules table and the Item-by-item lens table (multi-row
+  since 14-10-2026; a single selected row still shows Launch Control). So any
+  lens, Template Alignment included, can flag its rows, e.g. checked modules
+  with items still outstanding. Do not copy the flagging rule into a third place.
 - **A flag belongs to the school it was raised in, not to the DLA who raised
   it.** Changed 19-08-2026: any DLA currently working that school - their
   own, or one they've deliberately switched context into to cover a
