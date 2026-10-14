@@ -34,11 +34,11 @@
   </p>
   <div class="scroll">
     <table class="grid">
-      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">School</th><th scope="col">Level</th><th scope="col">Semester</th></tr>
+      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th>{% if not f.school %}<th scope="col">School</th>{% endif %}<th scope="col">Level</th><th scope="col">Semester</th></tr>
       {% for m in f.results %}
         <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>
             <td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td>
-            <td><a href="{% url 'schools:dashboard' m.school %}">{{ m.school|school_name }}</a></td>
+            {% if not f.school %}<td><a href="{% url 'schools:dashboard' m.school %}" title="{{ m.school|school_name }}">{{ m.school }}<span class="sr-only"> ({{ m.school|school_name }})</span></a></td>{% endif %}
             <td>{{ m.level }}</td><td class="nw">{{ m.semesters|join:" and " }}</td></tr>
       {% endfor %}
     </table>

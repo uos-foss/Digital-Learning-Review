@@ -335,7 +335,12 @@ the legacy format) and a school's name is the one most of its rows carry. The Dj
 pages show "School of Education" with the code as a smaller label
 (`{{ code|school_name }}`, which falls back to the code when SITS has no name), and
 `web/modules/data.py::school_names()` caches the map like the module sources.
-Streamlit still shows codes.
+Streamlit still shows codes. **Use the full name where a school stands on its own
+(headings, the school list, a single "School" row, a dropdown) and the code where it
+repeats down a table column** (the finder's results), with the name kept for hover and
+screen readers: `<a title="{name}">{code}<span class="sr-only"> ({name})</span></a>`,
+so the accessible name still contains the visible text. The finder drops that column
+once a school is chosen, since every row would say the same.
 
 **`/modules/` is a module finder** (14-10-2026; it was the first spike's page listing
 checklist questions). Search by code, name or lead: every word must match
