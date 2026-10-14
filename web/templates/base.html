@@ -205,7 +205,7 @@
   <nav aria-label="Main" class="mainnav">
     {% url 'modules:index' as modules_url %}
     {% if nav_one_school %}{% url 'schools:dashboard' nav_one_school as schools_url %}{% else %}{% url 'schools:index' as schools_url %}{% endif %}
-    <a href="{{ modules_url }}"{% if request.path == modules_url %} class="active" aria-current="page"{% elif request.resolver_match.namespace == "modules" %} class="active" aria-current="true"{% endif %}>Modules</a>
+    <a href="{{ modules_url }}"{% if request.path == modules_url %} class="active" aria-current="page"{% elif request.resolver_match.namespace == "modules" %} class="active" aria-current="true"{% endif %}>Module finder</a>
     <a href="{{ schools_url }}"{% if request.path == schools_url %} class="active" aria-current="page"{% elif request.resolver_match.namespace == "schools" %} class="active" aria-current="true"{% endif %}>{% if nav_one_school %}My school{% else %}Schools{% endif %}</a>
   </nav>
   {% endif %}

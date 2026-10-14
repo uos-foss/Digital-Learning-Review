@@ -329,7 +329,7 @@ the sign-in heading, and the admin's header and title. A new template should use
 still say "Digital Learning Review"; that is the project's name, not the site's.
 
 **The header on the Django pages** (14-10-2026): the site name (a link home), a main
-nav of Modules and Schools with the current section marked (`aria-current`, and a
+nav of Module finder and Schools with the current section marked (`aria-current`, and a
 soft indigo background), then on the right the theme control and the account menu.
 The theme control stays out in the open, as on the landing site, with that site's own
 sun, moon and monitor icons. The account menu is a `<details>` holding Admin (staff)

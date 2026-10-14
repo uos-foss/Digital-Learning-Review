@@ -369,7 +369,7 @@ def main():
     sample_name = listed[0]["name"].split()[0] if listed and listed[0]["name"] else listed[0]["code"]
     found_page = client.get(f"/modules/?q={sample_name}").content.decode("utf-8", "replace")
     check("the finder lists modules by a word of their name, linking to each report",
-          f"/modules/{listed[0]['code']}/" in found_page and "module" in found_page and "Find a module" in found_page)
+          f"/modules/{listed[0]['code']}/" in found_page and "module" in found_page and "Module finder" in found_page)
     exact = client.get(f"/modules/?q={listed[0]['code'].lower()}")
     check("an exact module code goes straight to its report",
           exact.status_code == 302 and exact.url == f"/modules/{listed[0]['code']}/", str(exact.url))
@@ -430,7 +430,7 @@ def main():
     on_modules = client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
     on_schools = client.get("/schools/").content.decode("utf-8", "replace")
     check("the header marks the current section and exact page",
-          'class="active" aria-current="true">Modules<' in on_modules
+          'class="active" aria-current="true">Module finder<' in on_modules
           and 'class="active" aria-current="page">Schools<' in on_schools
           and 'aria-current="true">Schools<' not in on_modules)
     menu = on_modules.split('<details class="account">')[1].split("</details>")[0]
