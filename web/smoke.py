@@ -293,6 +293,10 @@ def main():
     check("ally analytics: modules and issue profile are built",
           bool(ally_all["modules"]) and len(ally_all["modules"]) <= len(listed) + 5,
           f"{len(ally_all['modules'])} modules, {len(ally_all['profile'])} issue types")
+    ally_html = client.get(f"/schools/{school}/?view=ally&sev=Severe").content.decode("utf-8", "replace")
+    check("ally analytics: the filters are chips that apply as ticked, with no Filter button",
+          'class="chip"' in ally_html and 'onchange="this.submit()"' in ally_html
+          and ">Filter</button>" not in ally_html)
     check("ally analytics: a severity filter only narrows",
           len(ally_sev["modules"]) <= len(ally_all["modules"])
           and all(r["severity"] == "Severe" for r in ally_sev["profile"]))
