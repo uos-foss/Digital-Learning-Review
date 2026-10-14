@@ -5,6 +5,13 @@
 
 {% block content %}
 {% with d=dashboard %}
+<style>
+  /* The alignment table has ten item columns, a comment and more: give the
+     school page the width of the window rather than the report's reading width. */
+  main { max-width: 96rem; }
+  td.comment { min-width: 20rem; max-width: 28rem; font-size: .85rem; vertical-align: top; }
+  table.grid td { vertical-align: top; }
+</style>
 <h1>{{ school }} <span class="muted">School Dashboard</span></h1>
 
 <p>
@@ -199,7 +206,7 @@
       <tr><th>Code</th><th>Module</th><th>Lead</th><th>Spot-check</th>{% for c in l.columns %}<th>{{ c }}</th>{% endfor %}{% if l.has_comments %}<th>Auditor comments</th>{% endif %}</tr>
       {% for r in l.rows %}
         <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td><td class="nw">{{ r.spot }}</td>
-            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}{% if l.has_comments %}<td>{{ r.comment }}</td>{% endif %}</tr>
+            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}{% if l.has_comments %}<td class="comment">{{ r.comment }}</td>{% endif %}</tr>
       {% endfor %}
     </table>
   </div>
