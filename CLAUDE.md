@@ -320,7 +320,7 @@ SGA one) lets the lines run through it but has no elbow. The icon template tags
 and SVGs in `report_model.py` are now unused by that table, and kept in case the
 icons come back.
 
-**The Django site is called "Faculty of Social Sciences Module Reports"** (from
+**The Django site is called "FoSS Module Reports"** (from
 14-10-2026; it was "Digital Learning Review"). The name is one setting,
 `SITE_NAME` in `web/dlr/settings.py`, read by a context processor
 (`site_name`) into the header brand (now a link home), the footer, every tab title,

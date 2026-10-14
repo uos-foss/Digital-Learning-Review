@@ -412,8 +412,8 @@ def main():
           all(p.count(probe) >= 3 and probe in p.split("<title>")[1].split("</title>")[0] for p in pages.values())
           and probe in login_probe and probe in admin_probe
           and all(real not in p for p in list(pages.values()) + [login_probe, admin_probe]))
-    check("the real name is Faculty of Social Sciences Module Reports",
-          real == "Faculty of Social Sciences Module Reports" and "Digital Learning Review" not in page)
+    check("the real name is FoSS Module Reports",
+          real == "FoSS Module Reports" and "Digital Learning Review" not in page)
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",
