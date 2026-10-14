@@ -288,3 +288,14 @@ def test_ally_snapshot_date_accepts_a_series_or_a_dict():
     for row in (pd.Series(checked), checked):
         assert report_model.ally_snapshot_date(row, {}) == "01-10-2026"
     assert report_model.ally_snapshot_date(None, {"ally": "2026-10-05"}) == "05-10-2026"
+
+
+def test_date_from_filename_reads_a_day_first_date_or_gives_none():
+    import datetime
+    from processing import date_from_filename
+    assert date_from_filename("Ally export 09-10-2026.csv") == datetime.date(2026, 10, 9)
+    assert date_from_filename("readiness_9-1-26.csv") == datetime.date(2026, 1, 9)
+    # Day first: 03-04 is 3 April, not 4 March.
+    assert date_from_filename("leganto 03-04-2026.csv") == datetime.date(2026, 4, 3)
+    for none in ("export.csv", "", None, "report 31-31-2026.csv"):
+        assert date_from_filename(none) is None
