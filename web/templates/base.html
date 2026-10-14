@@ -92,7 +92,7 @@
   <span class="muted">platform spike</span>
   <nav>
     {% if user.is_authenticated %}<a href="{% url 'modules:index' %}">Modules</a> &middot; <a href="{% url 'schools:index' %}">Schools</a> &middot; {{ user.username }}
-      &middot; <a href="{% url 'admin:index' %}">Admin</a>
+      {% if user.is_staff %}&middot; <a href="{% url 'admin:index' %}">Admin</a>{% endif %}
       &middot; <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button type="submit">Sign out</button></form>
     {% else %}<a href="{% url 'account_login' %}">Sign in</a>{% endif %}
   </nav>
