@@ -1076,7 +1076,10 @@ snapshot/diff logic is I/O-free in `processing.py`
   used by both the All Modules table and the Item-by-item lens table (multi-row
   since 14-10-2026; a single selected row still shows Launch Control). So any
   lens, Template Alignment included, can flag its rows, e.g. checked modules
-  with items still outstanding. Do not copy the flagging rule into a third place.
+  with items still outstanding. The same helper offers a confirmed "Un-flag N"
+  for selected modules with a pending flag: it deletes pending rows only, so a
+  checked result survives (removing a checked row stays in the Spot-Checks view).
+  Do not copy the flagging rule into a third place.
 - **A flag belongs to the school it was raised in, not to the DLA who raised
   it.** Changed 19-08-2026: any DLA currently working that school - their
   own, or one they've deliberately switched context into to cover a

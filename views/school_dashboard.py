@@ -12,6 +12,7 @@ from processing import (title_case_name, short_field_label, resolve_semester_df,
                         TEMPLATE_SECTIONS, SECTION_KEY_BY_AUDIT_FIELD)
 from database import (get_all_audit_responses, get_active_audit_fields, get_ai_declarations,
                       get_ally_history, flag_module_for_spot_check, delete_spot_check,
+                      get_pending_spot_check,
                       delete_spot_checks, get_school_spot_checks,
                       get_spot_check_comments, get_fix_claims_for_school,
                       get_all_active_fix_claims, feature_enabled_for)
@@ -60,8 +61,8 @@ def _flag_modules_for_spot_check(codes, df_aut, df_spr, checklist_sums):
 
 def _spot_check_flag_controls(selected_codes, status_by_code, df_aut, df_spr,
                               checklist_sums, key):
-    """The flag button for a set of selected modules, shared by the All Modules
-    table and the lens table. A pending module is never flagged twice. A
+    """The flag and un-flag buttons for a set of selected modules, shared by the
+    All Modules table and the lens table. A pending module is never flagged twice. A
     checked one can be flagged again to revisit it (the earlier checked row is
     kept as history), but only on an explicit tick: select-all used to re-queue
     every checked module."""
@@ -84,21 +85,38 @@ def _spot_check_flag_controls(selected_codes, status_by_code, df_aut, df_spr,
                   help="Every selected module is already pending"
                        + (" or checked this year. Tick the box above to "
                           "re-flag the checked ones." if already_checked else "."))
-        return
-    skipped_checked = 0 if reflag_checked else len(already_checked)
-    if st.button(label, width="stretch", key=f"btn_{key}",
-                 help=(f"Skips {len(already_pending)} pending and {skipped_checked} checked module(s)."
-                       if already_pending or skipped_checked else None)):
-        _flag_modules_for_spot_check(flaggable, df_aut, df_spr, checklist_sums)
-        msg = f"Flagged {len(flaggable)} module(s) for spot-check."
-        if already_pending or skipped_checked:
-            msg += (f" Skipped {len(already_pending)} already pending and "
-                    f"{skipped_checked} already checked.")
-        st.success(msg)
-        # spot_checks isn't part of the cached loaders (Actionable Items etc. are
-        # unaffected by flagging), so no st.cache_data.clear() - only a rerun to
-        # refresh the status column.
-        st.rerun()
+    else:
+        skipped_checked = 0 if reflag_checked else len(already_checked)
+        if st.button(label, width="stretch", key=f"btn_{key}",
+                     help=(f"Skips {len(already_pending)} pending and {skipped_checked} checked module(s)."
+                           if already_pending or skipped_checked else None)):
+            _flag_modules_for_spot_check(flaggable, df_aut, df_spr, checklist_sums)
+            msg = f"Flagged {len(flaggable)} module(s) for spot-check."
+            if already_pending or skipped_checked:
+                msg += (f" Skipped {len(already_pending)} already pending and "
+                        f"{skipped_checked} already checked.")
+            st.success(msg)
+            # spot_checks isn't part of the cached loaders (Actionable Items etc. are
+            # unaffected by flagging), so no st.cache_data.clear() - only a rerun to
+            # refresh the status column.
+            st.rerun()
+
+    # Un-flag: removes pending flags only, so a checked result is never lost
+    # from here (a checked row is removed from the Spot-Checks view).
+    if already_pending:
+        pending_ids = [r['id'] for r in (get_pending_spot_check(c, CURRENT_ACADEMIC_YEAR)
+                                         for c in already_pending) if r]
+        unflag_ok = st.checkbox(
+            f"Confirm removing {len(pending_ids)} pending flag(s)",
+            key=f"chk_{key}_unflag",
+            help="Deletes the pending flag. Any earlier checked result for the "
+                 "module is kept.")
+        if st.button(f"🗑️ Un-flag {len(pending_ids)}", width="stretch",
+                     disabled=not unflag_ok or not pending_ids, key=f"btn_{key}_unflag"):
+            n = delete_spot_checks(pending_ids)
+            st.session_state[f"chk_{key}_unflag"] = False
+            st.toast(f"Removed {n} pending spot-check flag(s).")
+            st.rerun()
 
 
 def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_freshness=None):
