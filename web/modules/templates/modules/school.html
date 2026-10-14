@@ -31,7 +31,13 @@
   {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
   {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
   {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
-  {% if ally_on %}{% if view == "trends" %}
+  {% if ally_on %}{% if view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
+  {% if ally_on %}{% if view == "trends" %}<strong>Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
+  {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
+</p>{% endif %}
+
+<section class="panel">
+{% if view == "trends" %}
   {% if not trend_figures %}
     <p class="muted" style="margin:0;">{{ trend_message }}</p>
   {% else %}
@@ -54,13 +60,7 @@
       </table>
     </details>
   {% endif %}
-{% elif view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
-  {% if ally_on %}{% if view == "trends" %}<strong>Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
-  {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
-</p>{% endif %}
-
-<section class="panel">
-{% if view == "ally" %}
+{% elif view == "ally" %}
   {% with a=ally %}
   {% if a.note %}<p class="note">{{ a.note }}</p>{% endif %}
   <p class="muted" style="margin-top:0;">Counted in content items rather than modules, because that is the size of the job. One session on exporting tagged PDFs can clear hundreds of items at once.</p>
