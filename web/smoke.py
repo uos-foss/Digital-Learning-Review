@@ -323,6 +323,18 @@ def main():
     check("ally analytics is not offered to a module lead",
           "What to fix" not in aligned_client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
           and "Ally Analytics" not in aligned_client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
+    staff, _ = User.objects.get_or_create(username="spike-staff", defaults={"is_staff": True})
+    staff.is_staff = True
+    staff.save()
+    staff_client = Client()
+    staff_client.force_login(User.objects.get(pk=staff.pk))
+    admin_href = 'href="/admin/"'
+    check("the Admin link is shown to staff and hidden from everyone else",
+          admin_href in staff_client.get("/schools/").content.decode("utf-8", "replace")
+          and admin_href not in aligned_client.get(f"/schools/{school}/").content.decode("utf-8", "replace")
+          and admin_href not in client.get("/schools/").content.decode("utf-8", "replace"))
+    check("a non-staff account still cannot open the admin",
+          aligned_client.get("/admin/").status_code == 302)
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",
