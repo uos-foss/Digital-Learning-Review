@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Digital Learning Review{% endblock %}</title>
+<title>{% block title %}{{ site_name }}{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
@@ -65,7 +65,8 @@
   header.site { background: var(--panel); border-bottom: 1px solid var(--line);
                 padding: .6rem 1.25rem; display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; }
   header.site .brand { font-family: Outfit, Inter, system-ui, sans-serif; font-weight: 700;
-                font-size: 1.05rem; display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
+                font-size: 1.05rem; display: inline-flex; align-items: center; gap: .5rem; color: var(--ink);
+                text-decoration: none; }
   header.site .brand::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%;
                 background: var(--accent); }
   header.site nav { margin-left: auto; font-size: .9rem; display: flex; flex-wrap: wrap;
@@ -179,7 +180,7 @@
 <body>
 <a class="skip" href="#content">Skip to main content</a>
 <header class="site">
-  <span class="brand">Digital Learning Review</span>
+  <a class="brand" href="{% url 'home' %}">{{ site_name }}</a>
   <nav aria-label="Main">
     {% if user.is_authenticated %}<a href="{% url 'modules:index' %}">Modules</a><a href="{% url 'schools:index' %}">Schools</a><span class="muted">{{ user.username }}</span>
       {% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
@@ -195,7 +196,7 @@
 <main id="content" tabindex="-1">
 {% block content %}{% endblock %}
 </main>
-<footer class="site">Digital Learning Review &middot; Faculty of Social Sciences</footer>
+<footer class="site">{{ site_name }}</footer>
 <script>
   /* A filter form with data-autosubmit applies as chips are ticked with a mouse or
      touch. A keyboard user ticks several and presses Apply: a page reload on each

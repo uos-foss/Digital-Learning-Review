@@ -12,9 +12,11 @@ almost always "why can this person not see anything", and the answer is
 usually visible from that list.
 """
 
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from django.utils.functional import lazy
 
 import processing
 
@@ -74,5 +76,6 @@ class UserAdmin(BaseUserAdmin):
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
 
-admin.site.site_header = "Digital Learning Review platform"
-admin.site.site_title = "DLR platform"
+# Lazy, so they read settings.SITE_NAME when a page is drawn, not once at start-up.
+admin.site.site_header = lazy(lambda: f"{settings.SITE_NAME}: administration", str)()
+admin.site.site_title = lazy(lambda: settings.SITE_NAME, str)()

@@ -12,11 +12,11 @@ needs. There is no "create an account" link because signup is closed, in
 accounts/adapters.py.
 {% endcomment %}
 
-{% block title %}Sign in{% endblock %}
+{% block title %}Sign in - {{ site_name }}{% endblock %}
 
 {% block content %}
 <div class="signin">
-  <h1>Digital Learning Review</h1>
+  <h1>{{ site_name }}</h1>
   <p class="lead">Sign in with your University of Sheffield account.</p>
 
   {% if messages %}

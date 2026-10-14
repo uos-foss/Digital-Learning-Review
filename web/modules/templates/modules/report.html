@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load report_extras %}
-{% block title %}{{ code }} report{% endblock %}
+{% block title %}{{ code }} report - {{ site_name }}{% endblock %}
 {% block head %}{% if tab == "accessibility" %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}

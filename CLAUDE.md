@@ -320,6 +320,14 @@ SGA one) lets the lines run through it but has no elbow. The icon template tags
 and SVGs in `report_model.py` are now unused by that table, and kept in case the
 icons come back.
 
+**The Django site is called "Faculty of Social Sciences Module Reports"** (from
+14-10-2026; it was "Digital Learning Review"). The name is one setting,
+`SITE_NAME` in `web/dlr/settings.py`, read by a context processor
+(`site_name`) into the header brand (now a link home), the footer, every tab title,
+the sign-in heading, and the admin's header and title. A new template should use
+`{{ site_name }}`, never the literal. The Streamlit app, `docs/` and the repo
+still say "Digital Learning Review"; that is the project's name, not the site's.
+
 **School names are read from SITS, not typed in.** `processing.school_names_from_rows()`
 takes each module's department name (SITS "Department name", keyed by "CIS unit
 code", which is the code the app calls the module code; SITS's own "Module code" is
