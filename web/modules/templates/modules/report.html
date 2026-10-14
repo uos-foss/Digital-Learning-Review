@@ -57,15 +57,15 @@
         <tr><th scope="col" style="width:30%;">Blackboard item</th><th scope="col" style="width:14%;">Type</th><th scope="col" style="width:22%;">Status</th><th scope="col">Details</th></tr>
         {% for row in report.template %}
           {% if row.kind == "section" %}
-            <tr><td><span class="ico">{{ row.key|section_icon }}</span>{{ row.label }}</td>
+            <tr><td class="tree" style="--depth:{{ row.depth }}">{% include "modules/_tree.html" %}{{ row.label }}</td>
                 <td class="muted">{{ row.type }}</td>
                 <td><span class="dot" style="background:{{ row.colour }};"></span>{{ row.short_status }}</td>
                 <td class="muted">{{ row.short }}</td></tr>
           {% elif row.kind == "heading" %}
-            <tr><td><span class="ico">{% learning_module_icon %}</span>{{ row.label }}</td>
+            <tr><td class="tree" style="--depth:{{ row.depth }}">{% include "modules/_tree.html" %}{{ row.label }}</td>
                 <td class="muted">{{ row.type }}</td><td></td><td class="muted">{{ row.note }}</td></tr>
           {% elif row.kind == "note" %}
-            <tr><td colspan="4" class="muted">🎓 {{ row.text }}</td></tr>
+            <tr><td colspan="4" class="muted tree" style="--depth:{{ row.depth }}">{% if row.depth %}{% for more in row.tree.cont %}{% if more %}<span class="tg full" style="--k:{{ forloop.counter }}" aria-hidden="true"></span>{% endif %}{% endfor %}{% endif %}{{ row.text }}</td></tr>
           {% endif %}
         {% endfor %}
       </table></div>

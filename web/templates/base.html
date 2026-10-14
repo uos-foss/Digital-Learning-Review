@@ -28,7 +28,7 @@
     --accent-soft: rgba(99,102,241,.10); --accent-line: rgba(99,102,241,.25);
     --amber: #fff7ed; --amber-line: #e8a33d;
     --ok-bg: #ecfdf5; --ok-line: #059669;
-    --shadow: 0 1px 2px rgba(15,23,42,.06);
+    --shadow: 0 1px 2px rgba(15,23,42,.06); --tree: #94a3b8;
     --glow-a: rgba(79,70,229,.06); --glow-b: rgba(124,58,237,.06);
   }
   :root.dark {
@@ -39,7 +39,7 @@
     --accent-soft: rgba(99,102,241,.18); --accent-line: rgba(129,140,248,.40);
     --amber: rgba(232,163,61,.12); --amber-line: rgba(232,163,61,.55);
     --ok-bg: rgba(16,185,129,.12); --ok-line: #10b981;
-    --shadow: 0 10px 15px -3px rgba(99,102,241,.10);
+    --shadow: 0 10px 15px -3px rgba(99,102,241,.10); --tree: #64748b;
     --glow-a: rgba(79,70,229,.12); --glow-b: rgba(124,58,237,.12);
   }
   * { box-sizing: border-box; }
@@ -156,6 +156,14 @@
   td.comment details[open] summary .preview { display: none; }
   td.comment details[open] summary .less { display: inline; }
   td.comment .full { margin-top: .25rem; white-space: pre-wrap; }
+  /* The Blackboard item tree: each level indents, with a line down from its parent
+     and an elbow into the item; the line carries on past a sibling still to come. */
+  table.kv td.tree { position: relative; padding-left: calc(.5rem + var(--depth, 0) * 1.4rem); }
+  .tg { position: absolute; top: -1px; bottom: 50%; width: 0; pointer-events: none;
+        left: calc(.5rem + (var(--k) - 1) * 1.4rem + .55rem); border-left: 1px solid var(--tree); }
+  .tg.full { bottom: -1px; }
+  .th { position: absolute; top: 50%; height: 0; width: .7rem; pointer-events: none;
+        left: calc(.5rem + (var(--k) - 1) * 1.4rem + .55rem); border-top: 1px solid var(--tree); }
   .comment-card { border-top: 1px solid var(--line); padding: .6rem 0; }
   footer.site { max-width: 68rem; margin: 2rem auto 0; padding: 1.25rem 1rem 2rem;
                 border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; text-align: center; }

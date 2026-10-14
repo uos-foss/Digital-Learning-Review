@@ -397,6 +397,42 @@ def section_card_content(key, state, responses, has_audit, created, leganto=None
             'short': short, 'short_status': short_status or badge}
 
 
+def add_tree_guides(rows):
+    """
+    Adds a `tree` to every section and heading row so a page can draw
+    connectors: `cont[k-1]` says whether the ancestor at level k has more
+    siblings still to come (its vertical line carries on past this row), and
+    `last` whether this row is the last of its siblings (its own line stops at
+    the elbow). Depth 0 rows have none. A note row is not a tree node: it gets
+    `cont` for every level down to its own, so the lines run through it, and no
+    elbow. Worked out here, not in a template: it is a question about the
+    shape of the data. The rows are changed in place and returned.
+    """
+    nodes = [r for r in rows if r['kind'] != 'note']
+
+    def more_after(position, level):
+        for later in rows[position + 1:]:
+            if later['kind'] == 'note':
+                continue
+            if later['depth'] < level:
+                return False
+            if later['depth'] == level:
+                return True
+        return False
+
+    for i, row in enumerate(rows):
+        depth = row['depth']
+        if not depth:
+            continue
+        if row['kind'] == 'note':
+            # Not a node: it only lets the lines of the levels above run through it.
+            row['tree'] = {'cont': [more_after(i, k) for k in range(1, depth + 1)], 'last': True}
+        else:
+            row['tree'] = {'cont': [more_after(i, k) for k in range(1, depth)],
+                           'last': not more_after(i, depth)}
+    return rows
+
+
 def template_rows(nodes, states, responses, has_audit, created, leganto, depth=0,
                   sga_attrs=None, fix_claims=None, sga_note=None):
     """TEMPLATE_SECTION_TREE flattened, walked exactly as the Streamlit page's
@@ -644,7 +680,7 @@ def build_report(code, row, *, responses, has_audit, last_saved, auditor, fix_cl
     states = row.get('Template Sections') or {}
     template = []
     if isinstance(states, dict) and states:
-        template = template_rows(
+        template = add_tree_guides(template_rows(
             TEMPLATE_SECTION_TREE, states, responses, has_audit,
             readiness_created_date(states),
             {'missing': row.get('Leganto Missing', False),
@@ -653,7 +689,7 @@ def build_report(code, row, *, responses, has_audit, last_saved, auditor, fix_cl
              'draft_items': int(row.get('Leganto Draft Items', 0) or 0)},
             sga_attrs=pd.to_numeric(row.get('SGA Attributes'), errors='coerce'),
             fix_claims=fix_claims,
-            sga_note=sga_note(row, can_view_sga))
+            sga_note=sga_note(row, can_view_sga)))
 
     ally_issues = ally_issue_view(df_ally_issues, code)
     ally = ally_summary(row, ally_issues['cat_frame'], ally_snapshot_date(row, import_dates))
