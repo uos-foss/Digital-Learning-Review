@@ -227,6 +227,12 @@ def main():
           ml_home.status_code == 302 and ml_home.url == f"/schools/{school}/", str(ml_home.url))
     check("a faculty-wide account lands on the school list",
           client.get("/").url == "/schools/")
+    leaving = Client()
+    leaving.force_login(User.objects.get(pk=aligned.pk))
+    check("the header offers a sign-out button that works",
+          'action="/accounts/logout/"' in sd_body
+          and leaving.post("/accounts/logout/").status_code == 302
+          and leaving.get(f"/schools/{school}/").status_code == 302)
     check("other school is refused its dashboard",
           outsider_client.get(f"/schools/{school}/").status_code == 403)
     check("an unknown school is a 404 once access is granted",
