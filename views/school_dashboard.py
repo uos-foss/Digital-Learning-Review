@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import html
-from processing import (title_case_name, calculate_module_compliance, module_gap_areas, resolve_semester_df,
+from processing import (title_case_name, short_field_label, resolve_semester_df,
                         summarise_ai_declarations, FACULTY_SCHOOLS, CURRENT_ACADEMIC_YEAR,
                         resolve_active_row, build_spot_check_snapshot,
                         parse_user_schools, format_user_schools, prepare_ally_issues,
@@ -696,6 +696,18 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         if len(selected_lenses) > 1:
                             st.caption("Modules flagged by at least one selected lens, most flags first.")
 
+                    # Narrow the Template Alignment lens to specific items (e.g.
+                    # TellUs Report); empty means any outstanding item.
+                    ta_focus = []
+                    if "🔍 Template Alignment" in selected_lenses:
+                        ta_item_options = [short_field_label(f['id'], f['label']) for f in boolean_fields]
+                        ta_focus = st.multiselect(
+                            "Template Alignment: only these items (leave empty for any outstanding item):",
+                            ta_item_options,
+                            default=[i for i in st.session_state.get("sd_ta_items", []) if i in ta_item_options],
+                            key="school_ta_item_selector")
+                        st.session_state.sd_ta_items = ta_focus
+
                     render_df = None
                     render_configs = {}
                     render_status = None
@@ -719,48 +731,59 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 build_accessibility_risk_list(source_data)
 
                         elif lens == "🔍 Template Alignment":
-                            counts, max_items = calculate_module_compliance(
-                                get_all_audit_responses(), get_active_audit_fields()
-                            )
+                            # Same rule as the matrix below: module_alignment_status().
+                            # A module is flagged when any template item reads '❌'
+                            # ('🔧' reported fixed and the accessibility light are not
+                            # outstanding sections).
+                            ta_fields = get_active_audit_fields()
+                            ta_claims = get_all_active_fix_claims()
+                            ta_labels = {f['id']: short_field_label(f['id'], f['label'])
+                                         for f in ta_fields}
+                            ta_rows = []
+                            n_checked = 0
+                            for _, r in source_data.drop_duplicates('New module code').iterrows():
+                                c_str = str(r['New module code']).strip()
+                                entry = checklist_sums.get(c_str, {})
+                                audited = entry.get('Auditor') not in (None, '', 'System')
+                                n_checked += 1
+                                status = dict(module_alignment_status(
+                                    r.to_dict(), entry.get('Responses', {}), ta_fields,
+                                    ta_claims.get(c_str.upper())))
+                                # Learning Materials has no template section, so it reads
+                                # as outstanding for every module nobody has audited.
+                                if not audited:
+                                    status.pop(ta_labels.get('learning_materials'), None)
+                                outstanding = [k for k, v in status.items() if v == '❌'
+                                               and (not ta_focus or k in ta_focus)]
+                                if outstanding:
+                                    ta_rows.append({
+                                        'New module code': r['New module code'],
+                                        'Module name': r.get('Module name', ''),
+                                        'Mod. lead': r.get('Mod. lead', ''),
+                                        'Outstanding': len(outstanding),
+                                        'DisplayValue': ", ".join(outstanding)})
 
-                            if max_items == 0:
-                                render_status = "No scorable audit fields are configured."
-                                render_status_type = "error"
-                            elif counts.empty:
-                                render_status = "No audits submitted yet, so there are no checklist gaps to show."
-                                render_status_type = "info"
-                            else:
-                                source_data['MatchCode'] = source_data['New module code'].astype(str).str.strip().str.upper()
-                                scored_df = source_data.merge(
-                                    counts, left_on='MatchCode', right_on='module_code', how='inner'
+                            if ta_rows:
+                                gap_df = (pd.DataFrame(ta_rows)
+                                          .sort_values(['Outstanding', 'New module code'],
+                                                       ascending=[False, True]))
+                                render_status = (
+                                    f"🎯 Displaying {len(gap_df)} of {n_checked} modules "
+                                    + (f"with {', '.join(ta_focus)} outstanding."
+                                       if ta_focus else "with at least one template item outstanding.")
                                 )
-
-                                threshold = max_items - 2
-                                gap_df = scored_df[scored_df['Compliant Items'] < threshold].sort_values('Compliant Items')
-
-                                if not gap_df.empty:
-                                    render_status = (
-                                        f"🎯 Displaying {len(gap_df)} of {len(scored_df)} audited modules "
-                                        "missing several key checklist items."
-                                    )
-                                    render_status_type = "warning"
-                                    gap_df = gap_df.merge(
-                                        module_gap_areas(get_all_audit_responses(), get_active_audit_fields()),
-                                        left_on='MatchCode', right_on='module_code', how='left', suffixes=('', '_a'))
-                                    gap_df['DisplayValue'] = gap_df['Areas'].fillna("")
-
-                                    display_cols = ['New module code', 'Module name', 'Mod. lead', 'DisplayValue']
-                                    render_df = gap_df[display_cols].copy()
-                                    render_configs = {
-                                        "New module code": "Code", "Module name": "Module Name",
-                                        "Mod. lead": "Lead", "DisplayValue": "Areas Needing Attention"
-                                    }
-                                elif scored_df.empty:
-                                    render_status = "No modules in this school have been audited yet."
-                                    render_status_type = "info"
-                                else:
-                                    render_status = f"All {len(scored_df)} audited modules meet the required baseline checklist items!"
-                                    render_status_type = "success"
+                                render_status_type = "warning"
+                                render_df = gap_df[['New module code', 'Module name', 'Mod. lead',
+                                                    'DisplayValue']].copy()
+                                render_configs = {
+                                    "New module code": "Code", "Module name": "Module Name",
+                                    "Mod. lead": "Lead", "DisplayValue": "Areas Needing Attention"
+                                }
+                            else:
+                                render_status = (f"All {n_checked} modules have {', '.join(ta_focus)} done or reported fixed."
+                                                 if ta_focus else
+                                                 f"All {n_checked} modules have every template item done or reported fixed.")
+                                render_status_type = "success"
 
                         elif lens == "📚 Missing Reading Lists":
                             if 'Leganto Missing' not in source_data.columns:
