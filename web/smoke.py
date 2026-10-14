@@ -139,6 +139,14 @@ def main():
 
     signup = Client().get("/accounts/signup/")
     signup_body = signup.content.decode("utf-8", "replace").lower()
+    check("the sign-in page has a password field for local accounts",
+          'name="password"' in login_page.content.decode("utf-8", "replace"))
+    local, _ = User.objects.get_or_create(username="spike-local")
+    local.set_password("spike-local-pw")
+    local.save()
+    check("a local account can sign in with a password",
+          Client().post("/accounts/login/", {"login": "spike-local",
+                                              "password": "spike-local-pw"}).status_code == 302)
     check("signup is closed", signup.status_code == 403 or "closed" in signup_body,
           f"HTTP {signup.status_code}")
 

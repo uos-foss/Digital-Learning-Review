@@ -224,7 +224,10 @@ ALLOWED_EMAIL_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "sheffield.ac.uk")
 
 ACCOUNT_EMAIL_VERIFICATION = "none"      # Google has already verified it
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
-ACCOUNT_SIGNUP_FIELDS = ["email*"]
+# The password fields are listed even though signup is closed: allauth drops
+# the password box from the login form when no password is among the signup
+# fields (it assumes sign-in by emailed code), which broke local accounts.
+ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 SOCIALACCOUNT_LOGIN_ON_GET = True        # no extra "continue" click
 SOCIALACCOUNT_AUTO_SIGNUP = True         # the adapter has already vetted them
 SOCIALACCOUNT_STORE_TOKENS = False       # nothing here calls Google's APIs
