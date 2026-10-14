@@ -2646,6 +2646,60 @@ def summarise_ally_issues(df_issues, module_codes=None, top_n=None):
         grouped = grouped.head(top_n)
     return grouped[columns].reset_index(drop=True)
 
+ALLY_TREND_NO_HISTORY = "Historical Ally data is not yet available."
+ALLY_TREND_ONE_SNAPSHOT = (
+    "Only one Ally snapshot has been imported so far, so there is no trend to plot "
+    "yet. Import the report again after Ally next runs and this fills in.")
+ALLY_TREND_NO_SCHOOL = "No historical Ally data for this school."
+ALLY_TREND_CAPTION = (
+    "Each point uses every course's latest record up to that date, because Ally only "
+    "re-records a course when its content changes. Early in the year the upload line "
+    "matters more than the score line.")
+
+
+def ally_trend(history, module_codes):
+    """
+    A scope's accessibility trend: for each snapshot date, the items-weighted
+    Ally score and the files uploaded, across every course in scope.
+
+    Ally re-records a course only when it changes (see save_ally_snapshot()),
+    so a snapshot holds just the courses that moved. Summing a date's own rows
+    would show a partial snapshot as a fall in uploads, so each date uses every
+    course's latest record up to and including that date. A course appears
+    from the first snapshot that holds it. Returns (frame, message): the frame
+    is indexed by date with 'Overall score' (0-1), 'Files uploaded' and
+    'Courses', or None with the reason in `message` when there is nothing to
+    plot.
+    """
+    if history is None or history.empty:
+        return None, ALLY_TREND_NO_HISTORY
+    if history['snapshot_date'].nunique() < 2:
+        return None, ALLY_TREND_ONE_SNAPSHOT
+
+    scope = {str(c).strip().upper() for c in module_codes}
+    df = history[history['module_code'].astype(str).str.strip().str.upper().isin(scope)].copy()
+    if df.empty:
+        return None, ALLY_TREND_NO_SCHOOL
+
+    for col in ('total_files', 'total_wysiwyg', 'overall_score'):
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    df['items'] = df['total_files'] + df['total_wysiwyg']
+    df['_weighted'] = df['overall_score'] * df['items']
+    key = 'course_id' if 'course_id' in df.columns else 'course_code'
+    df = df.sort_values('snapshot_date')
+
+    rows = {}
+    for date in sorted(df['snapshot_date'].unique()):
+        latest = df[df['snapshot_date'] <= date].drop_duplicates(key, keep='last')
+        rows[date] = {
+            'Overall score': latest['_weighted'].sum() / max(latest['items'].sum(), 1),
+            'Files uploaded': int(latest['total_files'].sum()),
+            'Courses': len(latest)}
+    trend = pd.DataFrame.from_dict(rows, orient='index')
+    trend.index = pd.to_datetime(trend.index)
+    return trend, ""
+
+
 def count_ally_issues_by_module(df_issues):
     """Per-module severe/major/minor totals, for the derived actionable items."""
     columns = ['module_code', 'severe', 'major', 'minor']

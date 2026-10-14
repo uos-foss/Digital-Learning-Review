@@ -214,7 +214,7 @@ there from `views/ally_widgets.py`, `module_alignment_status()`,
 `reading_list_verdict()`). Scoping is the module report's: a school outside an
 account's alignment is a 403, checked before the code is validated. Not ported:
 spot-check flagging, removal and checking (writes), the Audit Portal jumps,
-Trends and the per-lens filters. **Spot-Check Comments and
+the per-lens filters. **Spot-Check Comments and
 Reported Fixes were added 14-10-2026** as `?view=comments` and `?view=fixes`
 (read-only; their shaping is `report_model.build_spot_check_comments()` /
 `build_reported_fixes()`, so a reworded rule changes one place). Reported Fixes
@@ -268,8 +268,20 @@ deliberately differs. Shaped by `report_model.build_ally_analytics()`;
 there from `views/ally_widgets.py`, which now reads them, so the two front ends
 share one copy. The issue chart is a table with plain bars, not Altair.
 
+**Trends was added 14-10-2026** as `?view=trends`, open to the same accounts
+as Ally Analytics, with two Plotly line charts (score, files uploaded) and the
+figures behind them. **The rule changed on both front ends the same day:**
+`processing.ally_trend()` carries each course's latest record forward to every
+snapshot date. Streamlit used to sum only the courses recorded on a date, but
+Ally re-records a course only when it changes (`save_ally_snapshot()`), so a
+partial snapshot showed as a fake fall (ALA's files went 1117 to 1044 on
+14-09, when 117 of about 147 courses were recorded; carried forward it reads
+1117, 1146, 1250, 1768). The user chose to change both over leaving Streamlit
+as it was. A course deleted in Blackboard is not dropped from the series; that
+was not handled before either.
+
 Next: which of the remaining School Dashboard views, if any, are worth porting
-(Trends, the per-lens filters). Writes, and anything
+(the per-lens filters). Writes, and anything
 resembling the Audit Portal, stay in Streamlit.
 
 ## SITS data

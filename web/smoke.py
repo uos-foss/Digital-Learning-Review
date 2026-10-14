@@ -250,6 +250,17 @@ def main():
           .status_code == 200
           and "What to fix" in client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
           and "Ally Analytics" in client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
+    trend, trend_msg = data.load_school_trend(school, "Autumn")
+    check("trends: carried forward, so a partial snapshot never drops courses",
+          trend is not None and trend["Courses"].is_monotonic_increasing,
+          trend_msg or f"{len(trend)} snapshots")
+    tr = client.get(f"/schools/{school}/?view=trends").content.decode("utf-8", "replace")
+    check("trends view renders for a DLA, with charts or the reason there are none",
+          "Average accessibility score over time" in tr or "snapshot" in tr or "Historical" in tr)
+    check("trends is not served to a module lead",
+          "Average accessibility score" not in aligned_client.get(
+              f"/schools/{school}/?view=trends").content.decode("utf-8", "replace")
+          and "Trends" not in aligned_client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
     check("ally analytics is not offered to a module lead",
           "What to fix" not in aligned_client.get(f"/schools/{school}/?view=ally").content.decode("utf-8", "replace")
           and "Ally Analytics" not in aligned_client.get(f"/schools/{school}/").content.decode("utf-8", "replace"))
