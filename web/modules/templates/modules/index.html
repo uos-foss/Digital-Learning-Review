@@ -1,31 +1,66 @@
 {% extends "base.html" %}
-{% block title %}Modules{% endblock %}
+{% block title %}Find a module - Digital Learning Review{% endblock %}
 
 {% block content %}
-<h1>Platform spike</h1>
-<p>
-  Open a module report by URL, for example
-  <a href="{% url 'modules:report' 'EDC004' %}">/modules/EDC004/</a>. The code is part of the
-  address, so the page is linkable and the back button works.
-</p>
+{% with f=finder %}
+<h1>Find a module</h1>
+<p class="muted">Search by module code, name or lead. Every word you type has to match somewhere, so "geography bryant" finds that lead's geography modules. An exact code opens the report straight away.</p>
 
-<section class="panel">
-  <h2>Active checklist questions</h2>
-  <p class="muted">
-    Read from <code>audit_fields</code> in the shared database, through an
-    unmanaged model and the database router. If this list is populated, the
-    read path works end to end.
+<form method="get" class="filterbar finder">
+  <label for="finder-q" class="sr-only">Module code, name or lead</label>
+  <input id="finder-q" type="search" name="q" value="{{ f.query }}" placeholder="Code, name or lead" autocomplete="off">
+  {% if f.schools|length > 1 %}
+    <label for="finder-school" class="sr-only">School</label>
+    <select id="finder-school" name="school">
+      <option value="">All my schools</option>
+      {% for s in f.schools %}<option value="{{ s }}"{% if s == f.school %} selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  {% endif %}
+  <button type="submit">Search</button>
+  {% if f.searched %}<a href="{% url 'modules:index' %}">Clear</a>{% endif %}
+</form>
+
+{% if not f.schools %}
+  <p class="muted">Your account is not aligned with any school yet, so there are no modules to search. A Digital Learning Advisor or an administrator can set that.</p>
+{% elif not f.searched %}
+  <p class="muted">Or browse a school:</p>
+  <p>{% for s in f.schools %}<a class="chip" href="?school={{ s }}">{{ s }}</a> {% endfor %}</p>
+{% elif not f.results %}
+  <p role="status">No modules match{% if f.query %} &ldquo;{{ f.query }}&rdquo;{% endif %}{% if f.school %} in {{ f.school }}{% endif %}.</p>
+{% else %}
+  <p role="status" class="muted">
+    {% if f.truncated %}Showing the first {{ f.results|length }} of {{ f.total }} modules. Add more of the code, name or lead to narrow it.{% else %}{{ f.total }} module{{ f.total|pluralize }} found.{% endif %}
   </p>
-  <table class="kv">
-    <tr><th scope="col">Field</th><th scope="col">Type</th></tr>
-    {% for field in fields %}
-      <tr><td>{{ field.label|default:field.id }}</td><td>{{ field.field_type }}</td></tr>
-    {% empty %}
-      <tr><td colspan="2" class="muted">
-        No active fields found. Check that the audit database path in
-        settings resolves to the real file.
-      </td></tr>
-    {% endfor %}
-  </table>
-</section>
+  <div class="scroll">
+    <table class="grid">
+      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">School</th><th scope="col">Level</th><th scope="col">Semester</th></tr>
+      {% for m in f.results %}
+        <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>
+            <td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td>
+            <td><a href="{% url 'schools:dashboard' m.school %}">{{ m.school }}</a></td>
+            <td>{{ m.level }}</td><td class="nw">{{ m.semesters|join:" and " }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endif %}
+
+{% if platform_check %}
+  <details class="fold">
+    <summary>Platform check (staff)</summary>
+    <p class="muted">
+      The active checklist questions, read from <code>audit_fields</code> in the shared
+      database through an unmanaged model and the router. If this list is populated, the
+      read path works end to end.
+    </p>
+    <table class="kv">
+      <tr><th scope="col">Field</th><th scope="col">Type</th></tr>
+      {% for field in fields %}
+        <tr><td>{{ field.label|default:field.id }}</td><td>{{ field.field_type }}</td></tr>
+      {% empty %}
+        <tr><td colspan="2" class="muted">No active fields found. Check that the audit database path in settings resolves to the real file.</td></tr>
+      {% endfor %}
+    </table>
+  </details>
+{% endif %}
+{% endwith %}
 {% endblock %}

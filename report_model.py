@@ -1218,3 +1218,75 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
         'has_comments': any(r['comment'] for r in rows),
         'filtered': bool(selected),
     }
+
+
+FINDER_LIMIT = 100
+
+
+def build_module_finder(frames, query, school, allowed_schools, limit=FINDER_LIMIT):
+    """
+    The module finder as plain data. `frames` maps a semester name to that
+    semester's module records (loaders.assemble_module_frames()); a module that
+    runs in both appears once, with both semesters named.
+
+    Only modules in `allowed_schools` can ever be returned: that is the whole
+    access rule, applied before any matching, so a search cannot reveal that a
+    module exists in a school the account may not see. `school`, when given
+    and allowed, narrows to that school.
+
+    Matching is every word of `query` appearing somewhere in the code, the
+    module name or the lead's name, ignoring case ("geography bryant" finds
+    that lead's geography modules). Nothing is listed until there is a query or
+    a school, because "every module" is not a useful page. Results are ranked
+    code first (an exact code, then a code that starts with the query), then
+    name, then the rest, each in code order, and cut at `limit` with the full
+    count kept.
+    """
+    allowed = {s for s in allowed_schools}
+    school = school if school in allowed else ''
+    words = [w for w in str(query or '').lower().split() if w]
+
+    found = {}
+    for semester, frame in frames.items():
+        if frame is None or frame.empty:
+            continue
+        for r in frame.to_dict('records'):
+            code = _clean(r.get('New module code')).upper()
+            if not code or school_of(code) not in allowed or code in found and semester in found[code]['semesters']:
+                continue
+            if code in found:
+                found[code]['semesters'].append(semester)
+                continue
+            lead = _clean(r.get('Mod. lead'))
+            level = _clean(r.get('UG/ PG/ Other'))
+            found[code] = {'code': code, 'name': _clean(r.get('Module name')),
+                           'lead': title_case_name(lead) if lead else '',
+                           'school': school_of(code),
+                           'level': LEVEL_ABBREVIATIONS.get(level, level),
+                           'semesters': [semester]}
+
+    searched = bool(words or school)
+    matches = []
+    if searched:
+        for m in found.values():
+            if school and m['school'] != school:
+                continue
+            hay = f"{m['code']} {m['name']} {m['lead']}".lower()
+            if all(w in hay for w in words):
+                matches.append(m)
+
+        first = words[0] if words else ''
+
+        def rank(m):
+            if words and m['code'].lower() == first and len(words) == 1:
+                return 0
+            if first and m['code'].lower().startswith(first):
+                return 1
+            if first and m['name'].lower().startswith(first):
+                return 2
+            return 3
+        matches.sort(key=lambda m: (rank(m), m['code']))
+
+    return {'query': str(query or '').strip(), 'school': school, 'schools': sorted(allowed),
+            'searched': searched, 'total': len(matches), 'results': matches[:limit],
+            'truncated': len(matches) > limit, 'limit': limit}

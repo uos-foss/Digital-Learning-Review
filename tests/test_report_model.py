@@ -463,3 +463,54 @@ def test_tree_guides_empty_and_flat():
     assert report_model.add_tree_guides([]) == []
     flat = report_model.add_tree_guides([{"kind": "section", "depth": 0}] * 3)
     assert all("tree" not in r for r in flat)
+
+
+# --- The module finder -------------------------------------------------------
+
+def _finder_frames():
+    cols = ["New module code", "Module name", "Mod. lead", "UG/ PG/ Other"]
+    autumn = pd.DataFrame([
+        ["GPL130", "Physical Geography Field Skills", "ROBERT GAVIN BRYANT", "UG Level 1"],
+        ["GPL225", "Environmental Pollution", "MANOJ MENON", "UG Level 2"],
+        ["EDC004", "Learning and Teaching", "ADA LOVELACE", "UG Level 1"],
+        ["ZZZ999", "Not in this faculty", "NOBODY", "UG Level 1"],
+    ], columns=cols)
+    spring = pd.DataFrame([
+        ["GPL130", "Physical Geography Field Skills", "ROBERT GAVIN BRYANT", "UG Level 1"],
+        ["GPL401", "Advanced Geography Research", "ROBERT GAVIN BRYANT", "UG Level 3"],
+    ], columns=cols)
+    return {"Autumn": autumn, "Spring": spring}
+
+
+def test_finder_lists_nothing_until_asked():
+    out = report_model.build_module_finder(_finder_frames(), "", "", ["GPL", "EDC"])
+    assert not out["searched"] and out["results"] == [] and out["schools"] == ["EDC", "GPL"]
+
+
+def test_finder_matches_every_word_across_code_name_and_lead():
+    out = report_model.build_module_finder(_finder_frames(), "geography bryant", "", ["GPL", "EDC"])
+    assert [m["code"] for m in out["results"]] == ["GPL130", "GPL401"]
+    assert out["results"][0]["lead"] == "Robert Gavin Bryant"
+    assert out["results"][0]["semesters"] == ["Autumn", "Spring"]      # runs in both, listed once
+    assert out["results"][1]["semesters"] == ["Spring"]
+    assert report_model.build_module_finder(_finder_frames(), "geography menon", "", ["GPL"])["total"] == 0
+
+
+def test_finder_only_ever_returns_allowed_schools():
+    frames = _finder_frames()
+    only_edc = report_model.build_module_finder(frames, "a", "", ["EDC"])
+    assert [m["code"] for m in only_edc["results"]] == ["EDC004"]
+    # naming a school you may not see changes nothing and reveals nothing
+    peek = report_model.build_module_finder(frames, "geography", "GPL", ["EDC"])
+    assert peek["total"] == 0 and peek["school"] == ""
+    assert report_model.build_module_finder(frames, "zzz999", "", ["GPL", "EDC"])["total"] == 0   # not a faculty code
+    assert report_model.build_module_finder(frames, "geography", "", [])["total"] == 0
+
+
+def test_finder_ranks_exact_code_then_prefix_then_name_and_caps_the_list():
+    ranked = report_model.build_module_finder(_finder_frames(), "gpl130", "", ["GPL"])
+    assert ranked["results"][0]["code"] == "GPL130"
+    by_school = report_model.build_module_finder(_finder_frames(), "", "GPL", ["GPL", "EDC"])
+    assert [m["code"] for m in by_school["results"]] == ["GPL130", "GPL225", "GPL401"] and by_school["searched"]
+    capped = report_model.build_module_finder(_finder_frames(), "", "GPL", ["GPL"], limit=2)
+    assert capped["total"] == 3 and len(capped["results"]) == 2 and capped["truncated"]

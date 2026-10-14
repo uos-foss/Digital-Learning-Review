@@ -101,6 +101,11 @@
         padding: .45rem 1rem; border: 1px solid var(--accent); border-radius: .75rem;
         background: var(--accent); color: #fff; cursor: pointer; transition: background .2s; }
   main button[type=submit]:hover, main .btn:hover { background: var(--accent-hover); }
+  main input[type=search], main select { font: inherit; font-size: .92rem; padding: .4rem .65rem;
+        border: 1px solid var(--line); border-radius: .6rem; background: var(--panel); color: var(--ink); }
+  main input[type=search]:focus, main select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .finder { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  .finder input[type=search] { flex: 1 1 18rem; }
   .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
   .tabs button { font: inherit; padding: .4rem .8rem; border: 1px solid var(--line);
                  background: var(--panel); border-radius: 6px; cursor: pointer; }
@@ -147,6 +152,7 @@
           border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
           color: var(--ink); font-size: .82rem; font-weight: 500; user-select: none; transition: border-color .2s; }
   .chip:hover { border-color: var(--muted); }
+  a.chip { text-decoration: none; }
   .chip input { position: absolute; opacity: 0; pointer-events: none; }
   .chip:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
   .chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
