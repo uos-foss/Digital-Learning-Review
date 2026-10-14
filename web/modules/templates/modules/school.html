@@ -5,6 +5,13 @@
 
 {% block content %}
 {% with d=dashboard %}
+<style>
+  /* The alignment table has ten item columns, a comment and more: give the
+     school page the width of the window rather than the report's reading width. */
+  main { max-width: 96rem; }
+  td.comment { min-width: 14rem; font-size: .85rem; }
+  table.grid td { vertical-align: top; }
+</style>
 <h1>{{ school }} <span class="muted">School Dashboard</span></h1>
 
 <p>
@@ -24,7 +31,13 @@
   {% if view == "modules" %}<strong>Modules</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=modules">Modules</a>{% endif %}
   {% if view == "alignment" %}<strong>Template Alignment</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=alignment">Template Alignment</a>{% endif %}
   {% if view == "comments" %}<strong>Spot-Check Comments</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=comments">Spot-Check Comments</a>{% endif %}
-  {% if ally_on %}{% if view == "trends" %}
+  {% if ally_on %}{% if view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
+  {% if ally_on %}{% if view == "trends" %}<strong>Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
+  {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
+</p>{% endif %}
+
+<section class="panel">
+{% if view == "trends" %}
   {% if not trend_figures %}
     <p class="muted" style="margin:0;">{{ trend_message }}</p>
   {% else %}
@@ -47,13 +60,7 @@
       </table>
     </details>
   {% endif %}
-{% elif view == "ally" %}<strong>Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
-  {% if ally_on %}{% if view == "trends" %}<strong>Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
-  {% if fixes_on %}{% if view == "fixes" %}<strong>Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
-</p>{% endif %}
-
-<section class="panel">
-{% if view == "ally" %}
+{% elif view == "ally" %}
   {% with a=ally %}
   {% if a.note %}<p class="note">{{ a.note }}</p>{% endif %}
   <p class="muted" style="margin-top:0;">Counted in content items rather than modules, because that is the size of the job. One session on exporting tagged PDFs can clear hundreds of items at once.</p>
@@ -174,18 +181,23 @@
 {% else %}
   {% with l=lenses %}
   <p class="muted" style="margin-top:0;">{{ text.ALIGNMENT_LEGEND }}</p>
-  <form method="get" style="margin-bottom:1rem;">
+  <form method="get" class="filterbar" onchange="this.submit()">
     <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">
-    <strong>Lens</strong> <span class="muted">(none shows every module)</span><br>
-    {% for o in l.lens_options %}<label style="margin-right:.8rem;"><input type="checkbox" name="lens" value="{{ o.key }}"{% if o.on %} checked{% endif %}> {{ o.label }}</label>{% endfor %}
+    <h3>Filter modules</h3>
+    <div class="muted">Tick a lens to show only the modules it flags. Tick several to see modules flagged by any of them. Tick none to see every module.
+      {% if l.filtered %}<a href="?semester={{ semester|urlencode }}&view=alignment">Clear filters</a>{% endif %}</div>
+    <div class="chips">
+      {% for o in l.lens_options %}<label class="chip"><input type="checkbox" name="lens" value="{{ o.key }}"{% if o.on %} checked{% endif %}>{{ o.label }}</label>{% endfor %}
+    </div>
     {% if l.show_items %}
-      <details style="margin:.5rem 0;"{% for i in l.item_options %}{% if i.on %} open{% endif %}{% endfor %}>
-        <summary>Template Alignment: only these items (none means any outstanding item)</summary>
-        {% for i in l.item_options %}<label style="display:inline-block;margin-right:.8rem;"><input type="checkbox" name="item" value="{{ i.label }}"{% if i.on %} checked{% endif %}> {{ i.label }}</label>{% endfor %}
-      </details>
+      <div class="sub">
+        <strong>Which template items?</strong> <span class="muted">Leave all unticked to flag a module for any outstanding item.</span>
+        <div class="chips">
+          {% for i in l.item_options %}<label class="chip"><input type="checkbox" name="item" value="{{ i.label }}"{% if i.on %} checked{% endif %}>{{ i.label }}</label>{% endfor %}
+        </div>
+      </div>
     {% endif %}
-    <button type="submit">Filter</button>
-    {% if l.filtered %}<a href="?semester={{ semester|urlencode }}&view=alignment">Clear</a>{% endif %}
+    <noscript><p><button type="submit">Apply filters</button></p></noscript>
   </form>
   {% if l.status %}<p class="{% if l.status_type == 'success' %}ok{% else %}note{% endif %}">{{ l.status }}</p>{% endif %}
   {% if l.notes %}
@@ -199,7 +211,7 @@
       <tr><th>Code</th><th>Module</th><th>Lead</th><th>Spot-check</th>{% for c in l.columns %}<th>{{ c }}</th>{% endfor %}{% if l.has_comments %}<th>Auditor comments</th>{% endif %}</tr>
       {% for r in l.rows %}
         <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td><td class="nw">{{ r.spot }}</td>
-            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}{% if l.has_comments %}<td>{{ r.comment }}</td>{% endif %}</tr>
+            {% for cell in r.cells %}<td style="text-align:center;">{{ cell }}</td>{% endfor %}{% if l.has_comments %}<td class="comment">{% if r.comment %}<details><summary><span class="preview">{{ r.comment|truncatechars:60 }}</span><span class="less">Hide</span></summary><div class="full">{{ r.comment }}</div></details>{% endif %}</td>{% endif %}</tr>
       {% endfor %}
     </table>
   </div>

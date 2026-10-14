@@ -252,6 +252,31 @@ def main():
     lp = client.get(f"/schools/{school}/?view=alignment&lens=risk&lens=alignment&item=nope&lens=junk")
     check("lenses: the alignment page renders with lenses and odd parameters",
           lp.status_code == 200 and "Per-lens notes" in lp.content.decode("utf-8", "replace"))
+    # Each view puts its own content in the panel and nothing else's, and the
+    # tab bar holds only tabs. A template splice once put the Trends panel inside
+    # the tab bar, so Trends showed the alignment filter and lost a tab.
+    panel_marker = {"modules": "Reading list", "alignment": "Filter modules",
+                    "comments": "What advisors wrote", "ally": "What to fix",
+                    "trends": "figures behind the charts"}
+    tab_names = ["Modules", "Template Alignment", "Spot-Check Comments",
+                 "Ally Analytics", "Trends"]
+    if data.fixes_enabled(school):
+        panel_marker["fixes"] = "Template sections a module lead"
+        tab_names.append("Reported Fixes")
+    problems = []
+    for view_name, marker in panel_marker.items():
+        html = client.get(f"/schools/{school}/?view={view_name}").content.decode("utf-8", "replace")
+        bar = html[html.index('<p class="tabs-links">'):]
+        bar = bar[:bar.index("</p>")]
+        panel = html[html.index('<section class="panel">'):]
+        if any(tag in bar for tag in ("<div", "<table", "<script", "<form")):
+            problems.append(f"{view_name}: content inside the tab bar")
+        problems += [f"{view_name}: tab {t} missing" for t in tab_names if t not in bar]
+        if marker not in panel and not (view_name == "trends" and "Historical" in panel):
+            problems.append(f"{view_name}: its own content is missing")
+        problems += [f"{view_name}: shows {other}'s content" for other, m in panel_marker.items()
+                     if other != view_name and m in panel[:panel.index("</section>")]]
+    check("every school view shows its own panel and a clean tab bar", not problems, "; ".join(problems))
     check("ally analytics: modules and issue profile are built",
           bool(ally_all["modules"]) and len(ally_all["modules"]) <= len(listed) + 5,
           f"{len(ally_all['modules'])} modules, {len(ally_all['profile'])} issue types")
