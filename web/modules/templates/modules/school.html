@@ -88,7 +88,7 @@
       </div>
     </details>
     {% endif %}
-    <p style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
+    <p class="apply" style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
   </form>
 
   <h2 style="font-size:1.05rem;">What to fix</h2>
@@ -212,7 +212,7 @@
         </div>
       </div>
     {% endif %}
-    <p style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
+    <p class="apply" style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
   </form>
   {% if l.status %}<p class="{% if l.status_type == 'success' %}ok{% else %}note{% endif %}">{{ l.status }}</p>{% endif %}
   {% if l.notes %}

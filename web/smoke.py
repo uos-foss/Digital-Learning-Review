@@ -296,7 +296,7 @@ def main():
     ally_html = client.get(f"/schools/{school}/?view=ally&sev=Severe").content.decode("utf-8", "replace")
     check("ally analytics: the filters are chips that apply as ticked with a mouse, with an Apply button for the keyboard",
           'class="chip"' in ally_html and "data-autosubmit" in ally_html
-          and ">Apply filters</button>" in ally_html)
+          and ">Apply filters</button>" in ally_html and 'class="apply"' in ally_html)
     check("ally analytics: a severity filter only narrows",
           len(ally_sev["modules"]) <= len(ally_all["modules"])
           and all(r["severity"] == "Severe" for r in ally_sev["profile"]))

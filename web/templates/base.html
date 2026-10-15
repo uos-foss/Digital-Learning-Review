@@ -144,6 +144,7 @@
   table.grid th { color: var(--muted); font-weight: 500; white-space: nowrap; position: sticky; top: 0; background: var(--panel); }
   table.grid td.nw { white-space: nowrap; }
   table.grid td.wide { min-width: 13rem; }
+  form.auto .apply { display: none; }
   table.grid th button.sort { font: inherit; color: inherit; background: none; border: 0; padding: 0;
                               cursor: pointer; white-space: nowrap; text-align: left; }
   table.grid th button.sort:hover { color: var(--ink); }
@@ -240,12 +241,19 @@
 <script>
   /* A filter form with data-autosubmit applies as chips are ticked with a mouse or
      touch. A keyboard user ticks several and presses Apply: a page reload on each
-     tick would move them without warning. */
+     tick would move them without warning. So the Apply button is hidden while the
+     mouse or touch is in use, and shown as soon as a key is pressed. */
   (function () {
     var byKeyboard = false;
-    document.addEventListener("keydown", function () { byKeyboard = true; }, true);
-    document.addEventListener("pointerdown", function () { byKeyboard = false; }, true);
-    document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
+    var forms = document.querySelectorAll("form[data-autosubmit]");
+    function show(keyboard) {
+      byKeyboard = keyboard;
+      forms.forEach(function (f) { f.classList.toggle("auto", !keyboard); });
+    }
+    show(false);
+    document.addEventListener("keydown", function () { show(true); }, true);
+    document.addEventListener("pointerdown", function () { show(false); }, true);
+    forms.forEach(function (form) {
       form.addEventListener("change", function () { if (!byKeyboard) form.submit(); });
     });
   })();
