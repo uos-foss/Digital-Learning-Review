@@ -19,9 +19,7 @@ from processing import (
     derive_module_findings,
     FIX_CLAIM_CAPABILITY,
     FIX_CLAIM_FEATURE,
-    FIX_CLAIM_EXTRA_FIELD_IDS,
     school_of,
-    SECTION_KEY_BY_AUDIT_FIELD,
     format_comment_markdown,
     compute_audit_verdict,
     fmt_report_date,
@@ -57,6 +55,7 @@ from report_model import (
     SURFACE_WORDS,
     TIER_COLOUR,
     action_items,
+    claimable_fixes,
     ally_intro_lines,
     ally_snapshot_date,
     ally_summary,
@@ -67,7 +66,6 @@ from report_model import (
     audit_status_label as _audit_status_label,
     refreshed_line as _refreshed_line,
     section_card_content as _section_card_content,
-    section_order as _section_order,
     summary_intro as _summary_intro,
     template_rows as _pdf_template_rows,
 )
@@ -557,18 +555,10 @@ def _render_fix_claim_buttons(open_actions, module_code):
         return
     if not feature_enabled_for(FIX_CLAIM_FEATURE, school_of(module_code)):
         return
-    claimable = [a for a in open_actions
-                 if a.get('audit_field_id') and (
-                     (a.get('source') == 'readiness' and a.get('manual_override') is False)
-                     or (a.get('source') == 'checklist'
-                         and a['audit_field_id'] in FIX_CLAIM_EXTRA_FIELD_IDS))]
+    # Same order as the Blackboard Template cards on the left.
+    claimable = claimable_fixes(open_actions)
     if not claimable:
         return
-    # Same order as the Blackboard Template cards on the left.
-    position = _section_order()
-    claimable.sort(key=lambda a: position.get(
-        SECTION_KEY_BY_AUDIT_FIELD.get(a['audit_field_id'], a.get('section_label')),
-        len(position)))
 
     st.markdown(_FIX_BOX_CSS, unsafe_allow_html=True)
     with st.container(key="mr_fix_box"):
@@ -577,8 +567,8 @@ def _render_fix_claim_buttons(open_actions, module_code):
         with st.form(f"mr_fix_form_{module_code}", border=False):
             ticked = {}
             for a in claimable:
-                fid = a['audit_field_id']
-                ticked[fid] = st.checkbox(a.get('section_label') or fid,
+                fid = a['field_id']
+                ticked[fid] = st.checkbox(a['label'],
                                           key=f"mr_fix_tick_{module_code}_{fid}")
             note = st.text_area("Comment (optional)", key=f"mr_fix_note_{module_code}",
                                 height=80, max_chars=500, placeholder="e.g. What was changed?")

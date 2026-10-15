@@ -501,6 +501,71 @@ def main():
           not refuses("a.person@sheffield.ac.uk",
                       {"email": "a.person@sheffield.ac.uk", "email_verified": True}))
 
+    # 14. The "Fixed something?" form, the one write from Django. The shared
+    # database must stay untouched, so the save is replaced by a recorder and
+    # the claimable set is stubbed; the gates, the re-derivation and the
+    # redirect are what is under test.
+    from unittest import mock
+    import report_model
+
+    lead, _ = User.objects.get_or_create(username="spike-lead", defaults={"email": "Lead.Person@Sheffield.ac.uk"})
+    lead.groups.add(Group.objects.get_or_create(name="ML")[0])
+    p_lead = profile_for(lead)
+    p_lead.all_schools = False
+    p_lead.set_schools([school])
+    p_lead.save()
+    ml_client = Client()
+    ml_client.force_login(User.objects.get(pk=lead.pk))
+    fix_url = f"/modules/{code}/fix/"
+    offered = [{"field_id": "welcome_outline", "label": "Welcome"}]
+    saved_calls = []
+
+    def recorder(*args, **kwargs):
+        saved_calls.append(args)
+        return True
+
+    def post(client_, **body):
+        return client_.post(fix_url, body)
+
+    with mock.patch.object(database, "save_fix_claim", recorder):
+        with mock.patch.object(database, "feature_enabled_for", lambda f, s: False):
+            off_page = ml_client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
+            off_post = post(ml_client, field=["welcome_outline"])
+        with mock.patch.object(database, "feature_enabled_for", lambda f, s: True), \
+                mock.patch.object(report_model, "claimable_fixes", lambda a: offered):
+            on_page = ml_client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
+            dla_page = client.get(f"/modules/{code}/").content.decode("utf-8", "replace")
+            dla_post = post(client, field=["welcome_outline"])
+            out_post = post(outsider_client, field=["welcome_outline"])
+            none_ticked = post(ml_client)
+            after_none = len(saved_calls)
+            good = post(ml_client, field=["welcome_outline", "bogus", "welcome_outline"],
+                        note="x" * 600)
+            get_fix = ml_client.get(fix_url)
+            anon_post = Client().post(fix_url, {"field": ["welcome_outline"]})
+            csrf_post = Client(enforce_csrf_checks=True)
+            csrf_post.force_login(User.objects.get(pk=lead.pk))
+            no_token = csrf_post.post(fix_url, {"field": ["welcome_outline"]})
+    check("fix form: not offered, and a POST is refused, where the school is not rolled out",
+          "Fixed something?" not in off_page and off_post.status_code == 403)
+    check("fix form: offered to a module lead where it is rolled out",
+          "Fixed something?" in on_page and 'name="field" value="welcome_outline"' in on_page
+          and "csrfmiddlewaretoken" in on_page)
+    check("fix form: not offered to, and refused for, an account without report_fixed",
+          "Fixed something?" not in dla_page and dla_post.status_code == 403)
+    check("fix form: a school you cannot see is refused before anything is read",
+          out_post.status_code == 403)
+    check("fix form: nothing ticked saves nothing",
+          none_ticked.status_code == 302 and after_none == 0)
+    claim = saved_calls[0] if saved_calls else ()
+    check("fix form: saves only what was offered, once, as the signed-in email, note capped",
+          good.status_code == 302 and len(saved_calls) == 1
+          and claim[:3] == (code, "welcome_outline", "LEAD.PERSON@SHEFFIELD.AC.UK")
+          and claim[4] == "x" * 500 and claim[5] == "lead.person@sheffield.ac.uk")
+    check("fix form: GET is refused, a signed-out POST goes to sign-in, a POST without a token fails",
+          get_fix.status_code == 405 and anon_post.status_code == 302
+          and "/accounts/login/" in anon_post["Location"] and no_token.status_code == 403)
+
     print()
     if failures:
         print(f"{len(failures)} check(s) failed: {', '.join(failures)}")

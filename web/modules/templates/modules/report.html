@@ -20,6 +20,10 @@
   </div>
 {% endif %}
 
+{% if messages %}
+  <div role="status">{% for message in messages %}<p class="{% if message.level_tag == 'success' %}ok{% else %}note{% endif %}">{{ message }}</p>{% endfor %}</div>
+{% endif %}
+
 <aside class="panel actions" style="margin-top:1rem;">
     <h2>Actions ({{ report.actions|length }})</h2>
     {% if report.actions %}
@@ -40,6 +44,23 @@
             <li><strong>{{ item.label }}</strong><br><span class="muted">{{ item.description }}</span></li>
           {% endfor %}
         </ul>
+      </details>
+    {% endif %}
+    {% if report.claimable %}
+      <details class="fold">
+        <summary>Fixed something?</summary>
+        <form method="post" action="{% url 'modules:report_fix' code %}">
+          {% csrf_token %}
+          <fieldset style="border:0; padding:0; margin:0;">
+            <legend class="muted">Tick what you have fixed and let the school know. An advisor still checks it.</legend>
+            {% for c in report.claimable %}
+              <label style="display:block; margin:.25rem 0;"><input type="checkbox" name="field" value="{{ c.field_id }}"> {{ c.label }}</label>
+            {% endfor %}
+          </fieldset>
+          <p style="margin:.6rem 0 .25rem;"><label for="fix-note" class="muted">Comment (optional)</label></p>
+          <textarea id="fix-note" name="note" rows="3" maxlength="500" style="width:100%; max-width:32rem;" placeholder="e.g. What was changed?"></textarea>
+          <p style="margin:.6rem 0 0;"><button type="submit">Mark selected as fixed</button></p>
+        </form>
       </details>
     {% endif %}
 </aside>

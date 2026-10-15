@@ -116,8 +116,10 @@ The boundary, all of it already true in the spike:
   could build a module row; see "Data architecture" above for why that is no
   longer true. A template working a rule out for itself is the one thing that
   makes the two front ends disagree.
-- **Writes go through `database.py`** when they come. Nothing in `web/` saves
-  anything today, which is also why two SQLite writers are not yet a question.
+- **Writes go through `database.py`.** The only write from `web/` is the
+  module lead's fix claim (15-10-2026, below), via `database.save_fix_claim()`.
+  Two SQLite writers are not a problem in practice: WAL with a 5 s busy
+  timeout, and a claim is one small upsert.
 - **Separate environments.** `.venv-django` and `web/requirements.txt`; neither
   app installs the other's dependencies, and the Streamlit app must keep
   booting with no Django installed.
@@ -200,10 +202,24 @@ template; add it to `report_model.py` or `processing.py` and read it.
   building them is about a second. A DLA's saves, fix claims and spot-check
   flags are read fresh each request. A Streamlit Admin Panel import shows in
   Django within five minutes.
-- **Not ported, on purpose:** the "Fixed something?" form (a write, and it needs
-  the `report_fixed` capability and the `fix_claims` feature rollout) and the PDF
-  export. A claim already made does display, as "Reported fixed". The capability
-  tokens for `can_view_sga()` come from `accounts.models.capabilities_of()`.
+- **Not ported, on purpose:** the PDF export. A claim already made displays as
+  "Reported fixed". The capability tokens for `can_view_sga()` come from
+  `accounts.models.capabilities_of()`.
+- **The "Fixed something?" form was ported 15-10-2026**, the first write from
+  Django: a collapsed form in the Actions panel, POSTing to
+  `/modules/<code>/fix/` (`views.report_fix`). Same gates as Streamlit:
+  `report_fixed` and the `fix_claims` school rollout (`data.claimable_fixes()`
+  returns nothing otherwise, and the POST is a 403). **Which sections are
+  claimable is `report_model.claimable_fixes()`**, moved out of the Streamlit
+  view so both read one rule; the POST re-derives it and ignores any ticked
+  field outside it. Access is checked before the module is looked up, as for the
+  report. Rows are identical to Streamlit's (`claimed_by` the upper-cased email,
+  `submitter_name` the lower-cased one, note capped at 500). A claim still never
+  changes a verdict or count. Any `report_fixed` account in scope gets the form,
+  not only the module's own lead: ownership matching is not built (see the lead
+  ownership notes), and the open question is how to match modules to people at
+  scale. `web/smoke.py` checks the gates with the save stubbed, so it still
+  never writes to the shared database.
 
 **The School Dashboard is ported, read-only** (12-10-2026): `/schools/<code>/`,
 with `?semester=Autumn|Spring|All year` and `?view=modules|alignment`. Four
