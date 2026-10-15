@@ -63,4 +63,4 @@ def status_cell(symbol):
     word = STATUS_WORDS.get(symbol)
     if not word:
         return symbol
-    return mark_safe(f'<span role="img" aria-label="{word}">{escape(symbol)}</span>')
+    return mark_safe(f'<span role="img" aria-label="{word}" title="{word}">{escape(symbol)}</span>')
