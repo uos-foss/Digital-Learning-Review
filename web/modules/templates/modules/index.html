@@ -33,7 +33,7 @@
     {% if f.truncated %}Showing the first {{ f.results|length }} of {{ f.total }} modules. Add more of the code, name or lead to narrow it.{% else %}{{ f.total }} module{{ f.total|pluralize }} found.{% endif %}
   </p>
   <div class="scroll">
-    <table class="grid">
+    <table class="grid" data-sortable>
       <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th>{% if not f.school %}<th scope="col">School</th>{% endif %}<th scope="col">Level</th><th scope="col">Semester</th></tr>
       {% for m in f.results %}
         <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>

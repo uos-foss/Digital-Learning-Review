@@ -144,6 +144,13 @@
   table.grid th { color: var(--muted); font-weight: 500; white-space: nowrap; position: sticky; top: 0; background: var(--panel); }
   table.grid td.nw { white-space: nowrap; }
   table.grid td.wide { min-width: 13rem; }
+  table.grid th button.sort { font: inherit; color: inherit; background: none; border: 0; padding: 0;
+                              cursor: pointer; white-space: nowrap; text-align: left; }
+  table.grid th button.sort:hover { color: var(--ink); }
+  table.grid th button.sort::after { content: "\2195"; margin-left: .3rem; opacity: .35; }
+  table.grid th[aria-sort="ascending"] button.sort::after { content: "\2191"; opacity: 1; }
+  table.grid th[aria-sort="descending"] button.sort::after { content: "\2193"; opacity: 1; }
+  table.grid th[aria-sort] { color: var(--ink); }
   details.fold { margin: .75rem 0; }
   details.fold > summary { cursor: pointer; color: var(--muted); }
   .scroll { overflow-x: auto; }
@@ -240,6 +247,53 @@
     document.addEventListener("pointerdown", function () { byKeyboard = false; }, true);
     document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
       form.addEventListener("change", function () { if (!byKeyboard) form.submit(); });
+    });
+  })();
+  /* A table with data-sortable sorts by a column when its header button is pressed.
+     A cell sorts by its data-sort value if it has one, else its text: numbers (with
+     % or thousands commas) and DD-MM-YYYY dates compare as values, before any text,
+     and blanks always come last. Ties keep the server's order. A th with data-nosort
+     is left alone. */
+  (function () {
+    var BLANK = /^(|-|–|—|n\/a)$/i;
+    function keyOf(cell) {
+      var raw = cell.hasAttribute("data-sort") ? cell.getAttribute("data-sort") : cell.textContent;
+      var t = raw.replace(/\s+/g, " ").trim();
+      if (BLANK.test(t)) return {kind: 2};
+      var d = /^(\d{2})-(\d{2})-(\d{4})(?: \d{2}:\d{2}(?::\d{2})?)?$/.exec(t);
+      if (d) return {kind: 0, n: Number(d[3] + d[2] + d[1])};
+      var n = t.replace(/,/g, "");
+      if (/^-?\d*\.?\d+%?$/.test(n)) return {kind: 0, n: parseFloat(n)};
+      return {kind: 1, s: t};
+    }
+    function compare(a, b, dir) {
+      if (a.kind === 2 || b.kind === 2) return a.kind === b.kind ? 0 : (a.kind === 2 ? 1 : -1);
+      if (a.kind !== b.kind) return a.kind - b.kind;
+      var c = a.kind === 0 ? a.n - b.n
+            : a.s.localeCompare(b.s, undefined, {numeric: true, sensitivity: "base"});
+      return c * dir;
+    }
+    document.querySelectorAll("table[data-sortable]").forEach(function (table) {
+      var head = table.rows[0];
+      if (!head) return;
+      Array.prototype.forEach.call(head.cells, function (th, col) {
+        if (th.hasAttribute("data-nosort") || th.colSpan > 1) return;
+        var btn = document.createElement("button");
+        btn.type = "button"; btn.className = "sort";
+        while (th.firstChild) btn.appendChild(th.firstChild);
+        th.appendChild(btn);
+        btn.addEventListener("click", function () {
+          var dir = th.getAttribute("aria-sort") === "ascending" ? -1 : 1;
+          Array.prototype.forEach.call(head.cells, function (h) { h.removeAttribute("aria-sort"); });
+          th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
+          var body = head.parentNode;
+          var rows = Array.prototype.slice.call(table.rows, 1).map(function (tr, i) {
+            return {tr: tr, i: i, k: tr.cells[col] ? keyOf(tr.cells[col]) : {kind: 2}};
+          });
+          rows.sort(function (x, y) { return compare(x.k, y.k, dir) || x.i - y.i; });
+          rows.forEach(function (r) { body.appendChild(r.tr); });
+        });
+      });
     });
   })();
   /* The account menu closes on Escape, giving focus back to its button, and when you click elsewhere. */

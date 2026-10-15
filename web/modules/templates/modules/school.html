@@ -115,7 +115,7 @@
     <p class="muted">No modules match the selected filters.</p>
   {% else %}
     <div class="scroll">
-      <table class="grid">
+      <table class="grid" data-sortable>
         <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Build stage</th><th scope="col">Overall</th><th scope="col">Files</th><th scope="col">Pages</th><th scope="col"># Files</th><th scope="col"># Pages</th><th scope="col">Severe</th><th scope="col">Major</th><th scope="col">Minor</th><th scope="col">Students</th>{% if a.filters_active %}<th scope="col">Matching items</th>{% endif %}</tr>
         {% for m in a.modules %}
           <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td><td class="wide">{{ m.name }}</td><td class="nw">{{ m.lead }}</td><td class="nw">{{ m.stage }}</td>
@@ -168,7 +168,7 @@
     <p>{% for key, label in show_options %}{% if key == show %}<strong>{{ label }}</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes&show={{ key }}">{{ label }}</a>{% endif %}{% if not forloop.last %} &middot; {% endif %}{% endfor %}</p>
     {% if not fix_rows %}<p class="muted">Nothing matches that filter.</p>{% else %}
     <div class="scroll">
-      <table class="grid">
+      <table class="grid" data-sortable>
         <tr><th scope="col">Module</th><th scope="col">Name</th><th scope="col">Section</th><th scope="col">Reporter</th><th scope="col">Reported on</th><th scope="col">Note</th><th scope="col">Status</th><th scope="col">Checked on</th></tr>
         {% for r in fix_rows %}
           <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td>{{ r.section }}</td>
@@ -182,7 +182,7 @@
   <p class="muted" style="margin:0;">No modules for {{ school }} in the {{ semester }} semester.</p>
 {% elif view == "modules" %}
   <div class="scroll">
-    <table class="grid">
+    <table class="grid" data-sortable>
       <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Level</th><th scope="col">Ally score</th><th scope="col">Items</th><th scope="col">Reading list</th>{% if d.show_sga %}<th scope="col">SGAs</th>{% endif %}<th scope="col">Spot-check</th></tr>
       {% for m in d.modules %}
         <tr><td><a href="{% url 'modules:report' m.code %}">{{ m.code }}</a></td>
@@ -228,8 +228,8 @@
   {% endif %}
   {% if l.rows %}
   <div class="scroll">
-    <table class="grid">
-      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Spot-check</th>{% for c in l.columns %}<th scope="col">{{ c }}</th>{% endfor %}{% if l.has_comments %}<th scope="col">Auditor comments</th>{% endif %}</tr>
+    <table class="grid" data-sortable>
+      <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Spot-check</th>{% for c in l.columns %}<th scope="col">{{ c }}</th>{% endfor %}{% if l.has_comments %}<th scope="col" data-nosort>Auditor comments</th>{% endif %}</tr>
       {% for r in l.rows %}
         <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td><td class="nw">{{ r.spot }}</td>
             {% for cell in r.cells %}<td style="text-align:center;">{{ cell|status_cell }}</td>{% endfor %}{% if l.has_comments %}<td class="comment">{% if r.comment %}<details><summary><span class="preview">{{ r.comment|truncatechars:60 }}</span><span class="less">Hide</span></summary><div class="full">{{ r.comment }}</div></details>{% endif %}</td>{% endif %}</tr>
