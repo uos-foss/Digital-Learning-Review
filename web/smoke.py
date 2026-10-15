@@ -388,6 +388,9 @@ def main():
     browse = client.get("/modules/").content.decode("utf-8", "replace")
     check("the browse-a-school chips show codes, with the full name for hover and screen readers",
           f'href="?school={school}" title="{names_all.get(school, school)}">{school}<span class="sr-only">' in browse)
+    sch_modules = client.get(f"/schools/{school}/?view=modules").content.decode("utf-8", "replace")
+    check("the school modules table is marked sortable and the sort script is on the page",
+          '<table class="grid" data-sortable>' in sch_modules and "table[data-sortable]" in sch_modules)
     check("the finder drops the School column once a school is chosen",
           '<th scope="col">School</th>' in wide and '<th scope="col">School</th>' not in one)
     check("a module in a school you cannot see is not found, not even by exact code",
