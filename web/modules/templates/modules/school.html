@@ -195,7 +195,6 @@
   <p class="muted" style="margin-bottom:0;">Items are the module's outstanding actionable items. Ally score shows the build stage instead until a course has content beyond its template.</p>
 {% else %}
   {% with l=lenses %}
-  <p class="muted" style="margin-top:0;">{{ text.ALIGNMENT_LEGEND }}</p>
   <form method="get" class="filterbar" data-autosubmit>
     <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">{% if l.all_columns %}<input type="hidden" name="cols" value="all">{% endif %}
     <h2>Filter modules</h2>
@@ -236,7 +235,8 @@
       {% endfor %}
     </table>
   </div>
-  <p class="muted">{{ l.rows|length }} module{{ l.rows|length|pluralize }} shown.</p>
+  <p class="muted">{{ l.rows|length }} module{{ l.rows|length|pluralize }} shown. Hover an icon for what it means.</p>
+  <p class="muted" style="margin-top:0;"><strong>Key:</strong> {{ text.ALIGNMENT_LEGEND }}</p>
   {% endif %}
   {% endwith %}
 {% endif %}
