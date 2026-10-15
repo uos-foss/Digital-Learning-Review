@@ -514,3 +514,36 @@ def test_finder_ranks_exact_code_then_prefix_then_name_and_caps_the_list():
     assert [m["code"] for m in by_school["results"]] == ["GPL130", "GPL225", "GPL401"] and by_school["searched"]
     capped = report_model.build_module_finder(_finder_frames(), "", "GPL", ["GPL"], limit=2)
     assert capped["total"] == 3 and len(capped["results"]) == 2 and capped["truncated"]
+
+
+def test_claimable_fixes_offers_only_what_a_lead_may_report():
+    """A section a DLA recorded as not complete, plus Learning Materials, in
+    report order. Data-only findings, a section the DLA ticked and a checklist
+    field with no template counterpart (other than the extra) are not offered."""
+    def finding(field, source, **kw):
+        return {"audit_field_id": field, "source": source,
+                "section_label": field, "state": "pending", **kw}
+    findings = [
+        finding("learning_materials", "checklist"),
+        finding("contacts_complete", "readiness", manual_override=False),
+        finding("welcome_outline", "readiness", manual_override=False),
+        finding("sga", "readiness", manual_override=None),    # data says so, no DLA answer
+        finding("encore_link", "readiness", manual_override=True),
+        finding("some_other_field", "checklist"),
+        {"audit_field_id": None, "source": "ally", "state": "pending"},
+    ]
+    offered = [c["field_id"] for c in report_model.claimable_fixes(findings)]
+    assert offered == ["welcome_outline", "contacts_complete", "learning_materials"]
+
+
+def test_a_claimed_fix_reads_as_ml_reported_not_incomplete():
+    """A lead's claim on a section the DLA recorded as incomplete: the table says
+    so in words, in a colour apart from the green of confirmed work."""
+    claims = {"welcome_outline": {"claimed_by": "A@B.C", "claimed_on": "2026-10-01 10:00:00",
+                                  "note": "", "submitter_name": "a@b.c"}}
+    args = ("WELCOME_MODULE_OUTLINE", {"state": "visible_unedited"}, {"welcome_outline": False}, True, "")
+    plain = report_model.section_card_content(*args)
+    claimed = report_model.section_card_content(*args, fix_claims=claims)
+    assert plain["short_status"] == "Incomplete" and not plain["claimed"]
+    assert claimed["claimed"] and claimed["short_status"] == "ML reported complete"
+    assert claimed["colour"] not in (plain["colour"], report_model.STATE_TIER_COLOUR["ok"])

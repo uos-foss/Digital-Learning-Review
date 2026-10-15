@@ -78,7 +78,7 @@ def load_report(code: str, user) -> dict | None:
         return None
 
     trail = loaders.load_audit_trail(code)
-    return report_model.build_report(
+    report = report_model.build_report(
         code, row,
         responses=trail["responses"],
         has_audit=trail["has_audit"],
@@ -92,6 +92,43 @@ def load_report(code: str, user) -> dict | None:
         spot_check_pending=bool(
             database.get_pending_spot_check(code, processing.CURRENT_ACADEMIC_YEAR)),
     )
+    report["claimable"] = claimable_fixes(report, user)
+    return report
+
+
+def claimable_fixes(report: dict, user) -> list:
+    """
+    The sections this account may report as fixed on this module, for the form
+    and for the POST that saves it. Empty unless the account holds the
+    `report_fixed` capability and the school is rolled out (feature_schools),
+    which are the two gates the Streamlit box applies. The rule for which
+    sections are claimable is report_model.claimable_fixes().
+    """
+    if processing.FIX_CLAIM_CAPABILITY not in capabilities_of(user):
+        return []
+    if not fixes_enabled(report["school"]):
+        return []
+    open_actions = [f for f in report["findings"]
+                    if f["state"] == "pending" and not f.get("fix_claimed")]
+    return report_model.claimable_fixes(open_actions)
+
+
+def save_fix_claims(report: dict, user, field_ids, note: str) -> int:
+    """
+    Records a module lead's "this is fixed" claim for each ticked section and
+    returns how many were saved. A ticked field that is not claimable right now
+    is ignored, never trusted from the form. Goes through
+    database.save_fix_claim(), the same write Streamlit makes, which also
+    refuses a school that is not rolled out. Never touches audit_responses.
+    """
+    allowed = {c["field_id"] for c in claimable_fixes(report, user)}
+    chosen = [f for f in dict.fromkeys(field_ids) if f in allowed]
+    login = (user.email or user.username or "").strip()
+    who = login.lower() if "@" in login else login
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    return sum(bool(database.save_fix_claim(report["code"], f, login.upper(), now,
+                                            note, who))
+               for f in chosen)
 
 
 _names = {"at": 0.0, "map": {}}

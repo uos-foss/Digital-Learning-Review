@@ -19,6 +19,7 @@ import pandas as pd
 
 from processing import (
     CURRENT_ACADEMIC_YEAR,
+    FIX_CLAIM_EXTRA_FIELD_IDS,
     LENS_ALIGNMENT,
     READING_LIST_FIELD_ID,
     SGA_SECTION,
@@ -101,6 +102,9 @@ STATE_TIER_COLOUR = {
     'action': "#F59E0B",
     'attention': "#F59E0B",
     'fault': "#EF4444",
+    # A module lead's claim, not yet checked: teal, so it never reads as the
+    # green of something a DLA or the data has confirmed.
+    'claimed': "#0D9488",
 }
 
 
@@ -387,9 +391,10 @@ def section_card_content(key, state, responses, has_audit, created, leganto=None
         show_detail = True
         claim = (fix_claims or {}).get(audit_field_id)
         if claim and not manual:
-            badge, colour = "Reported fixed", STATE_TIER_COLOUR['ok']
+            badge, colour = "Reported fixed", STATE_TIER_COLOUR['claimed']
             action = fix_claim_words(claim)
             short = action
+            short_status = "ML reported complete"
             claimed = True
 
     return {'label': label, 'badge': badge, 'colour': colour, 'action': action,
@@ -593,6 +598,31 @@ def action_items(actions):
             items.append({'label': a.get('label', ''),
                           'description': a.get('description', '')})
     return items
+
+
+def claimable_fixes(open_actions):
+    """
+    The outstanding items a module lead may report as fixed, as
+    [{'field_id', 'label'}] in the order the report shows its sections.
+
+    Only a template section a DLA recorded as not complete is claimable (every
+    other action resolves from the data on its own), plus the extra fields in
+    FIX_CLAIM_EXTRA_FIELD_IDS (Learning Materials, which has no template
+    section). `open_actions` is the pending findings with no claim on them.
+    Both the Streamlit box and the Django form read this, and the Django POST
+    re-derives it, so a ticked field outside it is never saved.
+    """
+    claimable = [a for a in open_actions
+                 if a.get('audit_field_id') and (
+                     (a.get('source') == 'readiness' and a.get('manual_override') is False)
+                     or (a.get('source') == 'checklist'
+                         and a['audit_field_id'] in FIX_CLAIM_EXTRA_FIELD_IDS))]
+    position = section_order()
+    claimable.sort(key=lambda a: position.get(
+        SECTION_KEY_BY_AUDIT_FIELD.get(a['audit_field_id'], a.get('section_label')),
+        len(position)))
+    return [{'field_id': a['audit_field_id'],
+             'label': a.get('section_label') or a['audit_field_id']} for a in claimable]
 
 
 def module_issues(df_issues, code):

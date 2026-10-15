@@ -10,8 +10,9 @@ What the report says is decided in `report_model.build_report()` and the rules
 under it in `processing.py`; a view here fetches that and renders it, and no
 rule is worked out in a view or a template. The URL identifies the page
 (/modules/EDC004/), so a module has an address a lead can be
-sent. Not here: the "Fixed something?" form and the PDF export, both of which
-write or build files and stay in Streamlit for now.
+sent. The one write is the "Fixed something?" form (`report_fix`), which saves
+a lead's claim through `database.save_fix_claim()`. Not here: the PDF export,
+which stays in Streamlit for now.
 
 School scoping is real: `accounts.models.may_view_module()` decides, from the
 signed-in account's `view_all` permission or its school alignment. A module
@@ -20,10 +21,12 @@ outside that is a 403, not a crash and not a silently empty page.
 
 import processing
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
 
 from accounts.models import has_basic_school_view, may_view_module, may_view_school, schools_of
 from auditdata.models import AuditField
@@ -86,6 +89,35 @@ def module_report(request, code):
     if tab == "accessibility":
         context["gauges"] = charts.gauges_for(report["ally"])
     return render(request, "modules/report.html", context)
+
+
+@login_required
+@require_POST
+def report_fix(request, code):
+    """
+    A module lead reports template sections as fixed. Access is checked before
+    the module is looked up, like the report, and the claimable set is worked
+    out again here, so only what the page could have offered is saved. A claim
+    only adds wording and moves the item to "Reported fixed": it never changes
+    a verdict or a count.
+    """
+    _require_access(request, code)
+    report = data.load_report(code, request.user)
+    if report is None:
+        raise Http404(f"{code} is not in SITS for the current academic year.")
+    if not report["claimable"]:
+        raise PermissionDenied("Reporting fixes is not available for this module.")
+    chosen = request.POST.getlist("field")
+    if not chosen:
+        messages.warning(request, "Tick at least one section.")
+    else:
+        saved = data.save_fix_claims(report, request.user, chosen,
+                                     request.POST.get("note", "").strip()[:500])
+        if saved:
+            messages.success(request, f"Reported {saved} section{'s' if saved != 1 else ''} as fixed.")
+        else:
+            messages.warning(request, "Nothing was saved: those sections can no longer be reported.")
+    return redirect("modules:report", code=report["code"])
 
 
 SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes", "ally", "trends")
