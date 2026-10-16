@@ -4,9 +4,11 @@ A two or three day spike, not a half-built app. It exists to answer one
 question: **can a different front end reuse this project's logic and data
 unchanged?** The answer, verified on the live local database, is yes.
 
-Nothing here is deployed, nothing here is wired into Caddy, and the Streamlit
-app is untouched. If the platform idea is dropped, deleting `web/`, the two
-`.gitignore` additions and `.venv-django/` removes every trace.
+It began as a spike and has since gone live: since 12-10-2026 it is served at
+`/module-reports` (see `deploy/README.md`) as "FoSS Module Reports". The
+Streamlit app is untouched and imports nothing from here. The sections below
+that describe the spike record what it proved; the current state of the
+platform is in the project's `CLAUDE.md`.
 
 Background and the wider case: the **Digital Learning Review: Platform
 Options** doc.
@@ -27,18 +29,23 @@ Options** doc.
 
 ## What it does not do
 
-Deliberately out of scope, so the spike stayed small:
+Not ported yet. The long-term aim is to move everything here and retire
+Streamlit, so this is a backlog, not a boundary:
 
 - **Institutional SSO.** Google sign-in works (see below); Entra ID is the
   eventual target and an enquiry is with IT.
-- **Writes.** Nothing here saves an audit. When it does, it should call
-  `database.save_audit_response()` so both front ends behave identically.
-- **Deployment is configured but not done.** `Dockerfile.django`, the `dlr-platform`
-  compose service and `deploy/caddy-django.example` are in the repo; nothing is
-  running on the VM until the steps in `deploy/README.md` are followed.
-- **The module report's "Fixed something?" form and PDF export.** The report
-  itself is ported, read-only; the form writes and the PDF builds a file, so both
-  stay in Streamlit for now.
+- **Saving audits.** Nothing here saves an audit; that is still the Streamlit
+  Audit Portal. The only write is a module lead's fix claim (the "Fixed
+  something?" form on the module report), which goes through
+  `database.save_fix_claim()` so both front ends behave identically. Further
+  writes should do the same.
+- **The PDF export.**
+- **On the School Dashboard:** spot-check flagging, removal and checking, the
+  Audit Portal jumps and the CSV exports.
+- **The Admin Panel and its importers, Faculty Overview and the AI in the
+  Curriculum view.**
+- **Claims on unaudited modules and "own modules first" ordering for leads.**
+  Both are planned and not built; see `CLAUDE.md`.
 
 ## Running it
 

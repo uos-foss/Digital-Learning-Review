@@ -92,8 +92,10 @@ branch needs every `loaders.py`/`processing.py` change merged into it by hand,
 which is the one failure mode this arrangement exists to avoid.
 `web/README.md` records what the spike proved and what it deliberately skips.
 
-Streamlit stays the DLA tool. The reason for a second front end is the
-read-heavy audience: Streamlit reruns the whole script per interaction and
+**The long-term aim is to move everything into Django and retire Streamlit**
+(stated 16-10-2026). For now Streamlit remains the DLA tool, and what is "not
+ported" below is the porting backlog, not a permanent boundary. The reason the
+read side went first is the read-heavy audience: Streamlit reruns the whole script per interaction and
 holds each session's frames in memory (hence `mem_limit: 1g`), so cost scales
 with concurrent users, and a module held in session state has no URL to send a
 module lead. `/modules/ALA102/` does.
@@ -202,7 +204,7 @@ template; add it to `report_model.py` or `processing.py` and read it.
   building them is about a second. A DLA's saves, fix claims and spot-check
   flags are read fresh each request. A Streamlit Admin Panel import shows in
   Django within five minutes.
-- **Not ported, on purpose:** the PDF export. A claim already made displays as
+- **Not ported yet:** the PDF export. A claim already made displays as
   "Reported fixed". The capability tokens for `can_view_sga()` come from
   `accounts.models.capabilities_of()`.
 - **The "Fixed something?" form was ported 15-10-2026**, the first write from
@@ -395,10 +397,13 @@ is `#5b6a80` in light mode: the lighter slate failed on the amber Actions panel
 by 0.02. Gauge colours are lightened on the dark card by the report page's own
 script, because no single green passes on both backgrounds.
 
-Nothing on the School Dashboard is left to port except what stays in
-Streamlit on purpose: flagging, removal and checking spot-checks, and the Audit
-Portal jumps. Writes, and anything
-resembling the Audit Portal, stay in Streamlit.
+What is left on the School Dashboard is the write side: flagging, removal and
+checking spot-checks, and the Audit Portal jumps. Those wait on porting the
+Audit Portal itself, as do the other writes. The rest of the backlog is the
+Admin Panel and its importers, the PDF and CSV exports, Faculty Overview and
+the AI in the Curriculum view. Port them by reading the shared rules in
+`processing.py`, `loaders.py` and `report_model.py` and writing through
+`database.py`, as the fix-claim form does.
 
 ## SITS data
 
