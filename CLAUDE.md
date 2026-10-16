@@ -964,6 +964,23 @@ would need another end point, such as the next readiness import covering that
 module). A claim must still never change a verdict or count. Do not build this
 unasked; do it before rolling `fix_claims` out beyond GPL.
 
+Three related behaviours of the existing claim mechanism, found 16-10-2026,
+that want settling in the same design (none is a fix to make unasked):
+- **Any audit save ends every claim on that module.** `_write_audit_response()`
+  upserts every field's `timestamp` on each save, changed or not, and a claim is
+  live only while its field's timestamp is older than `claimed_on`
+  (`get_active_fix_claims()`). A DLA saving for an unrelated reason therefore
+  clears claims on sections they never looked at, with no check. Options: move a
+  field's timestamp only when its value changes, or record "checked" separately
+  from "saved".
+- **A recorded "not complete" never lifts by itself.** Once the readiness export
+  shows the section ready, the DLA's answer still wins until someone re-saves, so
+  every lead fix needs a DLA visit, which a ~30% spot-check rate cannot carry.
+  A "data now says ready, DLA said no" list would make a re-check take seconds.
+- **The reverse holds too:** a pre-ticked suggestion saved untouched is a firm
+  "yes", so a section a lead later hides still reads done until the next save.
+  (The last two are from the plain-English guide, not re-verified in code.)
+
 **A recorded `reading_list` answer overrides Leganto as well as the
 template data.** Added 23-09-2026 when `reading_list` was linked to
 `MODULE_READING_LIST`. The tick means "the reading list is published (or
