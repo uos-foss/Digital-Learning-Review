@@ -945,6 +945,20 @@ Do not let a claim flip a verdict or count: a lead clearing their own items is
 exactly what this avoids. A live roles table needs `report_fixed` ticked for ML
 in Role Capabilities, as with other new capabilities.
 
+**Planned, not built: claims on unaudited modules** (recorded 16-10-2026). Today
+a template section is claimable only once a DLA has recorded it "not complete"
+(`report_model.claimable_fixes()`); with no recorded answer it resolves from the
+readiness export alone, so a lead who fixed it sees it red until the next import
+and has nothing to claim. That was fine while the feature was live only for GPL,
+where every module had been spot-checked. It will not hold when other schools
+are rolled out, where perhaps ~30% of modules get spot-checked and most leads
+would have no form for what they fixed. Open decisions: whether any pending
+mapped section is claimable or only the lead-owned ones, and how an unaudited
+claim ends (a claim currently lapses when a DLA next saves the field; here it
+would need another end point, such as the next readiness import covering that
+module). A claim must still never change a verdict or count. Do not build this
+unasked; do it before rolling `fix_claims` out beyond GPL.
+
 **A recorded `reading_list` answer overrides Leganto as well as the
 template data.** Added 23-09-2026 when `reading_list` was linked to
 `MODULE_READING_LIST`. The tick means "the reading list is published (or
@@ -1333,7 +1347,7 @@ snapshot/diff logic is I/O-free in `processing.py`
   in full. Earlier notes in this file that say "health banner" now mean this
   summary's points.
 - **`database.delete_spot_check(id)`** removes one row outright - reachable
-  from the "🎯 Spot-Checks" view's Remove Flag action, behind a confirm
+  from the "🎯 Spot-Checks" view's Remove Flag action (any DLA for a pending flag; admin only, `access_admin_panel`, for a checked one since 16-10-2026, because that deletes the result while the audit answers stay), behind a confirm
   checkbox since deleting a `checked` row also deletes its agreement result.
   Deliberately a hard delete rather than a separate "reset to pending"
   mutation: resetting a checked module for a clean re-run is delete, then
