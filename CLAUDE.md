@@ -964,6 +964,25 @@ would need another end point, such as the next readiness import covering that
 module). A claim must still never change a verdict or count. Do not build this
 unasked; do it before rolling `fix_claims` out beyond GPL.
 
+**Decided 16-10-2026: an unaudited-module claim does not lapse on its own.** It
+stays "Reported fixed" until the readiness export confirms the section ready
+(the verdict turns green by itself) or a DLA checks it and records an answer.
+Letting it lapse at the next import was rejected: the export only carries a
+last-modified date, so a lead's real fix can fail to show, and the claim would
+vanish leaving red with no explanation. The cost is that stale claims can sit
+unanswered, so each claim should show its age and whether an export since then
+still disagrees, and the "reported fixed, awaiting check" list is the DLA
+worklist.
+
+**Also decided 16-10-2026:** on an unaudited module any pending template-mapped
+section is claimable (lead-owned and institution-owned, plus Learning Materials
+as today), and on an audited module a claim ends by an **explicit "checked"
+action** by a DLA (confirm or reject per claim), not by the field's timestamp.
+That replaces the first behaviour below: a DLA saving for an unrelated reason
+must stop ending claims, and the checked action also gives the "data now says
+ready, DLA said no" worklist. Not built; the schema for "checked" (a column on
+`fix_claims` is the obvious home) is still to design.
+
 Three related behaviours of the existing claim mechanism, found 16-10-2026,
 that want settling in the same design (none is a fix to make unasked):
 - **Any audit save ends every claim on that module.** `_write_audit_response()`
