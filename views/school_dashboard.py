@@ -138,6 +138,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
     # and st.switch_page raises on an unregistered page - so hide the jump button
     # from everyone else rather than letting it fail on click.
     can_audit = any(c.lower() == "edit_checklist" for c in user_caps)
+    # Removing a *checked* spot-check deletes its result while the audit answers
+    # stay, so only an admin may; any DLA can still remove a pending flag.
+    can_remove_checked = any(c.lower() == "access_admin_panel" for c in user_caps)
     show_sga = can_view_sga(user_caps)
 
     # A school handed over from the Faculty School Comparison table. Consumed
@@ -1064,7 +1067,10 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                         st.divider()
                         st.info(f"🚀 {len(sc_rows)} flags selected: {n_pending} pending, "
                                 f"{n_checked} checked")
-                        if can_audit:
+                        if can_audit and n_checked and not can_remove_checked:
+                            st.caption("Only an admin can remove checked spot-checks. "
+                                       "Select pending flags only to remove them.")
+                        elif can_audit:
                             _reset_confirm_if_selection_changed("sc_bulk_remove_confirm", sel_ids)
                             bulk_confirm = st.checkbox(
                                 "Confirm removal", key="sc_bulk_remove_confirm",
@@ -1105,7 +1111,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                 st.session_state.context_school = school
                                 st.switch_page(st.session_state.pg_audit)
                         with sc_c3:
-                            if can_audit:
+                            if can_audit and sc_clicked_status == 'checked' and not can_remove_checked:
+                                st.caption("Only an admin can remove a checked spot-check.")
+                            elif can_audit:
                                 # Keyed per-row (not a single shared key) so
                                 # confirming removal on one row can never
                                 # leave a *different* row's button
