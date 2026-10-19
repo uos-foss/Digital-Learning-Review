@@ -94,7 +94,8 @@ which is the one failure mode this arrangement exists to avoid.
 
 **The long-term aim is to move everything into Django and retire Streamlit**
 (stated 16-10-2026). For now Streamlit remains the DLA tool, and what is "not
-ported" below is the porting backlog, not a permanent boundary. The reason the
+ported" below is the porting backlog, not a permanent boundary; `web/ROADMAP.md`
+orders it into phases. The reason the
 read side went first is the read-heavy audience: Streamlit reruns the whole script per interaction and
 holds each session's frames in memory (hence `mem_limit: 1g`), so cost scales
 with concurrent users, and a module held in session state has no URL to send a
