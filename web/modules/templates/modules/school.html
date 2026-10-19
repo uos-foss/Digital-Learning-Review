@@ -195,6 +195,28 @@
   <p class="muted" style="margin-bottom:0;">Items are the module's outstanding actionable items. Ally score shows the build stage instead until a course has content beyond its template.</p>
 {% else %}
   {% with l=lenses %}
+  {% if l.bars %}
+  <details class="sub" style="margin-bottom:1rem;">
+    <summary>Chart: outstanding items by template item</summary>
+    <div role="img" aria-label="Bar chart of the share of the modules in this school that are done or reported fixed for each template item; the unfilled remainder is outstanding. The same figures are in the table inside the chart.">
+      {% for b in l.bars %}
+        <div style="display:flex; align-items:center; gap:.6rem; margin:.3rem 0;">
+          <div style="width:12rem; flex:none; font-size:.9rem;">{{ b.label }}</div>
+          <div style="flex:1; display:flex; height:.6rem; border-radius:999px; overflow:hidden; background:rgba(127,127,127,.22);">
+            <div style="width:{{ b.pct_done }}%; background:#16A34A;"></div>
+            <div style="width:{{ b.pct_fixed }}%; background:#F59E0B;"></div>
+          </div>
+          <div class="muted" style="width:8rem; flex:none; font-size:.85rem; text-align:right;">{{ b.outstanding }} of {{ b.total }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    <p class="muted" style="font-size:.85rem;"><span style="color:#16A34A;">&#9632;</span> Done &nbsp; <span style="color:#F59E0B;">&#9632;</span> Reported fixed</p>
+    <table class="grid">
+      <tr><th scope="col">Template item</th><th scope="col">Outstanding</th><th scope="col">Reported fixed</th><th scope="col">Done</th></tr>
+      {% for b in l.bars %}<tr><td>{{ b.label }}</td><td>{{ b.outstanding }}</td><td>{{ b.fixed }}</td><td>{{ b.done }}</td></tr>{% endfor %}
+    </table>
+  </details>
+  {% endif %}
   <form method="get" class="filterbar" data-autosubmit>
     <input type="hidden" name="semester" value="{{ semester }}"><input type="hidden" name="view" value="alignment">{% if l.all_columns %}<input type="hidden" name="cols" value="all">{% endif %}
     <h2>Filter modules</h2>

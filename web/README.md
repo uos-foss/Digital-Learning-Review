@@ -30,22 +30,10 @@ Options** doc.
 ## What it does not do
 
 Not ported yet. The long-term aim is to move everything here and retire
-Streamlit, so this is a backlog, not a boundary:
-
-- **Institutional SSO.** Google sign-in works (see below); Entra ID is the
-  eventual target and an enquiry is with IT.
-- **Saving audits.** Nothing here saves an audit; that is still the Streamlit
-  Audit Portal. The only write is a module lead's fix claim (the "Fixed
-  something?" form on the module report), which goes through
-  `database.save_fix_claim()` so both front ends behave identically. Further
-  writes should do the same.
-- **The PDF export.**
-- **On the School Dashboard:** spot-check flagging, removal and checking, the
-  Audit Portal jumps and the CSV exports.
-- **The Admin Panel and its importers, Faculty Overview and the AI in the
-  Curriculum view.**
-- **Claims on unaudited modules and "own modules first" ordering for leads.**
-  Both are planned and not built; see `CLAUDE.md`.
+Streamlit, so what is left is a backlog, not a boundary. `ROADMAP.md` in this
+folder orders it into phases with exit criteria: the fix-claim rollout blockers,
+identity and access, the Audit Portal, Faculty Overview, the Admin Panel and its
+importers, the exports and docs, and finally the cutover.
 
 ## Running it
 
