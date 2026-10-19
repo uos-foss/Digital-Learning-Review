@@ -978,26 +978,26 @@ worklist.
 section is claimable (lead-owned and institution-owned, plus Learning Materials
 as today), and on an audited module a claim ends by an **explicit "checked"
 action** by a DLA (confirm or reject per claim), not by the field's timestamp.
-That replaces the first behaviour below: a DLA saving for an unrelated reason
-must stop ending claims, and the checked action also gives the "data now says
-ready, DLA said no" worklist. Not built; the schema for "checked" (a column on
-`fix_claims` is the obvious home) is still to design.
+Not built; the schema for "checked" (a column on `fix_claims` is the obvious
+home) is still to design.
 
-Three related behaviours of the existing claim mechanism, found 16-10-2026,
-that want settling in the same design (none is a fix to make unasked):
+Three behaviours of the existing claim mechanism, found 16-10-2026, and how the
+decisions above bear on each (none is a fix to make unasked):
 - **Any audit save ends every claim on that module.** `_write_audit_response()`
   upserts every field's `timestamp` on each save, changed or not, and a claim is
   live only while its field's timestamp is older than `claimed_on`
   (`get_active_fix_claims()`). A DLA saving for an unrelated reason therefore
-  clears claims on sections they never looked at, with no check. Options: move a
-  field's timestamp only when its value changes, or record "checked" separately
-  from "saved".
+  clears claims on sections they never looked at, with no check. **Settled:**
+  the explicit "checked" action replaces the timestamp test, so an unrelated
+  save stops ending claims.
 - **A recorded "not complete" never lifts by itself.** Once the readiness export
   shows the section ready, the DLA's answer still wins until someone re-saves, so
   every lead fix needs a DLA visit, which a ~30% spot-check rate cannot carry.
-  A "data now says ready, DLA said no" list would make a re-check take seconds.
+  **Open:** the "checked" action and a "data now says ready, DLA said no" list
+  would make a re-check take seconds, but the list is not yet designed.
 - **The reverse holds too:** a pre-ticked suggestion saved untouched is a firm
   "yes", so a section a lead later hides still reads done until the next save.
+  **Open:** the same list in reverse ("DLA said yes, data now says not ready").
   (The last two are from the plain-English guide, not re-verified in code.)
 
 **A recorded `reading_list` answer overrides Leganto as well as the
