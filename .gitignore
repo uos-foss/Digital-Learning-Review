@@ -27,3 +27,6 @@ client_secret*.json
 # Agent working directories and per-machine editor state
 .gemini/
 .claude/settings.local.json
+
+# Ad-hoc spreadsheets in the scratch folder (the scripts there are tracked)
+scratch/*.xlsx
