@@ -1236,7 +1236,33 @@ def build_lens_table(school_df, summaries, active_fields, fix_claims, spot_statu
             'lead': _clean(r.get('Mod. lead')), 'spot': r.get('Spot-Check', ''),
             'comment': r.get('Auditor Comments', ''),
             'cells': [r.get(c, '') for c in columns]})
+    # The bar graph is an overview of the whole school and semester: it ignores
+    # the lenses and the column narrowing. Accessibility is a traffic light
+    # rather than done / not done, so it has no bar.
+    if selected:
+        all_codes = (school_df[['New module code']].drop_duplicates()
+                     .sort_values('New module code')['New module code'].tolist())
+        overview = item_status_table(all_codes, school_df, summaries, active_fields,
+                                     fix_claims, spot_status) if all_codes else pd.DataFrame()
+    else:
+        overview = table
+    overview_rows = overview.to_dict('records')
+    bars = []
+    for c in [c for c in overview.columns if c not in fixed]:
+        if c == 'Accessibility':
+            continue
+        values = [r.get(c) for r in overview_rows]
+        outstanding, fixed_n, done = (values.count(s) for s in ('❌', '🔧', '✅'))
+        total = outstanding + fixed_n + done
+        if total:
+            bars.append({'label': c, 'outstanding': outstanding, 'fixed': fixed_n,
+                         'done': done, 'total': total,
+                         'pct_outstanding': round(100 * outstanding / total, 1),
+                         'pct_fixed': round(100 * fixed_n / total, 1),
+                         'pct_done': round(100 * done / total, 1)})
+    bars.sort(key=lambda b: (-b['outstanding'], b['label']))
     return {
+        'bars': bars,
         'lens_options': [{'key': k, 'label': LENS_PLAIN[label], 'on': label in selected}
                          for k, label in available],
         'item_options': [{'label': i, 'on': i in focus} for i in item_labels],
