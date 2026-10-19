@@ -964,6 +964,42 @@ would need another end point, such as the next readiness import covering that
 module). A claim must still never change a verdict or count. Do not build this
 unasked; do it before rolling `fix_claims` out beyond GPL.
 
+**Decided 16-10-2026: an unaudited-module claim does not lapse on its own.** It
+stays "Reported fixed" until the readiness export confirms the section ready
+(the verdict turns green by itself) or a DLA checks it and records an answer.
+Letting it lapse at the next import was rejected: the export only carries a
+last-modified date, so a lead's real fix can fail to show, and the claim would
+vanish leaving red with no explanation. The cost is that stale claims can sit
+unanswered, so each claim should show its age and whether an export since then
+still disagrees, and the "reported fixed, awaiting check" list is the DLA
+worklist.
+
+**Also decided 16-10-2026:** on an unaudited module any pending template-mapped
+section is claimable (lead-owned and institution-owned, plus Learning Materials
+as today), and on an audited module a claim ends by an **explicit "checked"
+action** by a DLA (confirm or reject per claim), not by the field's timestamp.
+Not built; the schema for "checked" (a column on `fix_claims` is the obvious
+home) is still to design.
+
+Three behaviours of the existing claim mechanism, found 16-10-2026, and how the
+decisions above bear on each (none is a fix to make unasked):
+- **Any audit save ends every claim on that module.** `_write_audit_response()`
+  upserts every field's `timestamp` on each save, changed or not, and a claim is
+  live only while its field's timestamp is older than `claimed_on`
+  (`get_active_fix_claims()`). A DLA saving for an unrelated reason therefore
+  clears claims on sections they never looked at, with no check. **Settled:**
+  the explicit "checked" action replaces the timestamp test, so an unrelated
+  save stops ending claims.
+- **A recorded "not complete" never lifts by itself.** Once the readiness export
+  shows the section ready, the DLA's answer still wins until someone re-saves, so
+  every lead fix needs a DLA visit, which a ~30% spot-check rate cannot carry.
+  **Open:** the "checked" action and a "data now says ready, DLA said no" list
+  would make a re-check take seconds, but the list is not yet designed.
+- **The reverse holds too:** a pre-ticked suggestion saved untouched is a firm
+  "yes", so a section a lead later hides still reads done until the next save.
+  **Open:** the same list in reverse ("DLA said yes, data now says not ready").
+  (The last two are from the plain-English guide, not re-verified in code.)
+
 **A recorded `reading_list` answer overrides Leganto as well as the
 template data.** Added 23-09-2026 when `reading_list` was linked to
 `MODULE_READING_LIST`. The tick means "the reading list is published (or
