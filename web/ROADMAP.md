@@ -89,6 +89,12 @@ Both front ends read the rule from `report_model.claimable_fixes()` and
   providers, which do nothing or nothing real.
 - Keep the break-glass local superuser.
 
+First slice built (16-10-2026): `import_streamlit_users` pre-creates accounts
+from the Streamlit tables using the live roles table, first sign-in connects to
+them, and a first-time sign-in with no access sees a "Waiting for access" page.
+Still to do in this phase: per-user capability overrides, retiring Streamlit's
+user admin so the import stops being re-run, lead-to-module matching, and Entra.
+
 Exit: every current user can sign in to Django with the right role and schools.
 
 ## Phase 3: the DLA tool

@@ -143,8 +143,27 @@ claims-to-attributes mapping.
   personal account can still reach the callback. `pre_social_login()` refuses
   anything whose verified email is not on `ALLOWED_EMAIL_DOMAIN`, and refuses an
   unverified address outright. Do not treat `hd` as a control.
-- **Signup is closed** (`AccountAdapter.is_open_for_signup`). Accounts arrive by
-  a first Google sign-in or by an admin creating one.
+- **There is no password signup** (`AccountAdapter.is_open_for_signup` is
+  False), but a first university Google sign-in does create an account
+  (`SocialAccountAdapter.is_open_for_signup` is True), **with no Group and no
+  school, so it sees nothing** until someone sets it up. Such a person gets a
+  "Waiting for access" page (`accounts/no_access.html`, shared with the school
+  list and the 403 page), naming `ACCESS_CONTACT` if that setting is filled in.
+- **People already in the Streamlit `users` table are pre-provisioned**
+  (16-10-2026, ahead of any AD/Entra answer from IT):
+  `manage.py import_streamlit_users` (dry run by default, `--apply` to write)
+  makes a Django account for each active user whose username is an email, with
+  their role as a Group and their `School` cell as alignment (`All` is
+  faculty-wide, `ECN,SPR` is two). **Each Group's permissions come from the live
+  `roles` table, not `seed_roles`' map**, because the two differ (live SL holds
+  `report_fixed`, live DLA holds `access_admin_limited`, and so on). It is
+  grant-only and idempotent: it never narrows access or overwrites schools
+  someone already has, so it can be re-run before cut-over. Disabled and
+  non-email users are skipped, and per-user `users.Capabilities` overrides are
+  reported but not applied. The person's first Google sign-in is connected to
+  the pre-made account by `pre_social_login` (two accounts sharing an address
+  are refused). Until Streamlit's user admin is retired, re-run it to pick up
+  changes made there.
 - **Capabilities are Django permissions on `accounts.Profile`, roles are
   Groups**, created by `manage.py seed_roles` from the same map as
   `data_manager.py`'s seed defaults, ML without `edit_checklist` as per "Who
