@@ -25,6 +25,12 @@ which account was used has no way to work that out.
       If you are signed into a personal Google account in this browser, that is
       usually the reason. Sign in again and choose your university account.
     </p>
+  {% elif reason == "ambiguous" %}
+    <p>
+      More than one account here uses <strong>{{ email }}</strong>, so the app
+      cannot tell which is yours. This needs a person to fix: ask your Digital
+      Learning Advisor.
+    </p>
   {% else %}
     <p>Google did not confirm an email address for that account, so it cannot be used to sign in.</p>
   {% endif %}

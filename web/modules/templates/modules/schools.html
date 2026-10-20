@@ -10,6 +10,6 @@
     {% for s in schools %}<li><a href="{% url 'schools:dashboard' s %}">{{ s|school_name }}</a>{% if s|school_name != s %} <span class="muted">{{ s }}</span>{% endif %}</li>{% endfor %}
   </ul>
 {% else %}
-  <p class="muted">Your account is not aligned with any school yet. A Digital Learning Advisor or an administrator can set that.</p>
+  {% include "accounts/_no_access.html" %}
 {% endif %}
 {% endblock %}
