@@ -9,8 +9,8 @@
   /* The alignment table has ten item columns, a comment and more: give the
      school page the width of the window rather than the report's reading width. */
   main { max-width: 96rem; }
-  td.comment { min-width: 14rem; font-size: .85rem; }
-  table.grid td { vertical-align: top; }
+  td.comment { min-width: 14rem; font-size: var(--fs-sm); }
+  table.grid td { vertical-align: middle; }
 </style>
 {% with name=school|school_name %}
 <h1>{{ name }}{% if name == school %} <span class="muted">School Dashboard</span>{% endif %}</h1>
@@ -88,7 +88,7 @@
       </div>
     </details>
     {% endif %}
-    <p class="apply" style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
+    <p class="apply"><button type="submit">Apply filters</button></p>
   </form>
 
   <h2 style="font-size:1.05rem;">What to fix</h2>
@@ -196,21 +196,21 @@
 {% else %}
   {% with l=lenses %}
   {% if l.bars %}
-  <details class="sub" style="margin-bottom:1rem;">
-    <summary>Chart: outstanding items by template item</summary>
-    <div role="img" aria-label="Bar chart of the share of the modules in this school that are done or reported fixed for each template item; the unfilled remainder is outstanding. The same figures are in the table inside the chart.">
+  <details class="filterbar tight">
+    <summary class="block">Chart: outstanding items by template item</summary>
+    <div style="margin-top:.6rem;" role="img" aria-label="Bar chart of the share of the modules in this school that are done or reported fixed for each template item; the unfilled remainder is outstanding. The same figures are in the table inside the chart.">
       {% for b in l.bars %}
         <div style="display:flex; align-items:center; gap:.6rem; margin:.3rem 0;">
-          <div style="width:12rem; flex:none; font-size:.9rem;">{{ b.label }}</div>
+          <div style="width:12rem; flex:none; font-size:var(--fs-ui);">{{ b.label }}</div>
           <div style="flex:1; display:flex; height:.6rem; border-radius:999px; overflow:hidden; background:rgba(127,127,127,.22);">
             <div style="width:{{ b.pct_done }}%; background:#16A34A;"></div>
             <div style="width:{{ b.pct_fixed }}%; background:#F59E0B;"></div>
           </div>
-          <div class="muted" style="width:8rem; flex:none; font-size:.85rem; text-align:right;">{{ b.outstanding }} of {{ b.total }}</div>
+          <div class="muted" style="width:8rem; flex:none; font-size:var(--fs-sm); text-align:right;">{{ b.outstanding }} of {{ b.total }}</div>
         </div>
       {% endfor %}
     </div>
-    <p class="muted" style="font-size:.85rem;"><span style="color:#16A34A;">&#9632;</span> Done &nbsp; <span style="color:#F59E0B;">&#9632;</span> Reported fixed</p>
+    <p class="muted"><span style="color:#16A34A;">&#9632;</span> Done &nbsp; <span style="color:#F59E0B;">&#9632;</span> Reported fixed</p>
     <table class="grid">
       <tr><th scope="col">Template item</th><th scope="col">Outstanding</th><th scope="col">Reported fixed</th><th scope="col">Done</th></tr>
       {% for b in l.bars %}<tr><td>{{ b.label }}</td><td>{{ b.outstanding }}</td><td>{{ b.fixed }}</td><td>{{ b.done }}</td></tr>{% endfor %}
@@ -233,18 +233,17 @@
         </div>
       </div>
     {% endif %}
-    <p class="apply" style="margin:.75rem 0 0;"><button type="submit">Apply filters</button></p>
+    <p class="apply"><button type="submit">Apply filters</button></p>
   </form>
-  {% if l.status %}<p class="{% if l.status_type == 'success' %}ok{% else %}note{% endif %}">{{ l.status }}</p>{% endif %}
   {% if l.notes %}
     <details style="margin-bottom:1rem;"><summary>Per-lens notes</summary>
       {% for lens, note in l.notes %}<p><strong>{{ lens }}</strong>: {{ note|default:"No result." }}</p>{% endfor %}
     </details>
   {% endif %}
-  {% if l.rows and l.filtered %}
-    <p class="muted">
-      {% if l.columns_narrowed %}Showing the {{ l.columns|length }} of {{ l.columns_total }} item columns these lenses speak to. <a href="{{ columns_toggle_url }}">Show all columns</a>
-      {% elif l.all_columns %}Showing every item column. <a href="{{ columns_toggle_url }}">Show only the columns the lenses speak to</a>{% endif %}
+  {% if l.status or l.rows and l.filtered and l.columns_narrowed or l.rows and l.filtered and l.all_columns %}
+    <p class="muted" style="margin:0 0 .75rem;">{{ l.status|cut:"." }}
+      {% if l.rows and l.filtered %}{% if l.columns_narrowed %}{% if l.status %}&middot; {% endif %}Showing {{ l.columns|length }} of {{ l.columns_total }} item columns. <a href="{{ columns_toggle_url }}">Show all columns</a>
+      {% elif l.all_columns %}{% if l.status %}&middot; {% endif %}Showing every item column. <a href="{{ columns_toggle_url }}">Show only the columns the lenses speak to</a>{% endif %}{% endif %}
     </p>
   {% endif %}
   {% if l.rows %}
