@@ -21,11 +21,14 @@ which is why this is easy to forget exists.
       You are signed in as <strong>{{ request.user.email|default:request.user.username }}</strong>,
       and that account is not aligned with the school this module belongs to.
     </p>
-    <p class="muted">
-      If your account is new, this is normal: alignment is set by hand, and
-      nobody has set yours yet. A Digital Learning Advisor or an administrator
-      can do it.
-    </p>
+    {% if not has_access %}
+      {% include "accounts/_no_access.html" %}
+    {% else %}
+      <p class="muted">
+        If you think you should be able to see it, a Digital Learning Advisor or
+        an administrator can change which schools your account is aligned with.
+      </p>
+    {% endif %}
   {% else %}
     <p>You are not signed in. <a href="{% url 'account_login' %}">Sign in</a> and try again.</p>
   {% endif %}

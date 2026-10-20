@@ -121,6 +121,17 @@ def may_view_module(user, code):
     return profile_for(user).may_view_module(code)
 
 
+def has_any_access(user):
+    """
+    Whether this account can see anything at all: faculty-wide, or aligned with
+    at least one school. False is the state of a first-time sign-in nobody has
+    set up yet, who should be told so rather than shown an empty list.
+    """
+    if not user.is_authenticated:
+        return False
+    return user.has_perm("accounts.view_all") or bool(schools_of(user))
+
+
 def capabilities_of(user):
     """
     The user's capability tokens, in the lowercase form `processing.py` reads

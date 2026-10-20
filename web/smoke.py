@@ -501,6 +501,64 @@ def main():
           not refuses("a.person@sheffield.ac.uk",
                       {"email": "a.person@sheffield.ac.uk", "email_verified": True}))
 
+    # 13. A first sign-in by someone nobody has set up yet. The account exists but
+    # holds no role and no school: they are told so, and a pre-made account for
+    # the same address is connected to their Google login, not duplicated.
+    newcomer, _ = User.objects.get_or_create(
+        username="spike-newcomer", defaults={"email": "new.person@sheffield.ac.uk"})
+    newcomer.groups.clear()
+    p_new = profile_for(newcomer)
+    p_new.all_schools = False
+    p_new.set_schools([])
+    p_new.save()
+    new_client = Client()
+    new_client.force_login(User.objects.get(pk=newcomer.pk))
+    waiting = new_client.get("/")
+    waiting_body = waiting.content.decode("utf-8", "replace")
+    schools_page = new_client.get("/schools/").content.decode("utf-8", "replace")
+    denied = new_client.get(f"/modules/{code}/")
+    check("a signed-in account with no role or school is told it is waiting, not shown an empty list",
+          waiting.status_code == 200 and "Waiting for access" in waiting_body
+          and "no role or school yet" in schools_page
+          and denied.status_code == 403
+          and "no role or school yet" in denied.content.decode("utf-8", "replace"))
+    check("an account that has access never sees the waiting message",
+          "no role or school yet" not in client.get("/schools/").content.decode("utf-8", "replace")
+          and "Waiting for access" not in aligned_client.get("/").content.decode("utf-8", "replace"))
+
+    pre_email = "pre.provisioned@sheffield.ac.uk"
+    pre, _ = User.objects.get_or_create(username=pre_email, defaults={"email": pre_email})
+    SocialAccount.objects.filter(user=pre).delete()
+
+    def link(email, uid):
+        login = SocialLogin(
+            user=User(username=email, email=email),
+            account=SocialAccount(provider="google", uid=uid,
+                                  extra_data={"email": email, "email_verified": True}))
+        request = RequestFactory().get("/accounts/google/login/callback/")
+        request.user = None
+        SocialAccountAdapter().pre_social_login(request, login)
+        return login
+
+    try:
+        linked = link(pre_email.upper(), "smoke-uid-1")
+        check("a first Google sign-in connects to the account an admin already made",
+              linked.user.pk == pre.pk
+              and SocialAccount.objects.filter(user=pre, uid="smoke-uid-1").exists()
+              and User.objects.filter(email__iexact=pre_email).count() == 1)
+    finally:
+        SocialAccount.objects.filter(uid="smoke-uid-1").delete()
+
+    twin, _ = User.objects.get_or_create(username="Pre.Provisioned@Sheffield.AC.UK",
+                                         defaults={"email": "PRE.PROVISIONED@sheffield.ac.uk"})
+    try:
+        check("two accounts sharing one address are refused rather than guessed between",
+              refuses(pre_email, {"email": pre_email, "email_verified": True}))
+    finally:
+        twin.delete()
+        pre.delete()
+        newcomer.delete()
+
     # 14. The "Fixed something?" form, the one write from Django. The shared
     # database must stay untouched, so the save is replaced by a recorder and
     # the claimable set is stubbed; the gates, the re-derivation and the
