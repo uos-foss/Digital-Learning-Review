@@ -1931,6 +1931,27 @@ def save_audit_response(module_code: str, field_id: str, value: str, auditor_use
     save_audit_responses(module_code, {field_id: value}, auditor_username, timestamp)
 
 
+def get_users_sqlite():
+    """Every row of the `users` table as a dict (Username, Role, School,
+    Capabilities, Status), without the password hash. Read-only: the Django
+    importer uses it, and it never writes. An empty list if the table is absent."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'users'):
+            return []
+        rows = conn.execute(
+            "SELECT Username, Role, School, Capabilities, Status FROM users "
+            "ORDER BY UPPER(Username)").fetchall()
+    return [dict(r) for r in rows]
+
+def get_roles_sqlite():
+    """Every row of the `roles` table as a dict (Role, Capabilities), read-only.
+    An empty list if the table is absent."""
+    with get_db_connection() as conn:
+        if not table_exists(conn, 'roles'):
+            return []
+        rows = conn.execute("SELECT Role, Capabilities FROM roles ORDER BY Role").fetchall()
+    return [dict(r) for r in rows]
+
 def save_user_sqlite(username: str, password_hash: str, role: str, school: str, capabilities: str, status: str):
     """
     Saves or updates a user record in the SQLite database.

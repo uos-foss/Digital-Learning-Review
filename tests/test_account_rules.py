@@ -114,3 +114,38 @@ class TestMayView:
         """A code whose prefix belongs to no school in this faculty cannot be
         matched by any alignment."""
         assert rules.may_view_module("SCS101", False, ["EDC"]) is False
+
+
+# -- importing the Streamlit users table ---------------------------------
+
+def test_streamlit_school_cells():
+    """One code, a comma list, and 'All' (faculty-wide), whatever the case or
+    spacing. Unknown codes are reported and never kept."""
+    assert rules.parse_streamlit_schools("All") == (True, [], [])
+    assert rules.parse_streamlit_schools(" all ") == (True, [], [])
+    assert rules.parse_streamlit_schools("ECN,SPR") == (False, ["ECN", "SPR"], [])
+    assert rules.parse_streamlit_schools("ecn, spr ,ECN") == (False, ["ECN", "SPR"], [])
+    assert rules.parse_streamlit_schools("EDC") == (False, ["EDC"], [])
+    assert rules.parse_streamlit_schools("EDC;GPL") == (False, ["EDC", "GPL"], [])
+    assert rules.parse_streamlit_schools("EDC,XYZ") == (False, ["EDC"], ["XYZ"])
+    assert rules.parse_streamlit_schools("") == (False, [], [])
+    assert rules.parse_streamlit_schools(None) == (False, [], [])
+    # "All" beside a school is still faculty-wide.
+    assert rules.parse_streamlit_schools("EDC,All") == (True, [], [])
+
+
+def test_streamlit_capability_cells():
+    assert rules.parse_capabilities("view_all, View_School ,edit_checklist") == [
+        "view_all", "view_school", "edit_checklist"]
+    assert rules.parse_capabilities("view_all,view_all") == ["view_all"]
+    assert rules.parse_capabilities("") == []
+    assert rules.parse_capabilities(None) == []
+
+
+def test_which_streamlit_usernames_are_email_addresses():
+    assert rules.looks_like_email("A.Person@Sheffield.ac.uk")
+    assert not rules.looks_like_email("admin")
+    assert not rules.looks_like_email("someone@")
+    assert not rules.looks_like_email("@sheffield.ac.uk")
+    assert not rules.looks_like_email("two words@sheffield.ac.uk")
+    assert not rules.looks_like_email(None)

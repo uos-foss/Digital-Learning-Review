@@ -558,6 +558,62 @@ def main():
         twin.delete()
         pre.delete()
         newcomer.delete()
+    # 13b. Importing the Streamlit users table. The rows are supplied by a stub so
+    # the shared database is only read, and the accounts it makes are throwaway.
+    import io
+    from unittest import mock
+    from django.core.management import call_command
+
+    stub_roles = [{"Role": "SMOKEROLE", "Capabilities": "view_school, report_fixed, nonsense"}]
+    stub_users = [
+        {"Username": "Smoke.One@Sheffield.ac.uk", "Role": "smokerole", "School": "ecn, spr",
+         "Capabilities": "", "Status": "Active"},
+        {"Username": "smoke.two@sheffield.ac.uk", "Role": "SMOKEROLE", "School": "All",
+         "Capabilities": "", "Status": "Active"},
+        {"Username": "smoke.three@sheffield.ac.uk", "Role": "SMOKEROLE", "School": "EDC,XYZ",
+         "Capabilities": "view_all", "Status": "Disabled"},
+        {"Username": "legacyadmin", "Role": "SMOKEROLE", "School": "All",
+         "Capabilities": "", "Status": "Active"},
+    ]
+    smoke_emails = ["smoke.one@sheffield.ac.uk", "smoke.two@sheffield.ac.uk",
+                    "smoke.three@sheffield.ac.uk"]
+
+    def run_import(*flags):
+        buf = io.StringIO()
+        with mock.patch.object(database, "get_roles_sqlite", lambda: stub_roles),                 mock.patch.object(database, "get_users_sqlite", lambda: stub_users):
+            call_command("import_streamlit_users", *flags, stdout=buf)
+        return buf.getvalue()
+
+    try:
+        dry = run_import()
+        check("the user import changes nothing without --apply",
+              not User.objects.filter(email__in=smoke_emails).exists()
+              and not Group.objects.filter(name="SMOKEROLE").exists()
+              and "Nothing was written" in dry)
+        run_import("--apply")
+        one = User.objects.get(email="smoke.one@sheffield.ac.uk")
+        two = User.objects.get(email="smoke.two@sheffield.ac.uk")
+        check("the user import creates accounts with their group and schools, and no password",
+              one.username == "smoke.one@sheffield.ac.uk" and not one.has_usable_password()
+              and one.groups.filter(name="SMOKEROLE").exists()
+              and profile_for(one).school_list == ["ECN", "SPR"] and not profile_for(one).all_schools
+              and profile_for(two).all_schools
+              and one.has_perm("accounts.report_fixed") and not one.has_perm("accounts.view_all"))
+        check("the user import skips disabled and non-email usernames",
+              not User.objects.filter(email="smoke.three@sheffield.ac.uk").exists()
+              and not User.objects.filter(username__iexact="legacyadmin").exists())
+        before = (User.objects.count(), one.groups.count())
+        again = run_import("--apply")
+        p_one = profile_for(one)
+        p_one.set_schools(["MGT"])
+        p_one.save()
+        run_import("--apply")
+        check("the user import is repeatable and never overwrites someone's schools",
+              (User.objects.count(), User.objects.get(pk=one.pk).groups.count()) == before
+              and profile_for(User.objects.get(pk=one.pk)).school_list == ["MGT"])
+    finally:
+        User.objects.filter(email__in=smoke_emails).delete()
+        Group.objects.filter(name="SMOKEROLE").delete()
 
     # 14. The "Fixed something?" form, the one write from Django. The shared
     # database must stay untouched, so the save is replaced by a recorder and

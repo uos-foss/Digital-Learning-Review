@@ -85,6 +85,45 @@ def normalise_schools(codes):
     return out
 
 
+def parse_streamlit_schools(value):
+    """
+    The Streamlit `users.School` cell as (all_schools, codes, unknown).
+
+    The cell holds one code, a comma list ("ECN,SPR") or "All" for faculty-wide
+    access, in any case and spacing. Codes that are not a school of this faculty
+    come back in `unknown` so an import can report them: they are never kept,
+    for the reason normalise_schools() gives. "All" wins outright, as
+    Profile.all_schools does.
+    """
+    parts = [p.strip() for p in str(value or "").replace(";", ",").split(",")]
+    parts = [p for p in parts if p]
+    if any(p.lower() == "all" for p in parts):
+        return True, [], []
+    codes = normalise_schools(parts)
+    unknown = [p for p in parts if p.upper() not in processing.FACULTY_SCHOOLS]
+    return False, codes, unknown
+
+
+def parse_capabilities(value):
+    """A Streamlit capability cell ("view_all, edit_checklist") as lowercase
+    tokens, in order, without blanks or repeats."""
+    seen, out = set(), []
+    for token in str(value or "").replace(";", ",").split(","):
+        token = token.strip().lower()
+        if token and token not in seen:
+            seen.add(token)
+            out.append(token)
+    return out
+
+
+def looks_like_email(value):
+    """Whether a Streamlit username is an email address, which is what Google
+    accounts use. Anything else is a legacy local account."""
+    text = str(value or "").strip()
+    local, _, domain = text.partition("@")
+    return bool(local) and "." in domain and " " not in text
+
+
 def may_view_school(school, all_schools, assigned):
     """Whether someone aligned with `assigned` may see this school's data."""
     if all_schools:
