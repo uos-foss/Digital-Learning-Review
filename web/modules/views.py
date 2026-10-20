@@ -28,7 +28,8 @@ from django.http import Http404
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
-from accounts.models import has_basic_school_view, may_view_module, may_view_school, schools_of
+from accounts.models import (has_any_access, has_basic_school_view, may_view_module,
+                             may_view_school, schools_of)
 from auditdata.models import AuditField
 import report_model
 from modules import charts, data
@@ -130,6 +131,8 @@ def home(request):
     it, which is every module lead and any DLA aligned with a single school;
     anyone with several (or the whole faculty) chooses from the list.
     """
+    if not has_any_access(request.user):
+        return render(request, "accounts/no_access.html")
     schools = schools_of(request.user)
     if len(schools) == 1:
         return redirect("schools:dashboard", school=schools[0])

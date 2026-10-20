@@ -1,0 +1,14 @@
+{% comment %}
+What someone is told when they are signed in but have no role or school yet,
+which is every first-time sign-in until somebody sets them up. Included by the
+waiting page, the school list and the 403 page so they say the same thing.
+{% endcomment %}
+<p>
+  You are signed in as <strong>{{ request.user.email|default:request.user.username }}</strong>,
+  but your account has no role or school yet, so there is nothing to show you.
+</p>
+<p class="muted">
+  This is normal for a first sign-in. Access is set up by a person, and it
+  usually takes a day or so.
+  {% if access_contact %}Ask <strong>{{ access_contact }}</strong> to add you.{% else %}Ask your Digital Learning Advisor or an administrator to add you.{% endif %}
+</p>

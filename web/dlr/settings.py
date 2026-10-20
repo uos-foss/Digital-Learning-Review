@@ -259,6 +259,9 @@ LOGIN_URL = "account_login"
 # What the site is called, in the header, the footer, every tab title, the sign-in
 # page and the admin. Change it here and nowhere else.
 SITE_NAME = "FoSS Module Reports"
+# Who a signed-in person with no role or school yet is told to ask. Blank leaves
+# the line out. An address or a role name both work, it is shown as written.
+ACCESS_CONTACT = os.getenv("ACCESS_CONTACT", "")
 LOGIN_REDIRECT_URL = "home"
 ACCOUNT_LOGOUT_REDIRECT_URL = "account_login"
 ACCOUNT_LOGOUT_ON_GET = False            # logging out is a POST, so a link cannot do it

@@ -23,6 +23,7 @@ from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.shortcuts import render
 
 from accounts import rules
@@ -70,6 +71,19 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if not rules.is_allowed_domain(email, allowed_domain()):
             logger.warning("Refused Google sign-in for %s (not %s)", email, allowed_domain())
             raise ImmediateHttpResponse(self._refuse(request, email, "domain"))
+
+        # An admin (or the import_streamlit_users command) may already have made
+        # this person's account, with their role and schools. Connect the Google
+        # login to it instead of letting allauth try to create a second account
+        # with the same address, which would collide. Safe here: the address is
+        # a verified university one by this point.
+        if not sociallogin.is_existing and email:
+            matches = list(get_user_model().objects.filter(email__iexact=email)[:2])
+            if len(matches) > 1:
+                logger.warning("Refused Google sign-in for %s: several accounts share it", email)
+                raise ImmediateHttpResponse(self._refuse(request, email, "ambiguous"))
+            if matches:
+                sociallogin.connect(request, matches[0])
 
     def _refuse(self, request, email, reason):
         return render(request, "accounts/refused.html", {
