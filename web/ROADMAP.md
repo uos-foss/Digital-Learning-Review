@@ -20,7 +20,8 @@ towards retirement in the order that keeps DLAs productive.
 | Faculty Overview (nine views), School Dashboard SGA and AI tabs | Streamlit only |
 | Admin Panel (nine sections) and all importers | Streamlit only |
 | PDF and CSV exports, docs and FAQ pages, feedback form | Streamlit only |
-| Users and roles tables migrated into Django | Not started |
+| Users and roles tables migrated into Django | First slice done (import and first sign-in) |
+| Audit answers, claims and lead overrides carry an academic year | Not started: blocks the first rollover, and must land before Phase 3 |
 
 What already makes this tractable: `processing.py`, `database.py`, `loaders.py`,
 `report_model.py`, `security.py` and `sync_data.py` contain no Streamlit. All of
@@ -49,8 +50,20 @@ Small, cross-cutting, and done first because every later phase leans on it.
 - **Test coverage.** Add tests for the `database.py` writes that Django will
   start calling, and for permissions on the new views, before porting them.
 - **A freeze.** No new features in Streamlit from here, only bug fixes.
+- **Year-aware audit state.** Ally, Leganto, readiness, SGA and spot-checks
+  already carry an academic year. `audit_responses`, `audit_response_history`,
+  `fix_claims` and `module_lead_overrides` do not, so at rollover last year's
+  ticks would read as this year's audit: modules "audited" and "complete"
+  before anyone has looked. Add `academic_year` to them (an additive migration,
+  existing rows backfilled `2026-27`, the year in each key) and filter every
+  reader on `CURRENT_ACADEMIC_YEAR`, proving it a no-op for 2026-27 by
+  fingerprinting `load_audit_frames()` and `derive_module_findings()` for every
+  module before and after. It is the same work whichever front end runs it, and
+  it must land before the Django Audit Portal is written, so Phase 3 is built
+  year-aware and not retrofitted. See "Running a new academic year" below.
 
-Exit: the pattern and the cache decision are written into `CLAUDE.md`.
+Exit: the pattern and the cache decision are written into `CLAUDE.md`, and the
+audit tables are year-aware.
 
 ## Phase 1: unblock the fix-claim rollout
 
@@ -99,7 +112,8 @@ Exit: every current user can sign in to Django with the right role and schools.
 
 ## Phase 3: the DLA tool
 
-The biggest phase and the one that lets DLAs leave Streamlit.
+The biggest phase and the one that lets DLAs leave Streamlit. Depends on the
+year-aware audit tables from Phase 0.
 
 - **Audit form.** Booleans pre-filled by `readiness_prefill_for_module()`, text
   fields, Save Draft and Submit through `save_audit_responses` (one transaction,
@@ -167,6 +181,7 @@ Exit: every import and admin task runs from Django.
 - The docs and FAQ pages from `docs/`, with the role-based FAQ visibility and
   the FAQ heading parser, rendered by a Markdown library.
 - A rewrite of `docs/` for the Django interface. It describes Streamlit today.
+- `docs/year-rollover.md`, the annual runbook above, rehearsed once before it is trusted.
 
 ## Phase 7: cutover and retirement
 
@@ -184,6 +199,78 @@ Exit: every import and admin task runs from Django.
 
 Exit: nothing in the repo imports Streamlit.
 
+## Running a new academic year
+
+Nobody has done a rollover yet: the app has been a single-year tool for
+2026-27. The year is a constant (`processing.CURRENT_ACADEMIC_YEAR`), the SITS
+table's name carries it (`sits_assessment_2026_27`, about 25 references plus a
+contract with the AI-Audit app), and the audit state has no year at all. The
+next cycle starts around August to September 2027, so nothing here is urgent
+before about June 2027, but the data work is the same whichever front end
+carries it and Phase 3 should not be built without it.
+
+**Before the first rollover**, in this order:
+
+1. The year-aware audit tables (Phase 0, above).
+2. A fix claim belongs to one year, so the "checked" column from Phase 1 is
+   built with the year in its key and a new year starts with no claims.
+3. One source for the year: the SITS table name, the SITS `Year` filter
+   (`26/27` to `2026-27`) and the importer label are all derived from
+   `CURRENT_ACADEMIC_YEAR` instead of being written out in about 25 places.
+4. Agree the SITS table name with AI-Audit's owner. A stable name (a view or a
+   fixed table, with last year archived by rename) is a one-off change for
+   AI-Audit. A new name each year is an annual coordination cost.
+5. Year-scope `module_lead_overrides`, so last year's hand-set leads appear in
+   the SITS importer's lead-change table as candidates to carry over, not as
+   silent overrides on the new rows.
+6. Only if DLAs ask: a read-only `?year=` on the Django module report and
+   school dashboard, so last year's audit stays viewable. Ally, Leganto and the
+   other sources keep showing the current year only unless that is decided.
+7. A rollover check (a dry-run script in `diagnostics/` style) that prints the
+   pre-flight state and confirms every year-aware table is empty for the new
+   year. The year constant itself changes by a reviewed commit, never by a script.
+8. Tests for the year-to-label and table-name functions, and for the audit
+   readers ignoring rows from another year.
+
+**The annual runbook** is written as `docs/year-rollover.md`, in an order that
+does not depend on which front end is live:
+
+1. Freeze and snapshot (June to July): a final import of each source, a copy of
+   the shared database and of Django's accounts database tagged
+   `pre-rollover-YYYY` (the rollback for everything below), records of
+   spot-check outcomes and reported fixes, and every pending spot-check and
+   unchecked claim closed.
+2. Cut the year: one reviewed commit and deploy in a quiet week. The app opens
+   on the new year with every year-aware table empty, which is the first smoke
+   test.
+3. Load the new year's data in dependency order: SITS first (reviewing the
+   lead-change table with care), then Ally, readiness (the first export is the
+   untouched-template baseline, so re-read the drift alarms), Leganto and SGA.
+   Review `audit_fields` and `TEMPLATE_SECTIONS` against the new template.
+4. Accounts: re-run `import_streamlit_users` until Streamlit's user admin goes,
+   revoke leavers by hand (the import never removes access), and decide whether
+   `feature_schools` carries over.
+5. Open the audit year: a fresh DLA queue, spot-check flagging by DLA judgement,
+   and the module-report link announced to leads.
+6. Mid-year cadence: Ally and readiness re-imports on schedule, SITS when
+   registrations change, SGA and Leganto when exports arrive.
+7. Close-out in July: the year-end extract, then step 1 for the next year.
+
+| Step | Today | After Phase 3 | After Phase 5 | After Phase 7 |
+|---|---|---|---|---|
+| Backup and snapshot | host shell | same | same | same |
+| Cut the year | code commit | same | same | same |
+| Imports | Streamlit Admin Panel | Streamlit | Django | Django |
+| Users | `import_streamlit_users` | same, or Django admin | Django admin, Entra | Django admin |
+| Audit and spot-checks | Streamlit | Django | Django | Django |
+
+Do a dress rehearsal once, in spring 2027, not first in August: copy the live
+database, set `CURRENT_ACADEMIC_YEAR` to `2027-28` locally, run the whole
+runbook on the copy with a year-relabelled SITS export, and confirm that the
+empty state is clean, that no 2026-27 answers appear in 2027-28 views, that
+AI-Audit still reads SITS, and that restoring the pre-rollover copy works.
+Record the timings in `docs/year-rollover.md`.
+
 ## Risks
 
 - **Sibling apps.** AI-Audit is the only sibling inspected. Others may read the
@@ -194,6 +281,10 @@ Exit: nothing in the repo imports Streamlit.
 - **Cache staleness** across two workers, until Phase 0 settles it.
 - **Importer memory** in a container sized for read-heavy pages.
 - **Docs.** The rewrite is real work, and out-of-date help is worse than none.
+- **Stale answers across the year boundary.** Until the audit tables carry a
+  year, the first rollover would present 2026-27 ticks as 2027-28 audits.
+- **The SITS table name** is a contract with AI-Audit. Changing it unannounced
+  breaks that app.
 - **Coverage.** Importers, `database.py` writes, auth and the Django views have
   no tests today, only `web/smoke.py`.
 
@@ -205,3 +296,11 @@ Exit: nothing in the repo imports Streamlit.
 - Does Sheets write-back (comment bank and audit field definitions, through
   `data_manager.py`) survive, or does it end with Streamlit?
 - Where the "my schools" preference is stored.
+- The SITS table name: a stable name with an annual archive (recommended), or a
+  new name each year. Needs a word with AI-Audit's owner.
+- Should last year's audit answers stay readable after rollover (a year picker),
+  or is an export and archive enough?
+- Fix claims and `feature_schools`: start each year empty and re-roll out, or
+  carry the school rollout forward?
+- Is there a fixed date each year when the VLE template rolls over? It sets the
+  timing of steps 2 and 3 and when the first readiness export means anything.
