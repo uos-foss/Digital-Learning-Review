@@ -308,10 +308,9 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                     type_counts.columns = ['Assessment Type', 'Count']
 
             # Segmented view navigation control
-            # "📝 Assessment Types" and "🤖 AI in the Curriculum" are temporarily
-            # disabled - add them back to this list to restore. Their view code
-            # below is untouched.
-            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "🎯 Spot-Checks", "💬 Spot-Check Comments", "✅ Reported Fixes"]
+            # "📝 Assessment Types" is temporarily disabled - add it back to this
+            # list to restore. Its view code below is untouched.
+            view_options = ["📋 Modules Overview", "✅ Template Alignment", "📊 Ally Analytics", "📈 Trends", "🎯 Spot-Checks", "💬 Spot-Check Comments", "✅ Reported Fixes", "🤖 AI in the Curriculum"]
             # Reported Fixes is rolled out school by school (Admin Panel, Role
             # Capabilities), so it is hidden wherever it is not switched on.
             if not feature_enabled_for(FIX_CLAIM_FEATURE, school):
