@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load report_extras %}
-{% block title %}{{ school|school_name }}: {% if view == "alignment" %}Template Alignment{% elif view == "comments" %}Spot-Check Comments{% elif view == "ally" %}Ally Analytics{% elif view == "trends" %}Trends{% elif view == "fixes" %}Reported Fixes{% else %}Modules{% endif %} - {{ site_name }}{% endblock %}
+{% block title %}{{ school|school_name }}: {% if view == "alignment" %}Template Alignment{% elif view == "comments" %}Spot-Check Comments{% elif view == "ally" %}Ally Analytics{% elif view == "trends" %}Trends{% elif view == "ai" %}AI in the Curriculum{% elif view == "fixes" %}Reported Fixes{% else %}Modules{% endif %} - {{ site_name }}{% endblock %}
 {% block head %}{% if view == "trends" and trend_figures %}<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.0.1/plotly.min.js"></script>{% endif %}{% endblock %}
 
 {% block content %}
@@ -37,6 +37,7 @@
   {% if ally_on %}{% if view == "ally" %}<strong aria-current="page">Ally Analytics</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ally">Ally Analytics</a>{% endif %}{% endif %}
   {% if ally_on %}{% if view == "trends" %}<strong aria-current="page">Trends</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=trends">Trends</a>{% endif %}{% endif %}
   {% if fixes_on %}{% if view == "fixes" %}<strong aria-current="page">Reported Fixes</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=fixes">Reported Fixes</a>{% endif %}{% endif %}
+  {% if view == "ai" %}<strong aria-current="page">AI in the Curriculum</strong>{% else %}<a href="?semester={{ semester|urlencode }}&view=ai">AI in the Curriculum</a>{% endif %}
 </nav>{% endif %}
 
 <section class="panel">
@@ -159,6 +160,42 @@
       {% endfor %}
     {% endif %}
   {% endif %}
+{% elif view == "ai" %}
+  {% with a=ai %}
+  <p class="muted" style="margin-top:0;">Declarations made by module leads themselves, in the separate AI in the Curriculum Audit app. This page only reads them.</p>
+  <table class="kv" style="margin-bottom:1rem;">
+    <tr><th scope="row" style="width:16rem;">Modules declared</th><td>{{ a.declared }} / {{ a.in_scope }}</td></tr>
+    <tr><th scope="row">Coverage</th><td>{{ a.pct|floatformat:1 }}%</td></tr>
+    <tr><th scope="row">Assessments covered</th><td>{{ a.assessments }}</td></tr>
+  </table>
+  <h2 style="font-size:1.05rem;">Awaiting declaration</h2>
+  {% if not a.awaiting %}
+    <p class="ok">Every module in this school has a declaration.</p>
+  {% else %}
+    <p class="note">{{ a.awaiting|length }} module{{ a.awaiting|length|pluralize }} {{ a.awaiting|length|pluralize:"has,have" }} no AI declaration.</p>
+    <div class="scroll">
+      <table class="grid" data-sortable>
+        <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th></tr>
+        {% for r in a.awaiting %}
+          <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% endif %}
+  <h2 style="font-size:1.05rem;">Declared</h2>
+  {% if not a.rows %}
+    <p class="muted">No declarations for this school yet.</p>
+  {% else %}
+    <div class="scroll">
+      <table class="grid" data-sortable>
+        <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Assessments declared</th><th scope="col">AI could do most/all</th></tr>
+        {% for r in a.rows %}
+          <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td>{{ r.assessments }}</td><td>{{ r.could_do }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% endif %}
+  {% endwith %}
 {% elif view == "fixes" %}
   <p class="muted" style="margin-top:0;">Template sections a module lead has reported as fixed after an advisor recorded them as not complete. Reporting a fix changes nothing in the audit; it is checked once an advisor saves that section's answer again.</p>
   {% if not fixes.rows %}

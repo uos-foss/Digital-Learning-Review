@@ -253,6 +253,18 @@ def load_school_comments(school: str) -> dict:
         _school_names(school), database.get_active_audit_fields())
 
 
+def load_school_ai(school: str, semester: str) -> dict:
+    """AI in the Curriculum for one school and semester (see report_model).
+    The declarations belong to the satellite AI-Audit app and are read fresh;
+    this never writes them."""
+    known = set()
+    for frame in _frames():
+        if frame is not None and not frame.empty:
+            known |= set(frame["New module code"].dropna().astype(str).str.strip().str.upper())
+    return report_model.build_ai_curriculum(
+        database.get_ai_declarations(), _school_frame(school, semester), known)
+
+
 def fixes_enabled(school: str) -> bool:
     """Reported Fixes is rolled out school by school (feature_schools)."""
     return database.feature_enabled_for(processing.FIX_CLAIM_FEATURE, school)
