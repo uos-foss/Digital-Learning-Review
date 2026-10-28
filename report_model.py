@@ -33,6 +33,7 @@ from processing import (
     lens_no_sgas,
     lens_template_alignment,
     short_field_label,
+    summarise_ai_declarations,
     derive_module_findings,
     format_comment_markdown,
     mean_score,
@@ -1043,6 +1044,38 @@ def build_reported_fixes(fixes, names, active_fields):
         })
     checked = sum(r['checked'] for r in rows)
     return {'rows': rows, 'awaiting': len(rows) - checked, 'checked': checked}
+
+
+def build_ai_curriculum(declarations, school_df, known_codes):
+    """
+    The School Dashboard's AI in the Curriculum view as plain data.
+
+    `declarations` is database.get_ai_declarations() and `school_df` the school's
+    module records for the semester. `known_codes` is every module SITS lists,
+    so summarise_ai_declarations() can tell another semester's module from a
+    code SITS has never heard of. `awaiting` is the modules with no declaration;
+    `declared` the ones with one, each with its assessment count.
+    """
+    codes = school_df['New module code'].astype(str).str.strip().str.upper()
+    summary = summarise_ai_declarations(declarations, set(codes.dropna()), known_codes)
+    per_module = summary['per_module']
+    declared_codes = set(per_module['module_code'])
+    in_scope, declared = summary['in_scope'], summary['declared']
+
+    names = dict(zip(codes, school_df['Module name']))
+    awaiting = [{'code': c, 'name': _text(n), 'lead': _text(l)}
+                for c, n, l in zip(codes, school_df['Module name'], school_df['Mod. lead'])
+                if c not in declared_codes]
+    rows = [{'code': r['module_code'], 'name': _text(names.get(r['module_code'], '')),
+             'assessments': int(r['Assessments Declared']),
+             'could_do': int(r['AI Could Do Most/All'])}
+            for r in per_module.to_dict('records')]
+    return {
+        'declared': declared, 'in_scope': in_scope,
+        'pct': (declared / in_scope * 100) if in_scope else 0.0,
+        'assessments': sum(r['assessments'] for r in rows),
+        'awaiting': awaiting, 'rows': rows,
+    }
 
 
 SURFACE_LABELS = {

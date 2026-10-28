@@ -307,6 +307,14 @@ reach the School Dashboard. Shaped by `report_model.build_ally_analytics()`;
 there from `views/ally_widgets.py`, which now reads them, so the two front ends
 share one copy. The issue chart is a table with plain bars, not Altair.
 
+**AI in the Curriculum was added 28-10-2026** as `?view=ai` (the School Dashboard
+tab came back on in Streamlit the same day): modules declared, coverage, the
+modules awaiting a declaration and the declared ones with their assessment
+counts. Read-only, from `database.get_ai_declarations()` through
+`report_model.build_ai_curriculum()`, and shown to whoever gets more than the
+basic page, as in Streamlit. No rollout gate. Streamlit's tab still shapes its
+own tables inline; Faculty Overview's version is not ported.
+
 **Trends was added 14-10-2026** as `?view=trends`, open to the same accounts
 as Ally Analytics, with two Plotly line charts (score, files uploaded) and the
 figures behind them. **The rule changed on both front ends the same day:**

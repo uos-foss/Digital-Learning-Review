@@ -270,9 +270,10 @@ def main():
     # the tab bar, so Trends showed the alignment filter and lost a tab.
     panel_marker = {"modules": "Reading list", "alignment": "Filter modules",
                     "comments": "What advisors wrote", "ally": "What to fix",
-                    "trends": "figures behind the charts"}
+                    "trends": "figures behind the charts",
+                    "ai": "Declarations made by module leads"}
     tab_names = ["Modules", "Template Alignment", "Spot-Check Comments",
-                 "Ally Analytics", "Trends"]
+                 "Ally Analytics", "Trends", "AI in the Curriculum"]
     if data.fixes_enabled(school):
         panel_marker["fixes"] = "Template sections a module lead"
         tab_names.append("Reported Fixes")

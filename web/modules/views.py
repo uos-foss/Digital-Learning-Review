@@ -121,7 +121,7 @@ def report_fix(request, code):
     return redirect("modules:report", code=report["code"])
 
 
-SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes", "ally", "trends")
+SCHOOL_VIEWS = ("modules", "alignment", "comments", "fixes", "ally", "trends", "ai")
 
 
 @login_required
@@ -223,6 +223,8 @@ def school_dashboard(request, school):
     elif view == "ally":
         context["ally"] = data.load_school_ally(
             school, semester, request.GET.getlist("sev"), request.GET.getlist("issue"))
+    elif view == "ai":
+        context["ai"] = data.load_school_ai(school, semester)
     elif view == "fixes":
         fixes = data.load_school_fixes(school)
         show = request.GET.get("show", "all")
