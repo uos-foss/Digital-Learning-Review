@@ -101,6 +101,23 @@ holds each session's frames in memory (hence `mem_limit: 1g`), so cost scales
 with concurrent users, and a module held in session state has no URL to send a
 module lead. `/modules/ALA102/` does.
 
+**Django is also meant to become the platform for the other Fossdigital Python
+tools** (decided 28-10-2026; direction only, nothing built). The Django project
+is the shared home for sign-in, roles and school alignment (`web/accounts/`),
+with one app per tool and one database file per app. In scope: AI Audit (rolls
+into the DLR port as a form app; respondents are **not signed in** and give an
+email address), GPL assessment criteria (the `gpldash.shef.ac.uk` alias, ported
+after Streamlit is retired; GPL staff edit and students view, and the aim is
+variants for any school that wants it) and the DEdCPsy mapping editor (selected
+EDC staff only). GPL's docx generation and emailed access requests are kept. Deliberately out: `Fossdigital-Landing`
+(the front door, must stay up independently) and `py-quiz` (student timed
+assessments must not share deploys or outages with staff tooling). The platform
+gets a neutral name, "FoSS Digital Tools" (or similar), so "FoSS Module Reports"
+and `/module-reports` are expected to become one app under it; the final name and
+path are still to be chosen (see `web/ROADMAP.md`, Phase 0). `web/dlr/routers.py` only knows the shared
+`auditdata` database today, so each new app with its own database needs its own
+router entry first.
+
 The boundary, all of it already true in the spike:
 
 - **Django never owns the shared schema.** `web/dlr/routers.py` sends the
