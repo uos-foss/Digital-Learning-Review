@@ -49,8 +49,15 @@ Small, cross-cutting, and done first because every later phase leans on it.
 - **Test coverage.** Add tests for the `database.py` writes that Django will
   start calling, and for permissions on the new views, before porting them.
 - **A freeze.** No new features in Streamlit from here, only bug fixes.
+- **Platform name and layout** (added 28-10-2026). Django is also to host the
+  other Fossdigital Python tools (see "Beyond DLR" below), so "FoSS Module
+  Reports" and `/module-reports` are too narrow. Choose a neutral platform name
+  (`SITE_NAME`; "FoSS Digital Tools" or similar is the user's preference) and URL layout, with module reports as one app under it, and a
+  signed-in home listing the apps an account may use. Also make
+  `web/dlr/routers.py` handle more than the one shared database, so each app can
+  keep its own file.
 
-Exit: the pattern and the cache decision are written into `CLAUDE.md`.
+Exit: the pattern, the cache decision and the platform name are written into `CLAUDE.md`.
 
 ## Phase 1: unblock the fix-claim rollout
 
@@ -85,6 +92,12 @@ Both front ends read the rule from `report_model.claimable_fixes()` and
 - **Match modules to people at scale.** The lead ownership question: names in
   SITS to accounts, with a human confirming the uncertain matches. This unlocks
   "own modules first" ordering for module leads and any later ownership gating.
+- **Which apps an account may use**, not only which schools: Groups must also
+  express app access, since GPL criteria and the AI Audit form arrive later
+  (see "Beyond DLR"). The audiences differ: GPL is edited by GPL staff and viewed
+  by students, and the DEdCPsy editor is for selected EDC staff only, so these are
+  separate groups from the DLA roles, not a reuse of them. Check whether GPL's
+  allowed-staff list holds people who are not in the DLR `users` table.
 - **Entra ID** alongside, when IT allows. Drop the Active Directory and Env
   providers, which do nothing or nothing real.
 - Keep the break-glass local superuser.
@@ -117,6 +130,20 @@ The biggest phase and the one that lets DLAs leave Streamlit.
 
 Exit: a DLA can run a full audit and spot-check cycle in Django, and the
 Streamlit Audit Portal is read-only or redirects.
+
+## Phase 3b: AI Audit as a form app
+
+Added 28-10-2026. The satellite AI-Audit survey rolls into Django as a form app.
+**Respondents are not signed in**; the form captures an email address instead, so
+this is a public view that must sit outside the login requirement the rest of the
+platform has, with CSRF on, rate limiting, and a decision on whether the address
+is verified (a typed address proves nothing about who submitted). It writes `assessment_responses` through
+`database.py` as the satellite does today (the table is shared, so the schema
+stays unmanaged by Django), with the question wording from
+`../AI-Audit/questions.py` and the rollups from `processing.py`. Retires the
+AI-Audit container. Check first that nothing else relies on its URL.
+
+Exit: a respondent can submit a declaration in Django without signing in and Faculty Overview reads it unchanged.
 
 ## Phase 4: Faculty Overview and the rest of the School Dashboard
 
@@ -184,6 +211,36 @@ Exit: every import and admin task runs from Django.
 
 Exit: nothing in the repo imports Streamlit.
 
+## Beyond DLR: other Fossdigital tools
+
+Added 28-10-2026. Django becomes the platform for the Fossdigital tools that are
+staff-facing Python apps with a database. One Django project, one app per tool,
+one database file per app, shared `accounts`.
+
+- **GPL assessment criteria** (`gpldash.shef.ac.uk`, an alias of fossdigital): a
+  Streamlit app of about 2,600 lines with its own SQLite, Google sign-in, docx
+  generation and emailed access requests. GPL staff edit and students view. The
+  aim is **variants for any school that wants it**, so design it with a school as
+  the unit of configuration (criteria library, branding, who edits) rather than
+  GPL hard-wired. Port as a `criteria` app **after Phase 7**, so two Streamlit
+  ports never run at once. Serve the gpldash host as an alias to its path. The
+  docx generation (`docxtpl`, `python-docx`) and the SMTP access-request flow are
+  both kept, so they join the Django image: measure the image and memory, and
+  confirm outbound mail is available from the Django container.
+- **Students viewing GPL criteria** is the one student-facing piece on the
+  platform. Decide whether it needs sign-in or is public, and whether it should
+  run as its own compose service so staff-tool deploys cannot take it down.
+- **DEdCPsy mapping editor**: for selected EDC staff only, so a dedicated group.
+  Still lower priority than GPL. The public mapping page is static and stays as
+  it is; only the small editor app is ported.
+- **Not in scope, on purpose.** `Fossdigital-Landing` stays an independent Astro
+  site, the front door that must stay up. `py-quiz` stays a separate Node
+  service: timed student assessments must not share deploys, memory or outages
+  with staff tooling. At most it could use Django sign-in for its admin area
+  later.
+- Deploy as separate compose services from one image if blast radius becomes a
+  worry, so a fault in one app does not take down the rest.
+
 ## Risks
 
 - **Sibling apps.** AI-Audit is the only sibling inspected. Others may read the
@@ -201,7 +258,10 @@ Exit: nothing in the repo imports Streamlit.
 
 - Is Django authoritative for roles from Phase 2, or only after cutover?
 - Does the generic CSV hub survive?
-- The final URL path.
+- The final URL path, and the neutral platform name (see Phase 0).
+- Whether the GPL port reuses the DLR school alignment for its per-school variants or needs its own model.
+- Whether students can view GPL criteria without signing in.
+- Whether AI Audit email addresses are verified.
 - Does Sheets write-back (comment bank and audit field definitions, through
   `data_manager.py`) survive, or does it end with Streamlit?
 - Where the "my schools" preference is stored.
