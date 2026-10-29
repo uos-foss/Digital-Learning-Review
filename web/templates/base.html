@@ -30,6 +30,8 @@
     --ok-bg: #ecfdf5; --ok-line: #059669;
     --shadow: 0 1px 2px rgba(15,23,42,.06); --tree: #94a3b8;
     --glow-a: rgba(79,70,229,.06); --glow-b: rgba(124,58,237,.06);
+    /* Type scale: headings, then UI text (notes, captions, filter text), then small (tables, chips). */
+    --fs-head: 1.05rem; --fs-ui: .9rem; --fs-sm: .85rem;
   }
   :root.dark {
     color-scheme: dark;
@@ -108,11 +110,12 @@
   @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
   .panel { background: var(--panel); border: 1px solid var(--card-line);
            border-radius: 1rem; padding: 1.1rem; box-shadow: var(--shadow); }
-  .panel h2 { margin-top: 0; font-size: 1.05rem; }
+  .panel h2 { margin-top: 0; font-size: var(--fs-head); }
   .actions { background: var(--amber); border: 1px solid var(--amber-line); }
   .actions ul { padding-left: 1.1rem; margin: 0; }
   .actions li { margin-bottom: .6rem; }
-  .muted { color: var(--muted); font-size: .9rem; }
+  .muted { color: var(--muted); font-size: var(--fs-ui); }
+  .note, .ok { font-size: var(--fs-ui); }
   .note { background: var(--amber); border-left: 3px solid var(--amber-line);
           padding: .5rem .75rem; border-radius: 0 .5rem .5rem 0; }
   .ok { background: var(--ok-bg); border-left: 3px solid var(--ok-line);
@@ -139,9 +142,10 @@
   .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
          margin-right: .4rem; vertical-align: baseline; }
   .ico { display: inline-flex; vertical-align: middle; margin-right: .45rem; opacity: .8; }
-  table.grid { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  table.grid { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
   table.grid th, table.grid td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  table.grid th { color: var(--muted); font-weight: 500; white-space: nowrap; position: sticky; top: 0; background: var(--panel); }
+  table.grid th { color: var(--ink); font-weight: 600; white-space: nowrap; position: sticky; top: 0; background: var(--panel);
+        padding-top: .5rem; padding-bottom: .5rem; border-bottom: 2px solid var(--accent-line); }
   table.grid td.nw { white-space: nowrap; }
   table.grid td.wide { min-width: 13rem; }
   form.auto .apply { display: none; }
@@ -151,7 +155,7 @@
   table.grid th button.sort::after { content: "\2195"; margin-left: .3rem; opacity: .35; }
   table.grid th[aria-sort="ascending"] button.sort::after { content: "\2191"; opacity: 1; }
   table.grid th[aria-sort="descending"] button.sort::after { content: "\2193"; opacity: 1; }
-  table.grid th[aria-sort] { color: var(--ink); }
+  table.grid th[aria-sort] { color: var(--link); }
   details.fold { margin: .75rem 0; }
   details.fold > summary { cursor: pointer; color: var(--muted); }
   .scroll { overflow-x: auto; }
@@ -173,19 +177,32 @@
   .tabs-links + .panel { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 
   /* Filter chips: a ticked one fills solid indigo, so what is applied shows at a glance. */
-  .filterbar { border: 1px solid var(--line); border-radius: .75rem; padding: .75rem 1rem; margin: 0 0 1rem; }
-  .filterbar h3 { margin: 0 0 .15rem; font-size: .95rem; }
-  .filterbar .sub { margin: .75rem 0 0; padding-top: .6rem; border-top: 1px dashed var(--line); }
+  .filterbar { border: 1px solid var(--line); border-radius: .75rem; padding: 1rem 1.25rem; margin: 0 0 1.5rem; }
+  .filterbar.tight { margin-bottom: .75rem; }
+  .filterbar > div.muted { margin: .25rem 0 .1rem; }
+  .filterbar .chips { margin-top: .65rem; gap: .5rem; }
+  .filterbar .apply { margin: 1rem 0 0; }
+  /* Apply is only for keyboard users, so it is a quiet outlined button rather than the page's primary one. */
+  .filterbar button[type=submit] { font-size: var(--fs-sm); padding: .3rem .8rem; border-radius: .6rem;
+        background: transparent; color: var(--accent); border-color: var(--accent-line); }
+  .filterbar button[type=submit]:hover { background: var(--accent-soft); }
+  .filterbar h2, .filterbar h3, summary.block { margin: 0 0 .15rem; font-size: var(--fs-head); font-weight: 600;
+    font-family: Outfit, Inter, system-ui, sans-serif; letter-spacing: -.01em; }
+  summary.block { cursor: pointer; margin: 0; }
+  .filterbar .sub { margin: 1rem 0 0; padding-top: .9rem; border-top: 1px dashed var(--line); }
   .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 0; }
   .chip { position: relative; display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .65rem; cursor: pointer;
           border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
-          color: var(--ink); font-size: .82rem; font-weight: 500; user-select: none; transition: border-color .2s; }
+          color: var(--ink); font-size: var(--fs-sm); font-weight: 500; user-select: none; transition: border-color .2s; }
   .chip:hover { border-color: var(--muted); }
   a.chip { text-decoration: none; }
   .chip input { position: absolute; opacity: 0; pointer-events: none; }
   .chip:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
   .chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   td.comment details { max-width: 26rem; }
+  /* One line in a closed row, so a comment never makes its row taller than the rest. */
+  td.comment summary { white-space: nowrap; }
+  td.comment summary .preview { display: inline-block; max-width: 20rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
   td.comment summary { cursor: pointer; color: var(--muted); }
   td.comment summary .less { display: none; }
   td.comment details[open] summary .preview { display: none; }
