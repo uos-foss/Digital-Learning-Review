@@ -636,8 +636,18 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                                     "Matching Items",
                                     help="Content items matching the severity/issue filters "
                                          "above.")
+                            # Ally scores are 0-1 fractions and the "%.1f%%" format
+                            # does not scale them, so 0.949 would read "0.9%".
+                            # Scale to 0-100 here and leave the cells numeric so
+                            # the header sort still works (see
+                            # build_accessibility_risk_list()).
+                            table_show = table[show].reset_index(drop=True)
+                            for score_col in ('Ally Overall', 'Ally Files', 'Ally WYSIWYG'):
+                                if score_col in table_show.columns:
+                                    table_show[score_col] = pd.to_numeric(
+                                        table_show[score_col], errors='coerce') * 100
                             st.dataframe(
-                                table[show].reset_index(drop=True),
+                                table_show,
                                 column_config=configs,
                                 width="stretch", hide_index=True)
 
