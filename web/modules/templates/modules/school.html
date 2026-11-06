@@ -188,9 +188,9 @@
   {% else %}
     <div class="scroll">
       <table class="grid" data-sortable>
-        <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Assessments declared</th><th scope="col">AI could do most/all</th></tr>
+        <tr><th scope="col">Code</th><th scope="col">Module</th><th scope="col">Lead</th><th scope="col">Assessments declared</th><th scope="col">AI could do most/all</th></tr>
         {% for r in a.rows %}
-          <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td>{{ r.assessments }}</td><td>{{ r.could_do }}</td></tr>
+          <tr><td><a href="{% url 'modules:report' r.code %}">{{ r.code }}</a></td><td class="wide">{{ r.name }}</td><td class="nw">{{ r.lead }}</td><td>{{ r.assessments }}</td><td>{{ r.could_do }}</td></tr>
         {% endfor %}
       </table>
     </div>

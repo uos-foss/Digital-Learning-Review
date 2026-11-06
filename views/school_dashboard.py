@@ -954,10 +954,14 @@ def view_school_dashboard(df_aut, df_spr, checklist_sums, df_assess=None, data_f
                             school_df['New module code'].astype(str).str.strip().str.upper()
                         )['Module name'].to_dict()
                         shown = per_module.copy()
+                        leads = school_df.set_index(
+                            school_df['New module code'].astype(str).str.strip().str.upper()
+                        )['Mod. lead'].to_dict()
                         shown['Module Name'] = shown['module_code'].map(names)
+                        shown['Lead'] = shown['module_code'].map(leads)
                         st.dataframe(
                             shown.rename(columns={'module_code': 'Code'})[
-                                ['Code', 'Module Name', 'Assessments Declared', 'AI Could Do Most/All']
+                                ['Code', 'Module Name', 'Lead', 'Assessments Declared', 'AI Could Do Most/All']
                             ],
                             hide_index=True,
                             width="stretch",
