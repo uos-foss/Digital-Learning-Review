@@ -1063,10 +1063,12 @@ def build_ai_curriculum(declarations, school_df, known_codes):
     in_scope, declared = summary['in_scope'], summary['declared']
 
     names = dict(zip(codes, school_df['Module name']))
+    leads = dict(zip(codes, school_df['Mod. lead']))
     awaiting = [{'code': c, 'name': _text(n), 'lead': _text(l)}
                 for c, n, l in zip(codes, school_df['Module name'], school_df['Mod. lead'])
                 if c not in declared_codes]
     rows = [{'code': r['module_code'], 'name': _text(names.get(r['module_code'], '')),
+             'lead': _text(leads.get(r['module_code'], '')),
              'assessments': int(r['Assessments Declared']),
              'could_do': int(r['AI Could Do Most/All'])}
             for r in per_module.to_dict('records')]
